@@ -1,4 +1,4 @@
-package com.omnia.backend.service;
+package com.omnia.backend.service.interfaces;
 
 import com.omnia.backend.entity.Role;
 import com.omnia.backend.repository.RoleRepository;

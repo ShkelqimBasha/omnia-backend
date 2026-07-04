@@ -1,7 +1,7 @@
 package com.omnia.backend.controller;
 
 import com.omnia.backend.entity.Role;
-import com.omnia.backend.service.RoleService;
+import com.omnia.backend.service.interfaces.RoleService;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;

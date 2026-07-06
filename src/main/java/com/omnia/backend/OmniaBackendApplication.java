@@ -6,7 +6,7 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 
 @SpringBootApplication
 @EnableMethodSecurity
-public class OmniaBackendApplication {
+public class 	OmniaBackendApplication {
 
 	public static void main(String[] args) {
 		SpringApplication.run(OmniaBackendApplication.class, args);

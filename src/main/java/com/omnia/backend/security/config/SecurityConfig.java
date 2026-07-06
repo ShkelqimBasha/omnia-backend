@@ -57,7 +57,7 @@ public class SecurityConfig {
                         UsernamePasswordAuthenticationFilter.class
                 )
 
-                .httpBasic(Customizer.withDefaults())
+                .httpBasic(httpBasic -> httpBasic.disable())
 
                 .formLogin(form -> form.disable());
 

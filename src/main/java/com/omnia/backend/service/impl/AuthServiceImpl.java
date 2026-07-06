@@ -14,6 +14,9 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import com.omnia.backend.common.exception.ResourceAlreadyExistsException;
+import com.omnia.backend.common.exception.InvalidCredentialsException;
+
 
 @Service
 public class AuthServiceImpl implements AuthService {
@@ -39,11 +42,11 @@ public class AuthServiceImpl implements AuthService {
     public AuthResponse register(RegisterRequest request) {
 
         if (userRepository.existsByEmail(request.getEmail())) {
-            throw new RuntimeException("Email is already in use");
+            throw new ResourceAlreadyExistsException("Email is already in use");
         }
 
         if (userRepository.existsByUsername(request.getUsername())) {
-            throw new RuntimeException("Username is already in use");
+            throw new ResourceAlreadyExistsException("Username is already in use");
         }
 
         Role userRole = roleRepository.findByName("USER")
@@ -74,10 +77,10 @@ public class AuthServiceImpl implements AuthService {
 
         User user = userRepository.findByEmail(request.getUsernameOrEmail())
                 .or(() -> userRepository.findByUsername(request.getUsernameOrEmail()))
-                .orElseThrow(() -> new RuntimeException("Invalid credentials"));
+                .orElseThrow(() -> new InvalidCredentialsException("Invalid credentials"));
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
-            throw new RuntimeException("Invalid credentials");
+            throw new InvalidCredentialsException("Invalid credentials");
         }
 
         String token = jwtService.generateToken(user.getEmail());

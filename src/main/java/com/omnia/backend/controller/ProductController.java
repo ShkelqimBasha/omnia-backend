@@ -2,6 +2,7 @@ package com.omnia.backend.controller;
 
 import com.omnia.backend.dto.request.ProductRequest;
 import com.omnia.backend.dto.response.ProductResponse;
+import com.omnia.backend.enums.ProductStatus;
 import com.omnia.backend.service.interfaces.ProductService;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
@@ -9,6 +10,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+
+import java.math.BigDecimal;
 
 @RestController
 @RequestMapping("/api/products")
@@ -43,10 +46,26 @@ public class ProductController {
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(defaultValue = "id") String sortBy,
             @RequestParam(defaultValue = "asc") String sortDir,
-            @RequestParam(required = false) String keyword
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) Long categoryId,
+            @RequestParam(required = false) String brand,
+            @RequestParam(required = false) ProductStatus status,
+            @RequestParam(required = false) BigDecimal minPrice,
+            @RequestParam(required = false) BigDecimal maxPrice
     ) {
         return ResponseEntity.ok(
-                productService.getAllProducts(page, size, sortBy, sortDir, keyword)
+                productService.getAllProducts(
+                        page,
+                        size,
+                        sortBy,
+                        sortDir,
+                        keyword,
+                        categoryId,
+                        brand,
+                        status,
+                        minPrice,
+                        maxPrice
+                )
         );
     }
 

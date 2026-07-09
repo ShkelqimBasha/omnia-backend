@@ -18,6 +18,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+
 @Service
 public class ProductServiceImpl implements ProductService {
 
@@ -75,7 +77,12 @@ public class ProductServiceImpl implements ProductService {
             int size,
             String sortBy,
             String sortDir,
-            String keyword
+            String keyword,
+            Long categoryId,
+            String brand,
+            ProductStatus status,
+            BigDecimal minPrice,
+            BigDecimal maxPrice
     ) {
 
         Sort sort = sortDir.equalsIgnoreCase("desc")
@@ -85,7 +92,17 @@ public class ProductServiceImpl implements ProductService {
         Pageable pageable = PageRequest.of(page, size, sort);
 
         return productRepository
-                .findAll(ProductSpecification.containsKeyword(keyword), pageable)
+                .findAll(
+                        ProductSpecification.filterProducts(
+                                keyword,
+                                categoryId,
+                                brand,
+                                status,
+                                minPrice,
+                                maxPrice
+                        ),
+                        pageable
+                )
                 .map(productMapper::toResponse);
     }
 

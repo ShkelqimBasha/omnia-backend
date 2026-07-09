@@ -2,8 +2,7 @@ package com.omnia.backend.service.interfaces;
 
 import com.omnia.backend.dto.request.ProductRequest;
 import com.omnia.backend.dto.response.ProductResponse;
-
-import java.util.List;
+import org.springframework.data.domain.Page;
 
 public interface ProductService {
 
@@ -11,7 +10,13 @@ public interface ProductService {
 
     ProductResponse getProductById(Long id);
 
-    List<ProductResponse> getAllProducts();
+    Page<ProductResponse> getAllProducts(
+            int page,
+            int size,
+            String sortBy,
+            String sortDir,
+            String keyword
+    );
 
     ProductResponse updateProduct(Long id, ProductRequest request);
 

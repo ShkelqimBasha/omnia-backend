@@ -1,6 +1,8 @@
 package com.omnia.backend.service.impl;
 
-import com.omnia.backend.common.exception.ResourceNotFoundException;
+import com.omnia.backend.common.exception.InvalidRefreshTokenException;
+import com.omnia.backend.common.exception.RefreshTokenExpiredException;
+import com.omnia.backend.common.exception.RefreshTokenRevokedException;
 import com.omnia.backend.entity.RefreshToken;
 import com.omnia.backend.entity.User;
 import com.omnia.backend.repository.RefreshTokenRepository;
@@ -12,6 +14,7 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Service
+@Transactional
 public class RefreshTokenServiceImpl implements RefreshTokenService {
 
     private static final long REFRESH_TOKEN_DAYS = 30;
@@ -25,13 +28,23 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
     }
 
     @Override
-    @Transactional
     public RefreshToken createRefreshToken(User user) {
+
+        if (user == null || user.getId() == null) {
+            throw new IllegalArgumentException(
+                    "User must not be null and must have a valid ID"
+            );
+        }
+
+        refreshTokenRepository
+                .revokeAllActiveTokensByUserId(user.getId());
+
+        LocalDateTime now = LocalDateTime.now();
 
         RefreshToken refreshToken = RefreshToken.builder()
                 .user(user)
                 .token(UUID.randomUUID().toString())
-                .expiresAt(LocalDateTime.now().plusDays(REFRESH_TOKEN_DAYS))
+                .expiresAt(now.plusDays(REFRESH_TOKEN_DAYS))
                 .revoked(false)
                 .build();
 
@@ -42,40 +55,77 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
     @Transactional(readOnly = true)
     public RefreshToken verifyRefreshToken(String token) {
 
-        RefreshToken refreshToken = refreshTokenRepository.findByToken(token)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Refresh token not found"));
+        validateTokenValue(token);
+
+        RefreshToken refreshToken =
+                refreshTokenRepository.findByToken(token)
+                        .orElseThrow(() ->
+                                new InvalidRefreshTokenException(
+                                        "Invalid refresh token"
+                                )
+                        );
 
         if (Boolean.TRUE.equals(refreshToken.getRevoked())) {
-            throw new RuntimeException("Refresh token has been revoked");
+            throw new RefreshTokenRevokedException(
+                    "Refresh token has been revoked"
+            );
         }
 
-        if (refreshToken.getExpiresAt().isBefore(LocalDateTime.now())) {
-            throw new RuntimeException("Refresh token has expired");
+        if (!refreshToken.getExpiresAt()
+                .isAfter(LocalDateTime.now())) {
+            throw new RefreshTokenExpiredException(
+                    "Refresh token has expired"
+            );
         }
 
         return refreshToken;
     }
 
     @Override
-    @Transactional
     public void revokeToken(String token) {
 
-        RefreshToken refreshToken = refreshTokenRepository.findByToken(token)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Refresh token not found"));
+        validateTokenValue(token);
 
-        refreshToken.setRevoked(true);
-        refreshTokenRepository.save(refreshToken);
+        RefreshToken refreshToken =
+                refreshTokenRepository.findByToken(token)
+                        .orElseThrow(() ->
+                                new InvalidRefreshTokenException(
+                                        "Invalid refresh token"
+                                )
+                        );
+
+        if (!Boolean.TRUE.equals(refreshToken.getRevoked())) {
+            refreshToken.setRevoked(true);
+            refreshTokenRepository.save(refreshToken);
+        }
     }
 
     @Override
-    @Transactional
     public void revokeAllUserTokens(Long userId) {
 
-        refreshTokenRepository.findAll()
-                .stream()
-                .filter(token -> token.getUser().getId().equals(userId))
-                .forEach(token -> token.setRevoked(true));
+        if (userId == null) {
+            throw new IllegalArgumentException(
+                    "User ID must not be null"
+            );
+        }
+
+        refreshTokenRepository
+                .revokeAllActiveTokensByUserId(userId);
+    }
+
+    @Override
+    public int deleteExpiredTokens() {
+
+        return refreshTokenRepository
+                .deleteExpiredTokens(LocalDateTime.now());
+    }
+
+    private void validateTokenValue(String token) {
+
+        if (token == null || token.isBlank()) {
+            throw new InvalidRefreshTokenException(
+                    "Refresh token must not be blank"
+            );
+        }
     }
 }

@@ -1,9 +1,9 @@
 package com.omnia.backend.service.impl;
 
-import com.omnia.backend.dto.request.RefreshTokenRequest;
 import com.omnia.backend.common.exception.InvalidCredentialsException;
 import com.omnia.backend.common.exception.ResourceAlreadyExistsException;
 import com.omnia.backend.dto.request.LoginRequest;
+import com.omnia.backend.dto.request.RefreshTokenRequest;
 import com.omnia.backend.dto.request.RegisterRequest;
 import com.omnia.backend.dto.response.AuthResponse;
 import com.omnia.backend.dto.response.UserResponse;
@@ -62,7 +62,9 @@ public class AuthServiceImpl implements AuthService {
 
         Role userRole = roleRepository.findByName("USER")
                 .orElseThrow(() ->
-                        new RuntimeException("Default role USER not found")
+                        new RuntimeException(
+                                "Default role USER not found"
+                        )
                 );
 
         User user = User.builder()
@@ -70,7 +72,9 @@ public class AuthServiceImpl implements AuthService {
                 .lastName(request.getLastName())
                 .username(request.getUsername())
                 .email(request.getEmail())
-                .passwordHash(passwordEncoder.encode(request.getPassword()))
+                .passwordHash(
+                        passwordEncoder.encode(request.getPassword())
+                )
                 .phone(request.getPhone())
                 .role(userRole)
                 .build();
@@ -148,7 +152,9 @@ public class AuthServiceImpl implements AuthService {
         User user = userRepository
                 .findByEmail(usernameOrEmail)
                 .or(() ->
-                        userRepository.findByUsername(usernameOrEmail)
+                        userRepository.findByUsername(
+                                usernameOrEmail
+                        )
                 )
                 .orElseThrow(() ->
                         new RuntimeException("User not found")
@@ -163,23 +169,34 @@ public class AuthServiceImpl implements AuthService {
                 .role(user.getRole().getName())
                 .build();
     }
+
     @Override
     @Transactional
-    public AuthResponse refreshToken(RefreshTokenRequest request) {
+    public AuthResponse refreshToken(
+            RefreshTokenRequest request
+    ) {
 
-        RefreshToken refreshToken =
+        RefreshToken currentRefreshToken =
                 refreshTokenService.verifyRefreshToken(
                         request.getRefreshToken()
                 );
 
-        User user = refreshToken.getUser();
+        User user = currentRefreshToken.getUser();
 
-        String accessToken =
+        /*
+         * createRefreshToken() revokon automatikisht
+         * të gjithë refresh token-ët aktivë të përdoruesit,
+         * përfshirë token-in që sapo u përdor.
+         */
+        RefreshToken newRefreshToken =
+                refreshTokenService.createRefreshToken(user);
+
+        String newAccessToken =
                 jwtService.generateToken(user.getEmail());
 
         return AuthResponse.builder()
-                .accessToken(accessToken)
-                .refreshToken(refreshToken.getToken())
+                .accessToken(newAccessToken)
+                .refreshToken(newRefreshToken.getToken())
                 .message("Token refreshed successfully")
                 .build();
     }

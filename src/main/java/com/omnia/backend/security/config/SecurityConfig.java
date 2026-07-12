@@ -40,12 +40,15 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/api/auth/register",
                                 "/api/auth/login",
+                                "/api/auth/verify-email",
+                                "/api/auth/resend-verification",
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
                                 "/v3/api-docs/**"
                         ).permitAll()
 
-                        .requestMatchers("/api/roles/**").hasRole("ADMIN")
+                        .requestMatchers("/api/roles/**")
+                        .hasRole("ADMIN")
 
                         .anyRequest().authenticated()
                 )

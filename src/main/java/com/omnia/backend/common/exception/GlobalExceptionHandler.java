@@ -131,6 +131,41 @@ public class GlobalExceptionHandler {
                 request
         );
     }
+    @ExceptionHandler(InvalidPasswordResetTokenException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidPasswordResetToken(
+            InvalidPasswordResetTokenException ex,
+            HttpServletRequest request
+    ) {
+        return buildErrorResponse(
+                HttpStatus.BAD_REQUEST,
+                ex.getMessage(),
+                request
+        );
+    }
+
+    @ExceptionHandler(PasswordResetTokenExpiredException.class)
+    public ResponseEntity<ErrorResponse> handlePasswordResetTokenExpired(
+            PasswordResetTokenExpiredException ex,
+            HttpServletRequest request
+    ) {
+        return buildErrorResponse(
+                HttpStatus.GONE,
+                ex.getMessage(),
+                request
+        );
+    }
+
+    @ExceptionHandler(PasswordResetTokenUsedException.class)
+    public ResponseEntity<ErrorResponse> handlePasswordResetTokenUsed(
+            PasswordResetTokenUsedException ex,
+            HttpServletRequest request
+    ) {
+        return buildErrorResponse(
+                HttpStatus.BAD_REQUEST,
+                ex.getMessage(),
+                request
+        );
+    }
 
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<ErrorResponse> handleRuntimeException(

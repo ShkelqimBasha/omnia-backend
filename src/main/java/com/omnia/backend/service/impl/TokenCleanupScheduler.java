@@ -1,6 +1,7 @@
 package com.omnia.backend.service.impl;
 
 import com.omnia.backend.service.interfaces.EmailVerificationService;
+import com.omnia.backend.service.interfaces.PasswordResetService;
 import com.omnia.backend.service.interfaces.RefreshTokenService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,13 +16,16 @@ public class TokenCleanupScheduler {
 
     private final RefreshTokenService refreshTokenService;
     private final EmailVerificationService emailVerificationService;
+    private final PasswordResetService passwordResetService;
 
     public TokenCleanupScheduler(
             RefreshTokenService refreshTokenService,
-            EmailVerificationService emailVerificationService
+            EmailVerificationService emailVerificationService,
+            PasswordResetService passwordResetService
     ) {
         this.refreshTokenService = refreshTokenService;
         this.emailVerificationService = emailVerificationService;
+        this.passwordResetService = passwordResetService;
     }
 
     @Scheduled(cron = "0 0 3 * * *")
@@ -30,13 +34,19 @@ public class TokenCleanupScheduler {
         int deletedRefreshTokens =
                 refreshTokenService.deleteExpiredTokens();
 
-        int deletedEmailTokens =
+        int deletedEmailVerificationTokens =
                 emailVerificationService.deleteExpiredTokens();
 
+        int deletedPasswordResetTokens =
+                passwordResetService.deleteExpiredTokens();
+
         log.info(
-                "Expired token cleanup completed: {} refresh tokens and {} email verification tokens deleted",
+                "Expired token cleanup completed: {} refresh tokens, "
+                        + "{} email verification tokens and "
+                        + "{} password reset tokens deleted",
                 deletedRefreshTokens,
-                deletedEmailTokens
+                deletedEmailVerificationTokens,
+                deletedPasswordResetTokens
         );
     }
 }

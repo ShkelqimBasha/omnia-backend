@@ -5,6 +5,12 @@ public interface EmailService {
     void sendEmailVerification(
             String recipientEmail,
             String recipientName,
-            String verificationToken
+            String token
+    );
+
+    void sendPasswordResetEmail(
+            String recipientEmail,
+            String recipientName,
+            String token
     );
 }

@@ -5,6 +5,8 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "users")
@@ -44,18 +46,42 @@ public class User {
     @Column(name = "profile_image", length = 500)
     private String profileImage;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
     @Builder.Default
-    private UserStatus status = UserStatus.ACTIVE;
-
     @Column(name = "email_verified", nullable = false)
-    @Builder.Default
     private Boolean emailVerified = false;
+
+    @Enumerated(EnumType.STRING)
+    @Builder.Default
+    @Column(nullable = false)
+    private UserStatus status = UserStatus.ACTIVE;
 
     @Column(name = "created_at", insertable = false, updatable = false)
     private LocalDateTime createdAt;
 
     @Column(name = "updated_at", insertable = false, updatable = false)
     private LocalDateTime updatedAt;
+
+    @OneToMany(
+            mappedBy = "user",
+            cascade = CascadeType.ALL,
+            orphanRemoval = true
+    )
+    @Builder.Default
+    private List<RefreshToken> refreshTokens = new ArrayList<>();
+
+    @OneToMany(
+            mappedBy = "user",
+            cascade = CascadeType.ALL,
+            orphanRemoval = true
+    )
+    @Builder.Default
+    private List<EmailVerificationToken> emailVerificationTokens = new ArrayList<>();
+
+    @OneToMany(
+            mappedBy = "user",
+            cascade = CascadeType.ALL,
+            orphanRemoval = true
+    )
+    @Builder.Default
+    private List<PasswordResetToken> passwordResetTokens = new ArrayList<>();
 }

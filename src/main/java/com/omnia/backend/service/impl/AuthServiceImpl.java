@@ -1,7 +1,9 @@
 package com.omnia.backend.service.impl;
 
+import com.omnia.backend.common.exception.EmailNotVerifiedException;
 import com.omnia.backend.common.exception.InvalidCredentialsException;
 import com.omnia.backend.common.exception.ResourceAlreadyExistsException;
+import com.omnia.backend.common.exception.ResourceNotFoundException;
 import com.omnia.backend.dto.request.LoginRequest;
 import com.omnia.backend.dto.request.RefreshTokenRequest;
 import com.omnia.backend.dto.request.RegisterRequest;
@@ -14,6 +16,7 @@ import com.omnia.backend.repository.RoleRepository;
 import com.omnia.backend.repository.UserRepository;
 import com.omnia.backend.security.jwt.JwtService;
 import com.omnia.backend.service.interfaces.AuthService;
+import com.omnia.backend.service.interfaces.EmailVerificationService;
 import com.omnia.backend.service.interfaces.RefreshTokenService;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -29,32 +32,41 @@ public class AuthServiceImpl implements AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final RefreshTokenService refreshTokenService;
+    private final EmailVerificationService emailVerificationService;
 
     public AuthServiceImpl(
             UserRepository userRepository,
             RoleRepository roleRepository,
             PasswordEncoder passwordEncoder,
             JwtService jwtService,
-            RefreshTokenService refreshTokenService
+            RefreshTokenService refreshTokenService,
+            EmailVerificationService emailVerificationService
     ) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.refreshTokenService = refreshTokenService;
+        this.emailVerificationService = emailVerificationService;
     }
 
     @Override
     @Transactional
     public AuthResponse register(RegisterRequest request) {
 
-        if (userRepository.existsByEmail(request.getEmail())) {
+        String normalizedEmail =
+                request.getEmail().trim().toLowerCase();
+
+        String normalizedUsername =
+                request.getUsername().trim();
+
+        if (userRepository.existsByEmail(normalizedEmail)) {
             throw new ResourceAlreadyExistsException(
                     "Email is already in use"
             );
         }
 
-        if (userRepository.existsByUsername(request.getUsername())) {
+        if (userRepository.existsByUsername(normalizedUsername)) {
             throw new ResourceAlreadyExistsException(
                     "Username is already in use"
             );
@@ -62,35 +74,47 @@ public class AuthServiceImpl implements AuthService {
 
         Role userRole = roleRepository.findByName("USER")
                 .orElseThrow(() ->
-                        new RuntimeException(
+                        new ResourceNotFoundException(
                                 "Default role USER not found"
                         )
                 );
 
         User user = User.builder()
-                .firstName(request.getFirstName())
-                .lastName(request.getLastName())
-                .username(request.getUsername())
-                .email(request.getEmail())
+                .firstName(request.getFirstName().trim())
+                .lastName(
+                        request.getLastName() == null
+                                ? null
+                                : request.getLastName().trim()
+                )
+                .username(normalizedUsername)
+                .email(normalizedEmail)
                 .passwordHash(
                         passwordEncoder.encode(request.getPassword())
                 )
-                .phone(request.getPhone())
+                .phone(
+                        request.getPhone() == null
+                                ? null
+                                : request.getPhone().trim()
+                )
                 .role(userRole)
+                .emailVerified(false)
                 .build();
 
         User savedUser = userRepository.save(user);
 
-        String accessToken =
-                jwtService.generateToken(savedUser.getEmail());
+        emailVerificationService.createVerificationToken(savedUser);
 
-        RefreshToken refreshToken =
-                refreshTokenService.createRefreshToken(savedUser);
-
+        /*
+         * Nuk krijojmë access token ose refresh token
+         * derisa përdoruesi të verifikojë email-in.
+         */
         return AuthResponse.builder()
-                .accessToken(accessToken)
-                .refreshToken(refreshToken.getToken())
-                .message("User registered successfully")
+                .accessToken(null)
+                .refreshToken(null)
+                .message(
+                        "Registration successful. "
+                                + "Please verify your email before logging in."
+                )
                 .build();
     }
 
@@ -98,12 +122,13 @@ public class AuthServiceImpl implements AuthService {
     @Transactional
     public AuthResponse login(LoginRequest request) {
 
+        String usernameOrEmail =
+                request.getUsernameOrEmail().trim();
+
         User user = userRepository
-                .findByEmail(request.getUsernameOrEmail())
+                .findByEmail(usernameOrEmail.toLowerCase())
                 .or(() ->
-                        userRepository.findByUsername(
-                                request.getUsernameOrEmail()
-                        )
+                        userRepository.findByUsername(usernameOrEmail)
                 )
                 .orElseThrow(() ->
                         new InvalidCredentialsException(
@@ -117,6 +142,12 @@ public class AuthServiceImpl implements AuthService {
         )) {
             throw new InvalidCredentialsException(
                     "Invalid credentials"
+            );
+        }
+
+        if (!Boolean.TRUE.equals(user.getEmailVerified())) {
+            throw new EmailNotVerifiedException(
+                    "Please verify your email before logging in"
             );
         }
 
@@ -143,8 +174,11 @@ public class AuthServiceImpl implements AuthService {
                         .getAuthentication();
 
         if (authentication == null
-                || !authentication.isAuthenticated()) {
-            throw new RuntimeException("Unauthorized");
+                || !authentication.isAuthenticated()
+                || "anonymousUser".equals(authentication.getPrincipal())) {
+            throw new InvalidCredentialsException(
+                    "Unauthorized"
+            );
         }
 
         String usernameOrEmail = authentication.getName();
@@ -152,12 +186,12 @@ public class AuthServiceImpl implements AuthService {
         User user = userRepository
                 .findByEmail(usernameOrEmail)
                 .or(() ->
-                        userRepository.findByUsername(
-                                usernameOrEmail
-                        )
+                        userRepository.findByUsername(usernameOrEmail)
                 )
                 .orElseThrow(() ->
-                        new RuntimeException("User not found")
+                        new ResourceNotFoundException(
+                                "User not found"
+                        )
                 );
 
         return UserResponse.builder()
@@ -183,11 +217,14 @@ public class AuthServiceImpl implements AuthService {
 
         User user = currentRefreshToken.getUser();
 
-        /*
-         * createRefreshToken() revokon automatikisht
-         * të gjithë refresh token-ët aktivë të përdoruesit,
-         * përfshirë token-in që sapo u përdor.
-         */
+        if (!Boolean.TRUE.equals(user.getEmailVerified())) {
+            refreshTokenService.revokeAllUserTokens(user.getId());
+
+            throw new EmailNotVerifiedException(
+                    "Please verify your email before refreshing authentication"
+            );
+        }
+
         RefreshToken newRefreshToken =
                 refreshTokenService.createRefreshToken(user);
 

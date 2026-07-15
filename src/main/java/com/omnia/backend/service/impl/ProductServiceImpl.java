@@ -19,9 +19,24 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.Set;
 
 @Service
 public class ProductServiceImpl implements ProductService {
+
+    private static final int MAX_PAGE_SIZE = 100;
+
+    private static final Set<String> ALLOWED_SORT_FIELDS = Set.of(
+            "id",
+            "name",
+            "brand",
+            "price",
+            "discountPrice",
+            "stock",
+            "status",
+            "createdAt",
+            "updatedAt"
+    );
 
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
@@ -41,8 +56,13 @@ public class ProductServiceImpl implements ProductService {
     @Transactional
     public ProductResponse createProduct(ProductRequest request) {
 
-        Category category = categoryRepository.findById(request.getCategoryId())
-                .orElseThrow(() -> new ResourceNotFoundException("Category not found"));
+        Category category = categoryRepository
+                .findById(request.getCategoryId())
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "Category not found"
+                        )
+                );
 
         Product product = Product.builder()
                 .name(request.getName())
@@ -55,7 +75,8 @@ public class ProductServiceImpl implements ProductService {
                 .status(ProductStatus.ACTIVE)
                 .build();
 
-        Product savedProduct = productRepository.save(product);
+        Product savedProduct =
+                productRepository.save(product);
 
         return productMapper.toResponse(savedProduct);
     }
@@ -64,8 +85,13 @@ public class ProductServiceImpl implements ProductService {
     @Transactional(readOnly = true)
     public ProductResponse getProductById(Long id) {
 
-        Product product = productRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
+        Product product = productRepository
+                .findById(id)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "Product not found"
+                        )
+                );
 
         return productMapper.toResponse(product);
     }
@@ -85,11 +111,17 @@ public class ProductServiceImpl implements ProductService {
             BigDecimal maxPrice
     ) {
 
-        Sort sort = sortDir.equalsIgnoreCase("desc")
-                ? Sort.by(sortBy).descending()
-                : Sort.by(sortBy).ascending();
+        validatePagination(page, size);
+        validatePriceRange(minPrice, maxPrice);
 
-        Pageable pageable = PageRequest.of(page, size, sort);
+        String safeSortBy = resolveSortField(sortBy);
+        Sort.Direction direction = resolveSortDirection(sortDir);
+
+        Pageable pageable = PageRequest.of(
+                page,
+                size,
+                Sort.by(direction, safeSortBy)
+        );
 
         return productRepository
                 .findAll(
@@ -108,13 +140,26 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     @Transactional
-    public ProductResponse updateProduct(Long id, ProductRequest request) {
+    public ProductResponse updateProduct(
+            Long id,
+            ProductRequest request
+    ) {
 
-        Product product = productRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
+        Product product = productRepository
+                .findById(id)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "Product not found"
+                        )
+                );
 
-        Category category = categoryRepository.findById(request.getCategoryId())
-                .orElseThrow(() -> new ResourceNotFoundException("Category not found"));
+        Category category = categoryRepository
+                .findById(request.getCategoryId())
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "Category not found"
+                        )
+                );
 
         product.setName(request.getName());
         product.setDescription(request.getDescription());
@@ -124,7 +169,8 @@ public class ProductServiceImpl implements ProductService {
         product.setStock(request.getStock());
         product.setCategory(category);
 
-        Product updatedProduct = productRepository.save(product);
+        Product updatedProduct =
+                productRepository.save(product);
 
         return productMapper.toResponse(updatedProduct);
     }
@@ -133,11 +179,82 @@ public class ProductServiceImpl implements ProductService {
     @Transactional
     public void deleteProduct(Long id) {
 
-        Product product = productRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
+        Product product = productRepository
+                .findById(id)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "Product not found"
+                        )
+                );
 
         product.setStatus(ProductStatus.INACTIVE);
 
         productRepository.save(product);
+    }
+
+    private void validatePagination(int page, int size) {
+
+        if (page < 0) {
+            throw new IllegalArgumentException(
+                    "Page number must not be negative"
+            );
+        }
+
+        if (size < 1 || size > MAX_PAGE_SIZE) {
+            throw new IllegalArgumentException(
+                    "Page size must be between 1 and "
+                            + MAX_PAGE_SIZE
+            );
+        }
+    }
+
+    private void validatePriceRange(
+            BigDecimal minPrice,
+            BigDecimal maxPrice
+    ) {
+
+        if (minPrice != null
+                && minPrice.compareTo(BigDecimal.ZERO) < 0) {
+            throw new IllegalArgumentException(
+                    "Minimum price must not be negative"
+            );
+        }
+
+        if (maxPrice != null
+                && maxPrice.compareTo(BigDecimal.ZERO) < 0) {
+            throw new IllegalArgumentException(
+                    "Maximum price must not be negative"
+            );
+        }
+
+        if (minPrice != null
+                && maxPrice != null
+                && minPrice.compareTo(maxPrice) > 0) {
+            throw new IllegalArgumentException(
+                    "Minimum price must not be greater than maximum price"
+            );
+        }
+    }
+
+    private String resolveSortField(String sortBy) {
+
+        if (sortBy == null
+                || sortBy.isBlank()
+                || !ALLOWED_SORT_FIELDS.contains(sortBy)) {
+            return "id";
+        }
+
+        return sortBy;
+    }
+
+    private Sort.Direction resolveSortDirection(
+            String sortDir
+    ) {
+
+        if ("desc".equalsIgnoreCase(sortDir)) {
+            return Sort.Direction.DESC;
+        }
+
+        return Sort.Direction.ASC;
     }
 }

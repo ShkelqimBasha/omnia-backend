@@ -33,3 +33,5 @@ build/
 .vscode/
 uploads/
 *.log
+.env
+uploads/

@@ -1,29 +1,29 @@
-package com.omnia.backend.dto.response;
+    package com.omnia.backend.dto.response;
 
-import lombok.*;
+    import lombok.*;
 
-import java.time.LocalDateTime;
+    import java.time.LocalDateTime;
 
-@Getter
-@Setter
-@NoArgsConstructor
-@AllArgsConstructor
-@Builder
-public class ReviewResponse {
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public class ReviewResponse {
 
-    private Long id;
+        private Long id;
 
-    private Long userId;
+        private Long userId;
 
-    private String username;
+        private String username;
 
-    private Long productId;
+        private Long productId;
 
-    private String productName;
+        private String productName;
 
-    private Integer rating;
+        private Integer rating;
 
-    private String comment;
+        private String comment;
 
-    private LocalDateTime createdAt;
-}
+        private LocalDateTime createdAt;
+    }

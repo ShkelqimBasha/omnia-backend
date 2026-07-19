@@ -1,11 +1,12 @@
 package com.omnia.backend.controller;
 
+import com.omnia.backend.common.response.PagedResponse;
 import com.omnia.backend.dto.request.ProductRequest;
 import com.omnia.backend.dto.response.ProductResponse;
 import com.omnia.backend.enums.ProductStatus;
 import com.omnia.backend.service.interfaces.ProductService;
 import jakarta.validation.Valid;
-import org.springframework.data.domain.Page;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -41,7 +42,7 @@ public class ProductController {
     }
 
     @GetMapping
-    public ResponseEntity<Page<ProductResponse>> getAllProducts(
+    public ResponseEntity<PagedResponse<ProductResponse>> getAllProducts(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(defaultValue = "id") String sortBy,

@@ -1,6 +1,7 @@
 package com.omnia.backend.service.impl;
 
 import com.omnia.backend.common.exception.ResourceNotFoundException;
+import com.omnia.backend.common.response.PagedResponse;
 import com.omnia.backend.dto.request.ProductRequest;
 import com.omnia.backend.dto.response.ProductResponse;
 import com.omnia.backend.entity.Category;
@@ -19,14 +20,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.util.Set;
+import java.util.List;
+import java.util.Locale;
 
 @Service
 public class ProductServiceImpl implements ProductService {
 
     private static final int MAX_PAGE_SIZE = 100;
 
-    private static final Set<String> ALLOWED_SORT_FIELDS = Set.of(
+    private static final List<String> ALLOWED_SORT_FIELDS = List.of(
             "id",
             "name",
             "brand",
@@ -37,7 +39,6 @@ public class ProductServiceImpl implements ProductService {
             "createdAt",
             "updatedAt"
     );
-
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
     private final ProductMapper productMapper;
@@ -98,7 +99,7 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     @Transactional(readOnly = true)
-    public Page<ProductResponse> getAllProducts(
+    public PagedResponse<ProductResponse> getAllProducts(
             int page,
             int size,
             String sortBy,
@@ -110,7 +111,6 @@ public class ProductServiceImpl implements ProductService {
             BigDecimal minPrice,
             BigDecimal maxPrice
     ) {
-
         validatePagination(page, size);
         validatePriceRange(minPrice, maxPrice);
 
@@ -123,7 +123,7 @@ public class ProductServiceImpl implements ProductService {
                 Sort.by(direction, safeSortBy)
         );
 
-        return productRepository
+        Page<ProductResponse> productPage = productRepository
                 .findAll(
                         ProductSpecification.filterProducts(
                                 keyword,
@@ -136,6 +136,8 @@ public class ProductServiceImpl implements ProductService {
                         pageable
                 )
                 .map(productMapper::toResponse);
+
+        return PagedResponse.from(productPage);
     }
 
     @Override
@@ -236,25 +238,47 @@ public class ProductServiceImpl implements ProductService {
         }
     }
 
-    private String resolveSortField(String sortBy) {
-
-        if (sortBy == null
-                || sortBy.isBlank()
-                || !ALLOWED_SORT_FIELDS.contains(sortBy)) {
-            return "id";
+    private String resolveSortField(
+            String sortBy
+    ) {
+        if (sortBy == null || sortBy.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Sort field must not be blank"
+            );
         }
 
-        return sortBy;
+        String requestedField = sortBy.trim();
+
+        return ALLOWED_SORT_FIELDS.stream()
+                .filter(field ->
+                        field.equalsIgnoreCase(requestedField)
+                )
+                .findFirst()
+                .orElseThrow(() ->
+                        new IllegalArgumentException(
+                                "Unsupported sort field. Allowed values: "
+                                        + String.join(
+                                        ", ",
+                                        ALLOWED_SORT_FIELDS
+                                )
+                        )
+                );
     }
 
     private Sort.Direction resolveSortDirection(
             String sortDir
     ) {
-
-        if ("desc".equalsIgnoreCase(sortDir)) {
-            return Sort.Direction.DESC;
+        if (sortDir == null || sortDir.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Sort direction must not be blank"
+            );
         }
 
-        return Sort.Direction.ASC;
-    }
-}
+        return switch (sortDir.trim().toLowerCase(Locale.ROOT)) {
+            case "asc" -> Sort.Direction.ASC;
+            case "desc" -> Sort.Direction.DESC;
+            default -> throw new IllegalArgumentException(
+                    "Sort direction must be either asc or desc"
+            );
+        };
+    }}

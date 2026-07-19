@@ -16,6 +16,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import com.omnia.backend.common.response.PagedResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -204,7 +205,7 @@ class ProductServiceImplTest {
         when(productMapper.toResponse(product))
                 .thenReturn(response);
 
-        Page<ProductResponse> result =
+        PagedResponse<ProductResponse> result =
                 productService.getAllProducts(
                         0,
                         10,
@@ -219,10 +220,10 @@ class ProductServiceImplTest {
                 );
 
         assertNotNull(result);
-        assertEquals(1, result.getTotalElements());
+        assertEquals(1, result.totalElements());
         assertEquals(
                 "Samsung Galaxy S24",
-                result.getContent().getFirst().getName()
+                result.content().getFirst().getName()
         );
 
         verify(productRepository).findAll(

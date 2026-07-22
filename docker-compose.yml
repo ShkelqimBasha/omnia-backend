@@ -52,6 +52,8 @@ services:
         condition: service_healthy
 
     environment:
+      SPRING_PROFILES_ACTIVE: "prod"
+
       DB_URL: "jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-omnia_db}?useSSL=false&allowPublicKeyRetrieval=true&connectionTimeZone=SERVER"
       DB_USERNAME: "${MYSQL_USER:-omnia_user}"
       DB_PASSWORD: "${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}"

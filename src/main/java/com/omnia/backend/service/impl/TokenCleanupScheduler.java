@@ -38,7 +38,7 @@ public class TokenCleanupScheduler {
                 emailVerificationService.deleteExpiredOrUsedTokens();
 
         int deletedPasswordResetTokens =
-                passwordResetService.deleteExpiredTokens();
+                passwordResetService.deleteExpiredOrUsedTokens();
 
         log.info(
                 "Expired token cleanup completed: {} refresh tokens, "

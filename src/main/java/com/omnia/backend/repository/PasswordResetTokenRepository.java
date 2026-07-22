@@ -12,19 +12,36 @@ import java.util.Optional;
 public interface PasswordResetTokenRepository
         extends JpaRepository<PasswordResetToken, Long> {
 
-    Optional<PasswordResetToken> findByToken(String token);
+    Optional<PasswordResetToken> findByTokenHash(
+            String tokenHash
+    );
 
-    @Modifying
+    Optional<PasswordResetToken> findByUserId(
+            Long userId
+    );
+
+    @Modifying(
+            flushAutomatically = true,
+            clearAutomatically = true
+    )
     @Query("""
             delete from PasswordResetToken token
             where token.user.id = :userId
             """)
-    int deleteByUserId(@Param("userId") Long userId);
+    int deleteByUserId(
+            @Param("userId") Long userId
+    );
 
-    @Modifying
+    @Modifying(
+            flushAutomatically = true,
+            clearAutomatically = true
+    )
     @Query("""
             delete from PasswordResetToken token
-            where token.expiresAt < :now
+            where token.expiresAt <= :now
+               or token.used = true
             """)
-    int deleteExpiredTokens(@Param("now") LocalDateTime now);
+    int deleteExpiredOrUsedTokens(
+            @Param("now") LocalDateTime now
+    );
 }

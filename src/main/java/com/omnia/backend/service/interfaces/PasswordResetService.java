@@ -5,9 +5,13 @@ import com.omnia.backend.dto.request.ResetPasswordRequest;
 
 public interface PasswordResetService {
 
-    void requestPasswordReset(ForgotPasswordRequest request);
+    void requestPasswordReset(
+            ForgotPasswordRequest request
+    );
 
-    void resetPassword(ResetPasswordRequest request);
+    void resetPassword(
+            ResetPasswordRequest request
+    );
 
-    int deleteExpiredTokens();
+    int deleteExpiredOrUsedTokens();
 }

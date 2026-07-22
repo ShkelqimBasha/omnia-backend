@@ -1,18 +1,17 @@
 services:
-
   mysql:
     image: mysql:8.4
     container_name: omnia-mysql
     restart: unless-stopped
 
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}"
+      MYSQL_DATABASE: "${MYSQL_DATABASE:-omnia_db}"
+      MYSQL_USER: "${MYSQL_USER:-omnia_user}"
+      MYSQL_PASSWORD: "${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}"
 
     ports:
-      - "3307:3306"
+      - "127.0.0.1:${MYSQL_HOST_PORT:-3307}:3306"
 
     volumes:
       - mysql_data:/var/lib/mysql
@@ -21,33 +20,58 @@ services:
       test:
         [
           "CMD-SHELL",
-          "mysqladmin ping -h localhost -u root -p$$MYSQL_ROOT_PASSWORD --silent"
+          "MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mysqladmin ping -h 127.0.0.1 -u root --silent"
         ]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 30s
 
+    networks:
+      - omnia-network
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   backend:
-    build: .
+    image: omnia-backend:local
+
+    build:
+      context: .
+      dockerfile: Dockerfile
+
     container_name: omnia-backend
     restart: unless-stopped
+    init: true
 
     depends_on:
       mysql:
         condition: service_healthy
 
     environment:
-      DB_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?useSSL=false&allowPublicKeyRetrieval=true&connectionTimeZone=SERVER
-      DB_USERNAME: ${MYSQL_USER}
-      DB_PASSWORD: ${MYSQL_PASSWORD}
+      DB_URL: "jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-omnia_db}?useSSL=false&allowPublicKeyRetrieval=true&connectionTimeZone=SERVER"
+      DB_USERNAME: "${MYSQL_USER:-omnia_user}"
+      DB_PASSWORD: "${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}"
 
-      JWT_SECRET: ${JWT_SECRET}
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
 
-      MAIL_USERNAME: ${MAIL_USERNAME}
-      MAIL_PASSWORD: ${MAIL_PASSWORD}
+      MAIL_USERNAME: "${MAIL_USERNAME:?MAIL_USERNAME is required}"
+      MAIL_PASSWORD: "${MAIL_PASSWORD:?MAIL_PASSWORD is required}"
 
-      FILE_UPLOAD_DIR: ${FILE_UPLOAD_DIR}
+      APP_BACKEND_BASE_URL: "${APP_BACKEND_BASE_URL:-http://localhost:8080}"
+      APP_FRONTEND_BASE_URL: "${APP_FRONTEND_BASE_URL:-http://localhost:8080/api/auth}"
+      APP_RESET_PASSWORD_URL: "${APP_RESET_PASSWORD_URL:-http://localhost:8080/reset-password}"
+
+      FILE_UPLOAD_DIR: "/app/uploads"
+      FILE_UPLOAD_MAX_SIZE: "${FILE_UPLOAD_MAX_SIZE:-5MB}"
+      FILE_UPLOAD_MAX_REQUEST_SIZE: "${FILE_UPLOAD_MAX_REQUEST_SIZE:-6MB}"
+
+      REFRESH_TOKEN_LIFETIME: "${REFRESH_TOKEN_LIFETIME:-30d}"
+      EMAIL_VERIFICATION_TOKEN_LIFETIME: "${EMAIL_VERIFICATION_TOKEN_LIFETIME:-24h}"
+      PASSWORD_RESET_TOKEN_LIFETIME: "${PASSWORD_RESET_TOKEN_LIFETIME:-30m}"
 
     ports:
       - "8080:8080"
@@ -55,6 +79,24 @@ services:
     volumes:
       - uploads_data:/app/uploads
 
+    networks:
+      - omnia-network
+
+    security_opt:
+      - no-new-privileges:true
+
+    stop_grace_period: 30s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 volumes:
   mysql_data:
   uploads_data:
+
+networks:
+  omnia-network:
+    driver: bridge

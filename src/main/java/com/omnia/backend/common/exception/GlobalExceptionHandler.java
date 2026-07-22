@@ -1,13 +1,14 @@
 package com.omnia.backend.common.exception;
 
 import com.omnia.backend.common.response.ErrorResponse;
-import org.springframework.security.access.AccessDeniedException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.LocalDateTime;
 
@@ -38,6 +39,18 @@ public class GlobalExceptionHandler {
         );
     }
 
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ErrorResponse> handleNoResourceFound(
+            NoResourceFoundException ex,
+            HttpServletRequest request
+    ) {
+        return buildErrorResponse(
+                HttpStatus.NOT_FOUND,
+                "Resource not found",
+                request
+        );
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleValidation(
             MethodArgumentNotValidException ex,
@@ -47,7 +60,9 @@ public class GlobalExceptionHandler {
                 .getFieldErrors()
                 .stream()
                 .findFirst()
-                .map(fieldError -> fieldError.getDefaultMessage())
+                .map(fieldError ->
+                        fieldError.getDefaultMessage()
+                )
                 .orElse("Validation failed");
 
         return buildErrorResponse(
@@ -68,6 +83,7 @@ public class GlobalExceptionHandler {
                 request
         );
     }
+
     @ExceptionHandler(InvalidFileException.class)
     public ResponseEntity<ErrorResponse> handleInvalidFile(
             InvalidFileException ex,
@@ -109,7 +125,8 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(InvalidEmailVerificationTokenException.class)
-    public ResponseEntity<ErrorResponse> handleInvalidVerificationToken(
+    public ResponseEntity<ErrorResponse>
+    handleInvalidVerificationToken(
             InvalidEmailVerificationTokenException ex,
             HttpServletRequest request
     ) {
@@ -121,7 +138,8 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(EmailVerificationTokenExpiredException.class)
-    public ResponseEntity<ErrorResponse> handleExpiredVerificationToken(
+    public ResponseEntity<ErrorResponse>
+    handleExpiredVerificationToken(
             EmailVerificationTokenExpiredException ex,
             HttpServletRequest request
     ) {
@@ -144,8 +162,21 @@ public class GlobalExceptionHandler {
         );
     }
 
+    @ExceptionHandler(EmailNotVerifiedException.class)
+    public ResponseEntity<ErrorResponse> handleEmailNotVerified(
+            EmailNotVerifiedException ex,
+            HttpServletRequest request
+    ) {
+        return buildErrorResponse(
+                HttpStatus.FORBIDDEN,
+                ex.getMessage(),
+                request
+        );
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ErrorResponse> handleIllegalArgumentException(
+    public ResponseEntity<ErrorResponse>
+    handleIllegalArgumentException(
             IllegalArgumentException ex,
             HttpServletRequest request
     ) {
@@ -155,8 +186,10 @@ public class GlobalExceptionHandler {
                 request
         );
     }
+
     @ExceptionHandler(InvalidPasswordResetTokenException.class)
-    public ResponseEntity<ErrorResponse> handleInvalidPasswordResetToken(
+    public ResponseEntity<ErrorResponse>
+    handleInvalidPasswordResetToken(
             InvalidPasswordResetTokenException ex,
             HttpServletRequest request
     ) {
@@ -168,7 +201,8 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(PasswordResetTokenExpiredException.class)
-    public ResponseEntity<ErrorResponse> handlePasswordResetTokenExpired(
+    public ResponseEntity<ErrorResponse>
+    handlePasswordResetTokenExpired(
             PasswordResetTokenExpiredException ex,
             HttpServletRequest request
     ) {
@@ -180,7 +214,8 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(PasswordResetTokenUsedException.class)
-    public ResponseEntity<ErrorResponse> handlePasswordResetTokenUsed(
+    public ResponseEntity<ErrorResponse>
+    handlePasswordResetTokenUsed(
             PasswordResetTokenUsedException ex,
             HttpServletRequest request
     ) {
@@ -190,9 +225,6 @@ public class GlobalExceptionHandler {
                 request
         );
     }
-
-
-
 
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ErrorResponse> handleAccessDenied(
@@ -229,17 +261,6 @@ public class GlobalExceptionHandler {
                 request
         );
     }
-    @ExceptionHandler(EmailNotVerifiedException.class)
-    public ResponseEntity<ErrorResponse> handleEmailNotVerified(
-            EmailNotVerifiedException ex,
-            HttpServletRequest request
-    ) {
-        return buildErrorResponse(
-                HttpStatus.FORBIDDEN,
-                ex.getMessage(),
-                request
-        );
-    }
 
     private ResponseEntity<ErrorResponse> buildErrorResponse(
             HttpStatus status,
@@ -254,6 +275,8 @@ public class GlobalExceptionHandler {
                 .path(request.getRequestURI())
                 .build();
 
-        return ResponseEntity.status(status).body(response);
+        return ResponseEntity
+                .status(status)
+                .body(response);
     }
 }

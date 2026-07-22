@@ -28,6 +28,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.AuthorityUtils;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import com.omnia.backend.common.exception.ResourceNotFoundException;
 
 import java.util.Optional;
 
@@ -562,5 +563,275 @@ class AuthServiceImplTest {
 
         verify(refreshTokenService)
                 .revokeToken("refresh-token");
+    }
+
+    @Test
+    void register_shouldRegisterUserWithNullOptionalFields() {
+
+        when(registerRequest.getFirstName())
+                .thenReturn(" Test ");
+
+        when(registerRequest.getUsername())
+                .thenReturn(" testuser ");
+
+        when(registerRequest.getEmail())
+                .thenReturn(" TEST@EXAMPLE.COM ");
+
+        when(registerRequest.getPassword())
+                .thenReturn("Password@123");
+
+        when(userRepository.existsByEmail(
+                "test@example.com"
+        )).thenReturn(false);
+
+        when(userRepository.existsByUsername(
+                "testuser"
+        )).thenReturn(false);
+
+        when(roleRepository.findByName("USER"))
+                .thenReturn(Optional.of(userRole));
+
+        when(passwordEncoder.encode(
+                "Password@123"
+        )).thenReturn("encoded-password");
+
+        when(userRepository.save(any(User.class)))
+                .thenAnswer(invocation -> {
+                    User user = invocation.getArgument(0);
+                    user.setId(10L);
+                    return user;
+                });
+
+        AuthResponse result =
+                authService.register(registerRequest);
+
+        assertNotNull(result);
+
+        ArgumentCaptor<User> userCaptor =
+                ArgumentCaptor.forClass(User.class);
+
+        verify(userRepository)
+                .save(userCaptor.capture());
+
+        User savedUser = userCaptor.getValue();
+
+        assertEquals("Test", savedUser.getFirstName());
+        assertEquals("testuser", savedUser.getUsername());
+        assertEquals(
+                "test@example.com",
+                savedUser.getEmail()
+        );
+        assertNull(savedUser.getLastName());
+        assertNull(savedUser.getPhone());
+
+        verify(emailVerificationService)
+                .createVerificationToken(savedUser);
+    }
+
+    @Test
+    void register_shouldThrowWhenDefaultRoleDoesNotExist() {
+
+        when(registerRequest.getUsername())
+                .thenReturn("testuser");
+
+        when(registerRequest.getEmail())
+                .thenReturn("test@example.com");
+
+        when(userRepository.existsByEmail(
+                "test@example.com"
+        )).thenReturn(false);
+
+        when(userRepository.existsByUsername(
+                "testuser"
+        )).thenReturn(false);
+
+        when(roleRepository.findByName("USER"))
+                .thenReturn(Optional.empty());
+
+        ResourceNotFoundException exception =
+                assertThrows(
+                        ResourceNotFoundException.class,
+                        () -> authService.register(
+                                registerRequest
+                        )
+                );
+
+        assertEquals(
+                "Default role USER not found",
+                exception.getMessage()
+        );
+
+        verify(
+                userRepository,
+                never()
+        ).save(any(User.class));
+
+        verifyNoInteractions(
+                passwordEncoder,
+                emailVerificationService
+        );
+    }
+
+    @Test
+    void login_shouldLoginSuccessfullyWithUsername() {
+
+        when(loginRequest.getUsernameOrEmail())
+                .thenReturn(" shkelqim123 ");
+
+        when(loginRequest.getPassword())
+                .thenReturn("Password@123");
+
+        when(userRepository.findByEmail(
+                "shkelqim123"
+        )).thenReturn(Optional.empty());
+
+        when(userRepository.findByUsername(
+                "shkelqim123"
+        )).thenReturn(Optional.of(verifiedUser));
+
+        when(passwordEncoder.matches(
+                "Password@123",
+                "encoded-password"
+        )).thenReturn(true);
+
+        when(jwtService.generateToken(
+                "shkelqim@example.com"
+        )).thenReturn("access-token");
+
+        when(refreshTokenService.createRefreshToken(
+                verifiedUser
+        )).thenReturn("refresh-token");
+
+        AuthResponse result =
+                authService.login(loginRequest);
+
+        assertNotNull(result);
+        assertEquals(
+                "access-token",
+                result.getAccessToken()
+        );
+        assertEquals(
+                "refresh-token",
+                result.getRefreshToken()
+        );
+        assertEquals(
+                "Login successful",
+                result.getMessage()
+        );
+
+        verify(userRepository)
+                .findByEmail("shkelqim123");
+
+        verify(userRepository)
+                .findByUsername("shkelqim123");
+    }
+
+    @Test
+    void login_shouldThrowWhenUserDoesNotExist() {
+
+        when(loginRequest.getUsernameOrEmail())
+                .thenReturn("missing-user");
+
+        when(userRepository.findByEmail(
+                "missing-user"
+        )).thenReturn(Optional.empty());
+
+        when(userRepository.findByUsername(
+                "missing-user"
+        )).thenReturn(Optional.empty());
+
+        InvalidCredentialsException exception =
+                assertThrows(
+                        InvalidCredentialsException.class,
+                        () -> authService.login(loginRequest)
+                );
+
+        assertEquals(
+                "Invalid credentials",
+                exception.getMessage()
+        );
+
+        verifyNoInteractions(
+                passwordEncoder,
+                jwtService,
+                refreshTokenService
+        );
+    }
+
+    @Test
+    void getCurrentUser_shouldResolveUserByUsername() {
+
+        UsernamePasswordAuthenticationToken authentication =
+                new UsernamePasswordAuthenticationToken(
+                        "shkelqim123",
+                        null,
+                        AuthorityUtils.NO_AUTHORITIES
+                );
+
+        SecurityContextHolder
+                .getContext()
+                .setAuthentication(authentication);
+
+        when(userRepository.findByEmail(
+                "shkelqim123"
+        )).thenReturn(Optional.empty());
+
+        when(userRepository.findByUsername(
+                "shkelqim123"
+        )).thenReturn(Optional.of(verifiedUser));
+
+        UserResponse result =
+                authService.getCurrentUser();
+
+        assertNotNull(result);
+        assertEquals(1L, result.getId());
+        assertEquals(
+                "shkelqim123",
+                result.getUsername()
+        );
+        assertEquals(
+                "shkelqim@example.com",
+                result.getEmail()
+        );
+
+        verify(userRepository)
+                .findByEmail("shkelqim123");
+
+        verify(userRepository)
+                .findByUsername("shkelqim123");
+    }
+
+    @Test
+    void getCurrentUser_shouldThrowWhenAuthenticatedUserDoesNotExist() {
+
+        UsernamePasswordAuthenticationToken authentication =
+                new UsernamePasswordAuthenticationToken(
+                        "missing-user",
+                        null,
+                        AuthorityUtils.NO_AUTHORITIES
+                );
+
+        SecurityContextHolder
+                .getContext()
+                .setAuthentication(authentication);
+
+        when(userRepository.findByEmail(
+                "missing-user"
+        )).thenReturn(Optional.empty());
+
+        when(userRepository.findByUsername(
+                "missing-user"
+        )).thenReturn(Optional.empty());
+
+        ResourceNotFoundException exception =
+                assertThrows(
+                        ResourceNotFoundException.class,
+                        () -> authService.getCurrentUser()
+                );
+
+        assertEquals(
+                "User not found",
+                exception.getMessage()
+        );
     }
 }

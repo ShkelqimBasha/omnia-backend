@@ -36,6 +36,10 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.IOException;
+
 @ExtendWith(MockitoExtension.class)
 class FileStorageServiceImplTest {
 
@@ -1141,6 +1145,338 @@ class FileStorageServiceImplTest {
 
         verify(uploadedFileRepository, never())
                 .flush();
+    }
+
+    @Test
+    void storeFile_WhenReadingBytesFails_ShouldThrowFileStorageException()
+            throws Exception {
+
+        MultipartFile file =
+                mock(MultipartFile.class);
+
+        when(file.isEmpty())
+                .thenReturn(false);
+
+        when(file.getSize())
+                .thenReturn((long) JPEG_BYTES.length);
+
+        when(file.getOriginalFilename())
+                .thenReturn("photo.jpg");
+
+        when(file.getBytes())
+                .thenThrow(
+                        new IOException(
+                                "Simulated read failure"
+                        )
+                );
+
+        FileStorageException exception =
+                assertThrows(
+                        FileStorageException.class,
+                        () -> fileStorageService.storeFile(file)
+                );
+
+        assertEquals(
+                "Could not read uploaded file",
+                exception.getMessage()
+        );
+
+        verify(
+                uploadedFileRepository,
+                never()
+        ).save(any(UploadedFile.class));
+
+        assertDirectoryIsEmpty();
+    }
+
+    @Test
+    void storeFile_WhenReportedSizeIsPositiveButBytesAreEmpty_ShouldRejectFile()
+            throws Exception {
+
+        MultipartFile file =
+                mock(MultipartFile.class);
+
+        when(file.isEmpty())
+                .thenReturn(false);
+
+        when(file.getSize())
+                .thenReturn(1L);
+
+        when(file.getOriginalFilename())
+                .thenReturn("photo.jpg");
+
+        when(file.getBytes())
+                .thenReturn(new byte[0]);
+
+        InvalidFileException exception =
+                assertThrows(
+                        InvalidFileException.class,
+                        () -> fileStorageService.storeFile(file)
+                );
+
+        assertEquals(
+                "File must not be empty",
+                exception.getMessage()
+        );
+
+        verify(
+                uploadedFileRepository,
+                never()
+        ).save(any(UploadedFile.class));
+
+        assertDirectoryIsEmpty();
+    }
+
+    @Test
+    void storeFile_WhenReportedSizeIsValidButActualBytesExceedLimit_ShouldRejectFile()
+            throws Exception {
+
+        MultipartFile file =
+                mock(MultipartFile.class);
+
+        byte[] oversizedBytes =
+                new byte[
+                        (5 * 1024 * 1024) + 1
+                        ];
+
+        when(file.isEmpty())
+                .thenReturn(false);
+
+        when(file.getSize())
+                .thenReturn(1L);
+
+        when(file.getOriginalFilename())
+                .thenReturn("photo.jpg");
+
+        when(file.getBytes())
+                .thenReturn(oversizedBytes);
+
+        InvalidFileException exception =
+                assertThrows(
+                        InvalidFileException.class,
+                        () -> fileStorageService.storeFile(file)
+                );
+
+        assertTrue(
+                exception.getMessage().startsWith(
+                        "File exceeds the maximum allowed size"
+                )
+        );
+
+        verify(
+                uploadedFileRepository,
+                never()
+        ).save(any(UploadedFile.class));
+
+        assertDirectoryIsEmpty();
+    }
+
+    @Test
+    void storeFile_WithSingleDotFilename_ShouldRejectFile() {
+
+        MockMultipartFile file =
+                createFile(
+                        ".",
+                        "image/jpeg",
+                        JPEG_BYTES
+                );
+
+        InvalidFileException exception =
+                assertThrows(
+                        InvalidFileException.class,
+                        () -> fileStorageService.storeFile(file)
+                );
+
+        assertEquals(
+                "Original filename is invalid",
+                exception.getMessage()
+        );
+
+        verify(
+                uploadedFileRepository,
+                never()
+        ).save(any(UploadedFile.class));
+
+        assertDirectoryIsEmpty();
+    }
+
+    @Test
+    void storeFile_WithDoubleDotFilename_ShouldRejectFile() {
+
+        MockMultipartFile file =
+                createFile(
+                        "..",
+                        "image/jpeg",
+                        JPEG_BYTES
+                );
+
+        InvalidFileException exception =
+                assertThrows(
+                        InvalidFileException.class,
+                        () -> fileStorageService.storeFile(file)
+                );
+
+        assertEquals(
+                "Original filename is invalid",
+                exception.getMessage()
+        );
+
+        verify(
+                uploadedFileRepository,
+                never()
+        ).save(any(UploadedFile.class));
+
+        assertDirectoryIsEmpty();
+    }
+
+    @Test
+    void storeFile_WithFilenameLongerThan255Characters_ShouldRejectFile() {
+
+        String filename =
+                "a".repeat(252) + ".jpg";
+
+        assertTrue(filename.length() > 255);
+
+        MockMultipartFile file =
+                createFile(
+                        filename,
+                        "image/jpeg",
+                        JPEG_BYTES
+                );
+
+        InvalidFileException exception =
+                assertThrows(
+                        InvalidFileException.class,
+                        () -> fileStorageService.storeFile(file)
+                );
+
+        assertEquals(
+                "Original filename must not exceed 255 characters",
+                exception.getMessage()
+        );
+
+        verify(
+                uploadedFileRepository,
+                never()
+        ).save(any(UploadedFile.class));
+
+        assertDirectoryIsEmpty();
+    }
+
+    @Test
+    void loadFileAsResource_WithNullStoredName_ShouldThrowException() {
+
+        UploadedFile uploadedFile =
+                createUploadedFile(
+                        10L,
+                        null,
+                        user
+                );
+
+        when(uploadedFileRepository.findById(10L))
+                .thenReturn(Optional.of(uploadedFile));
+
+        FileStorageException exception =
+                assertThrows(
+                        FileStorageException.class,
+                        () ->
+                                fileStorageService
+                                        .loadFileAsResource(10L)
+                );
+
+        assertEquals(
+                "Invalid stored file name",
+                exception.getMessage()
+        );
+    }
+
+    @Test
+    void loadFileAsResource_WithBlankStoredName_ShouldThrowException() {
+
+        UploadedFile uploadedFile =
+                createUploadedFile(
+                        10L,
+                        "   ",
+                        user
+                );
+
+        when(uploadedFileRepository.findById(10L))
+                .thenReturn(Optional.of(uploadedFile));
+
+        FileStorageException exception =
+                assertThrows(
+                        FileStorageException.class,
+                        () ->
+                                fileStorageService
+                                        .loadFileAsResource(10L)
+                );
+
+        assertEquals(
+                "Invalid stored file name",
+                exception.getMessage()
+        );
+    }
+
+    @Test
+    void loadFileAsResource_WithBackslashInStoredName_ShouldThrowException() {
+
+        UploadedFile uploadedFile =
+                createUploadedFile(
+                        10L,
+                        "folder\\photo.jpg",
+                        user
+                );
+
+        when(uploadedFileRepository.findById(10L))
+                .thenReturn(Optional.of(uploadedFile));
+
+        FileStorageException exception =
+                assertThrows(
+                        FileStorageException.class,
+                        () ->
+                                fileStorageService
+                                        .loadFileAsResource(10L)
+                );
+
+        assertEquals(
+                "Invalid stored file name",
+                exception.getMessage()
+        );
+    }
+
+    @Test
+    void deleteFile_WhenUploadedFileHasNoOwner_ShouldThrowAccessDenied() {
+
+        UploadedFile uploadedFile =
+                createUploadedFile(
+                        10L,
+                        "orphan-photo.jpg",
+                        null
+                );
+
+        when(uploadedFileRepository.findById(10L))
+                .thenReturn(Optional.of(uploadedFile));
+
+        AccessDeniedException exception =
+                assertThrows(
+                        AccessDeniedException.class,
+                        () -> fileStorageService.deleteFile(10L)
+                );
+
+        assertEquals(
+                "You are not allowed to delete this file",
+                exception.getMessage()
+        );
+
+        verify(
+                uploadedFileRepository,
+                never()
+        ).delete(any(UploadedFile.class));
+
+        verify(
+                uploadedFileRepository,
+                never()
+        ).flush();
     }
 
     private MockMultipartFile createFile(

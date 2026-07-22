@@ -49,7 +49,11 @@ public class SecurityConfig {
                                 "/api/auth/reset-password",
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
-                                "/v3/api-docs/**"
+                                "/v3/api-docs/**",
+                                "/actuator/health",
+                                "/actuator/health/**",
+                                "/livez",
+                                "/readyz"
                         ).permitAll()
 
                         .requestMatchers("/api/roles/**")

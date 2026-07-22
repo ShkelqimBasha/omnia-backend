@@ -1,6 +1,10 @@
 package com.omnia.backend.dto.response;
 
-import lombok.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 import java.time.LocalDateTime;
 
@@ -15,6 +19,12 @@ public class ProductImageResponse {
 
     private Long productId;
 
+    private Long uploadedFileId;
+
+    /*
+     * URL used by Android or another client to retrieve
+     * the image from the backend.
+     */
     private String imageUrl;
 
     private Boolean isPrimary;

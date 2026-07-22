@@ -1,6 +1,12 @@
 package com.omnia.backend.dto.request;
 
-import lombok.*;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 @Getter
 @Setter
@@ -9,7 +15,14 @@ import lombok.*;
 @Builder
 public class ProductImageRequest {
 
-    private String imageUrl;
+    @NotNull(
+            message = "Uploaded file id must not be null"
+    )
+    @Positive(
+            message = "Uploaded file id must be positive"
+    )
+    private Long uploadedFileId;
 
-    private Boolean isPrimary;
+    @Builder.Default
+    private Boolean isPrimary = false;
 }

@@ -1,5 +1,6 @@
 package com.omnia.backend.service.impl;
 
+import com.omnia.backend.mapper.UserMapper;
 import com.omnia.backend.common.exception.EmailNotVerifiedException;
 import com.omnia.backend.common.exception.InvalidCredentialsException;
 import com.omnia.backend.common.exception.ResourceAlreadyExistsException;
@@ -194,14 +195,7 @@ public class AuthServiceImpl implements AuthService {
                         )
                 );
 
-        return UserResponse.builder()
-                .id(user.getId())
-                .firstName(user.getFirstName())
-                .lastName(user.getLastName())
-                .username(user.getUsername())
-                .email(user.getEmail())
-                .role(user.getRole().getName())
-                .build();
+        return UserMapper.toResponse(user);
     }
 
     @Override

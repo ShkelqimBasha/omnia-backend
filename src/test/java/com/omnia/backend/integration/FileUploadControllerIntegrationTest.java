@@ -337,7 +337,7 @@ class FileUploadControllerIntegrationTest
     }
 
     @Test
-    void uploadFile_WithoutAuthentication_ShouldReturnForbidden()
+    void uploadFile_WithoutAuthentication_ShouldReturnUnauthorized()
             throws Exception {
 
         MockMultipartFile file =
@@ -352,8 +352,7 @@ class FileUploadControllerIntegrationTest
                         multipart("/api/files/upload")
                                 .file(file)
                 )
-                .andExpect(status().isForbidden());
-
+                .andExpect(status().isUnauthorized());
         assertThat(
                 uploadedFileRepository.count()
         ).isZero();

@@ -93,16 +93,16 @@ class ActuatorHealthIntegrationTest
         mockMvc.perform(
                         get("/actuator/info")
                 )
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
-    void unexposedActuatorEndpoint_ShouldNotBePublic()
+    void unexposedActuatorEndpoint_WhenUnauthenticated_ShouldReturnUnauthorizedunexposedActuatorEndpoint_ShouldNotBePublic()
             throws Exception {
 
         mockMvc.perform(
                         get("/actuator/env")
                 )
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
     }
 }

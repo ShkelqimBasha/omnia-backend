@@ -434,7 +434,7 @@ class UserProfileControllerIntegrationTest
     }
 
     @Test
-    void assignAvatar_WithoutAuthentication_ShouldReturnForbidden()
+    void assignAvatar_WithoutAuthentication_ShouldReturnUnauthorized()
             throws Exception {
 
         Long uploadedFileId =
@@ -463,7 +463,7 @@ class UserProfileControllerIntegrationTest
                                         )
                                 )
                 )
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
     }
 
     private Long uploadAvatarAndGetId()

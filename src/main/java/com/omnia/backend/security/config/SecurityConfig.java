@@ -2,6 +2,8 @@ package com.omnia.backend.security.config;
 
 import com.omnia.backend.config.CorsProperties;
 import com.omnia.backend.security.filter.JwtAuthenticationFilter;
+import com.omnia.backend.security.handler.RestAccessDeniedHandler;
+import com.omnia.backend.security.handler.RestAuthenticationEntryPoint;
 import com.omnia.backend.security.service.CustomUserDetailsService;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -35,10 +37,19 @@ public class SecurityConfig {
 
     private final CorsProperties corsProperties;
 
+    private final RestAuthenticationEntryPoint
+            authenticationEntryPoint;
+
+    private final RestAccessDeniedHandler
+            accessDeniedHandler;
+
     public SecurityConfig(
             JwtAuthenticationFilter jwtAuthenticationFilter,
             CustomUserDetailsService userDetailsService,
-            CorsProperties corsProperties
+            CorsProperties corsProperties,
+            RestAuthenticationEntryPoint
+                    authenticationEntryPoint,
+            RestAccessDeniedHandler accessDeniedHandler
     ) {
         this.jwtAuthenticationFilter =
                 jwtAuthenticationFilter;
@@ -48,6 +59,12 @@ public class SecurityConfig {
 
         this.corsProperties =
                 corsProperties;
+
+        this.authenticationEntryPoint =
+                authenticationEntryPoint;
+
+        this.accessDeniedHandler =
+                accessDeniedHandler;
     }
 
     @Bean
@@ -56,9 +73,11 @@ public class SecurityConfig {
     ) throws Exception {
 
         http
-                .cors(cors -> cors.configurationSource(
-                        corsConfigurationSource()
-                ))
+                .cors(cors ->
+                        cors.configurationSource(
+                                corsConfigurationSource()
+                        )
+                )
 
                 .csrf(csrf -> csrf.disable())
 
@@ -66,6 +85,16 @@ public class SecurityConfig {
                         session.sessionCreationPolicy(
                                 SessionCreationPolicy.STATELESS
                         )
+                )
+
+                .exceptionHandling(exceptions ->
+                        exceptions
+                                .authenticationEntryPoint(
+                                        authenticationEntryPoint
+                                )
+                                .accessDeniedHandler(
+                                        accessDeniedHandler
+                                )
                 )
 
                 .authorizeHttpRequests(auth -> auth
@@ -85,7 +114,8 @@ public class SecurityConfig {
                                 "/actuator/health/**",
                                 "/livez",
                                 "/readyz"
-                        ).permitAll()
+                        )
+                        .permitAll()
 
                         .requestMatchers(
                                 "/api/roles/**"

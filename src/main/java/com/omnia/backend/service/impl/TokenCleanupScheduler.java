@@ -31,11 +31,11 @@ public class TokenCleanupScheduler {
     @Scheduled(cron = "0 0 3 * * *")
     public void cleanupExpiredTokens() {
 
-        int deletedRefreshTokens =
-                refreshTokenService.deleteExpiredTokens();
+        int  deletedExpiredOrRevokedRefreshTokens =
+                refreshTokenService.deleteExpiredOrRevokedTokens();
 
         int deletedEmailVerificationTokens =
-                emailVerificationService.deleteExpiredTokens();
+                emailVerificationService.deleteExpiredOrUsedTokens();
 
         int deletedPasswordResetTokens =
                 passwordResetService.deleteExpiredTokens();
@@ -44,7 +44,7 @@ public class TokenCleanupScheduler {
                 "Expired token cleanup completed: {} refresh tokens, "
                         + "{} email verification tokens and "
                         + "{} password reset tokens deleted",
-                deletedRefreshTokens,
+                deletedExpiredOrRevokedRefreshTokens,
                 deletedEmailVerificationTokens,
                 deletedPasswordResetTokens
         );

@@ -5,13 +5,21 @@ import com.omnia.backend.entity.User;
 
 public interface RefreshTokenService {
 
-    RefreshToken createRefreshToken(User user);
+    String createRefreshToken(
+            User user
+    );
 
-    RefreshToken verifyRefreshToken(String token);
+    RefreshToken verifyRefreshToken(
+            String rawToken
+    );
 
-    void revokeToken(String token);
+    void revokeToken(
+            String rawToken
+    );
 
-    void revokeAllUserTokens(Long userId);
+    void revokeAllUserTokens(
+            Long userId
+    );
 
-    int deleteExpiredTokens();
+    int deleteExpiredOrRevokedTokens();
 }

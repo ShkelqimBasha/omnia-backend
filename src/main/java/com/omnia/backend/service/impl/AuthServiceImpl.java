@@ -154,12 +154,12 @@ public class AuthServiceImpl implements AuthService {
         String accessToken =
                 jwtService.generateToken(user.getEmail());
 
-        RefreshToken refreshToken =
+        String refreshToken =
                 refreshTokenService.createRefreshToken(user);
 
         return AuthResponse.builder()
                 .accessToken(accessToken)
-                .refreshToken(refreshToken.getToken())
+                .refreshToken(refreshToken)
                 .message("Login successful")
                 .build();
     }
@@ -225,7 +225,7 @@ public class AuthServiceImpl implements AuthService {
             );
         }
 
-        RefreshToken newRefreshToken =
+        String newRefreshToken =
                 refreshTokenService.createRefreshToken(user);
 
         String newAccessToken =
@@ -233,7 +233,7 @@ public class AuthServiceImpl implements AuthService {
 
         return AuthResponse.builder()
                 .accessToken(newAccessToken)
-                .refreshToken(newRefreshToken.getToken())
+                .refreshToken(newRefreshToken)
                 .message("Token refreshed successfully")
                 .build();
     }

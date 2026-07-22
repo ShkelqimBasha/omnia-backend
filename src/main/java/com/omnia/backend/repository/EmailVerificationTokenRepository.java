@@ -12,21 +12,30 @@ import java.util.Optional;
 public interface EmailVerificationTokenRepository
         extends JpaRepository<EmailVerificationToken, Long> {
 
-    Optional<EmailVerificationToken> findByToken(String token);
+    Optional<EmailVerificationToken> findByTokenHash(
+            String tokenHash
+    );
 
-    Optional<EmailVerificationToken> findByUserId(Long userId);
+    Optional<EmailVerificationToken> findByUserId(
+            Long userId
+    );
 
-    @Modifying
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
-            delete from EmailVerificationToken token
-            where token.user.id = :userId
+            delete from EmailVerificationToken verificationToken
+            where verificationToken.user.id = :userId
             """)
-    int deleteByUserId(@Param("userId") Long userId);
+    int deleteByUserId(
+            @Param("userId") Long userId
+    );
 
-    @Modifying
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
-            delete from EmailVerificationToken token
-            where token.expiresAt < :now
+            delete from EmailVerificationToken verificationToken
+            where verificationToken.expiresAt <= :now
+               or verificationToken.used = true
             """)
-    int deleteExpiredTokens(@Param("now") LocalDateTime now);
+    int deleteExpiredOrUsedTokens(
+            @Param("now") LocalDateTime now
+    );
 }

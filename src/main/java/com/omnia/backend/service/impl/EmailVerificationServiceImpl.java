@@ -3,50 +3,58 @@ package com.omnia.backend.service.impl;
 import com.omnia.backend.common.exception.EmailAlreadyVerifiedException;
 import com.omnia.backend.common.exception.EmailVerificationTokenExpiredException;
 import com.omnia.backend.common.exception.InvalidEmailVerificationTokenException;
-import com.omnia.backend.common.exception.ResourceNotFoundException;
+import com.omnia.backend.config.EmailVerificationProperties;
 import com.omnia.backend.entity.EmailVerificationToken;
 import com.omnia.backend.entity.User;
 import com.omnia.backend.repository.EmailVerificationTokenRepository;
 import com.omnia.backend.repository.UserRepository;
+import com.omnia.backend.security.service.SecureTokenService;
 import com.omnia.backend.service.interfaces.EmailService;
 import com.omnia.backend.service.interfaces.EmailVerificationService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
-import java.util.UUID;
+import java.util.Locale;
 
 @Service
 @Transactional
 public class EmailVerificationServiceImpl
         implements EmailVerificationService {
 
-    private static final long TOKEN_EXPIRATION_HOURS = 24;
+    private static final int MAX_TOKEN_LENGTH = 512;
 
     private final EmailVerificationTokenRepository tokenRepository;
     private final UserRepository userRepository;
     private final EmailService emailService;
+    private final EmailVerificationProperties properties;
+    private final Clock clock;
+    private final SecureTokenService secureTokenService;
 
     public EmailVerificationServiceImpl(
             EmailVerificationTokenRepository tokenRepository,
             UserRepository userRepository,
-            EmailService emailService
+            EmailService emailService,
+            EmailVerificationProperties properties,
+            Clock clock,
+            SecureTokenService secureTokenService
     ) {
         this.tokenRepository = tokenRepository;
         this.userRepository = userRepository;
         this.emailService = emailService;
+        this.properties = properties;
+        this.clock = clock;
+        this.secureTokenService = secureTokenService;
     }
 
     @Override
     public void createVerificationToken(User user) {
+        validateUser(user);
 
-        if (user == null || user.getId() == null) {
-            throw new IllegalArgumentException(
-                    "User must not be null and must have a valid ID"
-            );
-        }
-
-        if (Boolean.TRUE.equals(user.getEmailVerified())) {
+        if (Boolean.TRUE.equals(
+                user.getEmailVerified()
+        )) {
             throw new EmailAlreadyVerifiedException(
                     "Email address is already verified"
             );
@@ -54,38 +62,45 @@ public class EmailVerificationServiceImpl
 
         tokenRepository.deleteByUserId(user.getId());
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = currentDateTime();
+
+        String rawToken =
+                secureTokenService.generateToken();
 
         EmailVerificationToken verificationToken =
                 EmailVerificationToken.builder()
                         .user(user)
-                        .token(UUID.randomUUID().toString())
+                        .tokenHash(
+                                secureTokenService.hashToken(
+                                        rawToken
+                                )
+                        )
                         .expiresAt(
-                                now.plusHours(TOKEN_EXPIRATION_HOURS)
+                                now.plus(properties.lifetime())
                         )
                         .used(false)
                         .createdAt(now)
                         .build();
 
-        EmailVerificationToken savedToken =
-                tokenRepository.save(verificationToken);
-
-        String recipientName = buildRecipientName(user);
+        tokenRepository.save(verificationToken);
 
         emailService.sendEmailVerification(
                 user.getEmail(),
-                recipientName,
-                savedToken.getToken()
+                buildRecipientName(user),
+                rawToken
         );
     }
 
     @Override
-    public void verifyEmail(String token) {
+    public void verifyEmail(String rawToken) {
+        validateTokenValue(rawToken);
 
-        validateTokenValue(token);
+        String tokenHash =
+                secureTokenService.hashToken(rawToken);
 
         EmailVerificationToken verificationToken =
-                tokenRepository.findByToken(token)
+                tokenRepository
+                        .findByTokenHash(tokenHash)
                         .orElseThrow(() ->
                                 new InvalidEmailVerificationTokenException(
                                         "Invalid email verification token"
@@ -101,7 +116,7 @@ public class EmailVerificationServiceImpl
         }
 
         if (!verificationToken.getExpiresAt()
-                .isAfter(LocalDateTime.now())) {
+                .isAfter(currentDateTime())) {
             throw new EmailVerificationTokenExpiredException(
                     "Email verification token has expired"
             );
@@ -109,7 +124,9 @@ public class EmailVerificationServiceImpl
 
         User user = verificationToken.getUser();
 
-        if (Boolean.TRUE.equals(user.getEmailVerified())) {
+        if (Boolean.TRUE.equals(
+                user.getEmailVerified()
+        )) {
             throw new EmailAlreadyVerifiedException(
                     "Email address is already verified"
             );
@@ -124,48 +141,69 @@ public class EmailVerificationServiceImpl
 
     @Override
     public void resendVerificationEmail(String email) {
-
         if (email == null || email.isBlank()) {
             throw new IllegalArgumentException(
                     "Email must not be blank"
             );
         }
 
-        User user = userRepository.findByEmail(email.trim())
-                .orElseThrow(() ->
-                        new ResourceNotFoundException(
-                                "User not found with this email"
+        String normalizedEmail =
+                email.trim().toLowerCase(Locale.ROOT);
+
+        userRepository.findByEmail(normalizedEmail)
+                .filter(user ->
+                        !Boolean.TRUE.equals(
+                                user.getEmailVerified()
                         )
-                );
-
-        if (Boolean.TRUE.equals(user.getEmailVerified())) {
-            throw new EmailAlreadyVerifiedException(
-                    "Email address is already verified"
-            );
-        }
-
-        createVerificationToken(user);
+                )
+                .ifPresent(this::createVerificationToken);
     }
 
     @Override
-    public int deleteExpiredTokens() {
+    public int deleteExpiredOrUsedTokens() {
+        return tokenRepository
+                .deleteExpiredOrUsedTokens(
+                        currentDateTime()
+                );
+    }
 
-        return tokenRepository.deleteExpiredTokens(
-                LocalDateTime.now()
-        );
+    private void validateUser(User user) {
+        if (user == null || user.getId() == null) {
+            throw new IllegalArgumentException(
+                    "User must not be null and must have a valid ID"
+            );
+        }
+
+        if (user.getEmail() == null
+                || user.getEmail().isBlank()) {
+            throw new IllegalArgumentException(
+                    "User email must not be blank"
+            );
+        }
     }
 
     private void validateTokenValue(String token) {
-
         if (token == null || token.isBlank()) {
             throw new InvalidEmailVerificationTokenException(
                     "Email verification token must not be blank"
             );
         }
+
+        if (token.length() > MAX_TOKEN_LENGTH) {
+            throw new InvalidEmailVerificationTokenException(
+                    "Email verification token is too long"
+            );
+        }
+    }
+
+    private LocalDateTime currentDateTime() {
+        return LocalDateTime.ofInstant(
+                clock.instant(),
+                clock.getZone()
+        );
     }
 
     private String buildRecipientName(User user) {
-
         String firstName =
                 user.getFirstName() == null
                         ? ""

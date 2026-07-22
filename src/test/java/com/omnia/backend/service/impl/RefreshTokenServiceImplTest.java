@@ -1,20 +1,32 @@
 package com.omnia.backend.service.impl;
 
+import com.omnia.backend.security.service.SecureTokenService;
 import com.omnia.backend.common.exception.InvalidRefreshTokenException;
 import com.omnia.backend.common.exception.RefreshTokenExpiredException;
 import com.omnia.backend.common.exception.RefreshTokenRevokedException;
+import com.omnia.backend.config.RefreshTokenProperties;
 import com.omnia.backend.entity.RefreshToken;
 import com.omnia.backend.entity.User;
 import com.omnia.backend.repository.RefreshTokenRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.HexFormat;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -24,10 +36,21 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class RefreshTokenServiceImplTest {
 
+    private static final Instant FIXED_INSTANT =
+            Instant.parse("2026-07-19T18:00:00Z");
+
+    private static final LocalDateTime FIXED_DATE_TIME =
+            LocalDateTime.ofInstant(
+                    FIXED_INSTANT,
+                    ZoneOffset.UTC
+            );
+
+    private static final String RAW_TOKEN =
+            "valid-refresh-token";
+
     @Mock
     private RefreshTokenRepository refreshTokenRepository;
 
-    @InjectMocks
     private RefreshTokenServiceImpl refreshTokenService;
 
     private User user;
@@ -35,6 +58,26 @@ class RefreshTokenServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        Clock clock = Clock.fixed(
+                FIXED_INSTANT,
+                ZoneOffset.UTC
+        );
+
+        RefreshTokenProperties properties =
+                new RefreshTokenProperties(
+                        Duration.ofDays(30)
+                );
+
+        SecureTokenService secureTokenService =
+                new SecureTokenService();
+
+        refreshTokenService =
+                new RefreshTokenServiceImpl(
+                        refreshTokenRepository,
+                        properties,
+                        clock,
+                        secureTokenService
+                );
 
         user = User.builder()
                 .id(1L)
@@ -45,62 +88,65 @@ class RefreshTokenServiceImplTest {
         activeToken = RefreshToken.builder()
                 .id(10L)
                 .user(user)
-                .token("valid-refresh-token")
-                .expiresAt(LocalDateTime.now().plusDays(10))
+                .tokenHash(hashToken(RAW_TOKEN))
+                .expiresAt(
+                        FIXED_DATE_TIME.plusDays(10)
+                )
                 .revoked(false)
                 .build();
     }
 
     @Test
-    void createRefreshToken_shouldCreateTokenSuccessfully() {
+    void createRefreshToken_ShouldReturnRawTokenAndStoreOnlyHash() {
 
-        when(refreshTokenRepository.save(any(RefreshToken.class)))
-                .thenAnswer(invocation -> {
-                    RefreshToken token = invocation.getArgument(0);
-                    token.setId(10L);
-                    return token;
-                });
-
-        RefreshToken result =
+        String rawToken =
                 refreshTokenService.createRefreshToken(user);
 
-        assertNotNull(result);
-        assertEquals(10L, result.getId());
-        assertEquals(user, result.getUser());
-        assertNotNull(result.getToken());
-        assertFalse(result.getToken().isBlank());
-        assertFalse(result.getRevoked());
-        assertNotNull(result.getExpiresAt());
-        assertTrue(
-                result.getExpiresAt()
-                        .isAfter(LocalDateTime.now().plusDays(29))
+        assertNotNull(rawToken);
+        assertFalse(rawToken.isBlank());
+        assertEquals(43, rawToken.length());
+
+        ArgumentCaptor<RefreshToken> captor =
+                ArgumentCaptor.forClass(RefreshToken.class);
+
+        verify(refreshTokenRepository)
+                .save(captor.capture());
+
+        RefreshToken savedToken = captor.getValue();
+
+        assertEquals(user, savedToken.getUser());
+        assertEquals(
+                hashToken(rawToken),
+                savedToken.getTokenHash()
         );
-
-        verify(refreshTokenRepository)
-                .revokeAllActiveTokensByUserId(1L);
-
-        verify(refreshTokenRepository)
-                .save(any(RefreshToken.class));
-    }
-
-    @Test
-    void createRefreshToken_shouldGenerateDifferentTokens() {
-
-        when(refreshTokenRepository.save(any(RefreshToken.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
-
-        RefreshToken first =
-                refreshTokenService.createRefreshToken(user);
-
-        RefreshToken second =
-                refreshTokenService.createRefreshToken(user);
-
-        assertNotNull(first.getToken());
-        assertNotNull(second.getToken());
         assertNotEquals(
-                first.getToken(),
-                second.getToken()
+                rawToken,
+                savedToken.getTokenHash()
         );
+        assertEquals(
+                64,
+                savedToken.getTokenHash().length()
+        );
+        assertEquals(
+                FIXED_DATE_TIME.plusDays(30),
+                savedToken.getExpiresAt()
+        );
+        assertFalse(savedToken.getRevoked());
+
+        verify(refreshTokenRepository)
+                .revokeAllActiveTokensByUserId(1L);
+    }
+
+    @Test
+    void createRefreshToken_ShouldGenerateDifferentTokens() {
+
+        String firstToken =
+                refreshTokenService.createRefreshToken(user);
+
+        String secondToken =
+                refreshTokenService.createRefreshToken(user);
+
+        assertNotEquals(firstToken, secondToken);
 
         verify(refreshTokenRepository, times(2))
                 .revokeAllActiveTokensByUserId(1L);
@@ -110,12 +156,13 @@ class RefreshTokenServiceImplTest {
     }
 
     @Test
-    void createRefreshToken_shouldThrowWhenUserIsNull() {
+    void createRefreshToken_WithNullUser_ShouldThrow() {
 
         IllegalArgumentException exception =
                 assertThrows(
                         IllegalArgumentException.class,
-                        () -> refreshTokenService.createRefreshToken(null)
+                        () -> refreshTokenService
+                                .createRefreshToken(null)
                 );
 
         assertEquals(
@@ -127,54 +174,51 @@ class RefreshTokenServiceImplTest {
     }
 
     @Test
-    void createRefreshToken_shouldThrowWhenUserIdIsNull() {
+    void createRefreshToken_WithUserWithoutId_ShouldThrow() {
 
         User userWithoutId = User.builder()
-                .username("shkelqim")
-                .email("shkelqim@example.com")
+                .username("user")
+                .email("user@example.com")
                 .build();
 
-        IllegalArgumentException exception =
-                assertThrows(
-                        IllegalArgumentException.class,
-                        () -> refreshTokenService.createRefreshToken(
-                                userWithoutId
-                        )
-                );
-
-        assertEquals(
-                "User must not be null and must have a valid ID",
-                exception.getMessage()
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> refreshTokenService
+                        .createRefreshToken(userWithoutId)
         );
 
         verifyNoInteractions(refreshTokenRepository);
     }
 
     @Test
-    void verifyRefreshToken_shouldReturnValidToken() {
+    void verifyRefreshToken_WithValidToken_ShouldReturnToken() {
 
-        when(refreshTokenRepository.findByToken(
-                "valid-refresh-token"
+        when(refreshTokenRepository.findByTokenHash(
+                hashToken(RAW_TOKEN)
         )).thenReturn(Optional.of(activeToken));
 
         RefreshToken result =
                 refreshTokenService.verifyRefreshToken(
-                        "valid-refresh-token"
+                        RAW_TOKEN
                 );
 
         assertSame(activeToken, result);
 
         verify(refreshTokenRepository)
-                .findByToken("valid-refresh-token");
+                .findByTokenHash(hashToken(RAW_TOKEN));
     }
 
-    @Test
-    void verifyRefreshToken_shouldThrowWhenTokenIsNull() {
-
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" ", "   "})
+    void verifyRefreshToken_WithBlankToken_ShouldThrow(
+            String invalidToken
+    ) {
         InvalidRefreshTokenException exception =
                 assertThrows(
                         InvalidRefreshTokenException.class,
-                        () -> refreshTokenService.verifyRefreshToken(null)
+                        () -> refreshTokenService
+                                .verifyRefreshToken(invalidToken)
                 );
 
         assertEquals(
@@ -186,16 +230,21 @@ class RefreshTokenServiceImplTest {
     }
 
     @Test
-    void verifyRefreshToken_shouldThrowWhenTokenIsBlank() {
+    void verifyRefreshToken_WithOversizedToken_ShouldThrow() {
+
+        String oversizedToken = "a".repeat(513);
 
         InvalidRefreshTokenException exception =
                 assertThrows(
                         InvalidRefreshTokenException.class,
-                        () -> refreshTokenService.verifyRefreshToken("   ")
+                        () -> refreshTokenService
+                                .verifyRefreshToken(
+                                        oversizedToken
+                                )
                 );
 
         assertEquals(
-                "Refresh token must not be blank",
+                "Refresh token is too long",
                 exception.getMessage()
         );
 
@@ -203,17 +252,19 @@ class RefreshTokenServiceImplTest {
     }
 
     @Test
-    void verifyRefreshToken_shouldThrowWhenTokenDoesNotExist() {
+    void verifyRefreshToken_WithUnknownToken_ShouldThrow() {
 
-        when(refreshTokenRepository.findByToken("invalid-token"))
-                .thenReturn(Optional.empty());
+        when(refreshTokenRepository.findByTokenHash(
+                hashToken("unknown-token")
+        )).thenReturn(Optional.empty());
 
         InvalidRefreshTokenException exception =
                 assertThrows(
                         InvalidRefreshTokenException.class,
-                        () -> refreshTokenService.verifyRefreshToken(
-                                "invalid-token"
-                        )
+                        () -> refreshTokenService
+                                .verifyRefreshToken(
+                                        "unknown-token"
+                                )
                 );
 
         assertEquals(
@@ -223,20 +274,19 @@ class RefreshTokenServiceImplTest {
     }
 
     @Test
-    void verifyRefreshToken_shouldThrowWhenTokenIsRevoked() {
+    void verifyRefreshToken_WithRevokedToken_ShouldThrow() {
 
         activeToken.setRevoked(true);
 
-        when(refreshTokenRepository.findByToken(
-                "valid-refresh-token"
+        when(refreshTokenRepository.findByTokenHash(
+                hashToken(RAW_TOKEN)
         )).thenReturn(Optional.of(activeToken));
 
         RefreshTokenRevokedException exception =
                 assertThrows(
                         RefreshTokenRevokedException.class,
-                        () -> refreshTokenService.verifyRefreshToken(
-                                "valid-refresh-token"
-                        )
+                        () -> refreshTokenService
+                                .verifyRefreshToken(RAW_TOKEN)
                 );
 
         assertEquals(
@@ -246,127 +296,70 @@ class RefreshTokenServiceImplTest {
     }
 
     @Test
-    void verifyRefreshToken_shouldThrowWhenTokenIsExpired() {
+    void verifyRefreshToken_WithExpiredToken_ShouldThrow() {
 
         activeToken.setExpiresAt(
-                LocalDateTime.now().minusSeconds(1)
+                FIXED_DATE_TIME.minusSeconds(1)
         );
 
-        when(refreshTokenRepository.findByToken(
-                "valid-refresh-token"
-        )).thenReturn(Optional.of(activeToken));
-
-        RefreshTokenExpiredException exception =
-                assertThrows(
-                        RefreshTokenExpiredException.class,
-                        () -> refreshTokenService.verifyRefreshToken(
-                                "valid-refresh-token"
-                        )
-                );
-
-        assertEquals(
-                "Refresh token has expired",
-                exception.getMessage()
-        );
-    }
-
-    @Test
-    void verifyRefreshToken_shouldThrowWhenExpiryIsNow() {
-
-        activeToken.setExpiresAt(LocalDateTime.now());
-
-        when(refreshTokenRepository.findByToken(
-                "valid-refresh-token"
+        when(refreshTokenRepository.findByTokenHash(
+                hashToken(RAW_TOKEN)
         )).thenReturn(Optional.of(activeToken));
 
         assertThrows(
                 RefreshTokenExpiredException.class,
-                () -> refreshTokenService.verifyRefreshToken(
-                        "valid-refresh-token"
-                )
+                () -> refreshTokenService
+                        .verifyRefreshToken(RAW_TOKEN)
         );
     }
 
     @Test
-    void revokeToken_shouldRevokeActiveToken() {
+    void verifyRefreshToken_ExpiringNow_ShouldThrow() {
 
-        when(refreshTokenRepository.findByToken(
-                "valid-refresh-token"
+        activeToken.setExpiresAt(FIXED_DATE_TIME);
+
+        when(refreshTokenRepository.findByTokenHash(
+                hashToken(RAW_TOKEN)
         )).thenReturn(Optional.of(activeToken));
 
-        when(refreshTokenRepository.save(activeToken))
-                .thenReturn(activeToken);
-
-        refreshTokenService.revokeToken(
-                "valid-refresh-token"
+        assertThrows(
+                RefreshTokenExpiredException.class,
+                () -> refreshTokenService
+                        .verifyRefreshToken(RAW_TOKEN)
         );
+    }
+
+    @Test
+    void revokeToken_WithActiveToken_ShouldRevokeIt() {
+
+        when(refreshTokenRepository.findByTokenHash(
+                hashToken(RAW_TOKEN)
+        )).thenReturn(Optional.of(activeToken));
+
+        refreshTokenService.revokeToken(RAW_TOKEN);
 
         assertTrue(activeToken.getRevoked());
 
-        verify(refreshTokenRepository)
-                .save(activeToken);
+        verify(refreshTokenRepository).save(activeToken);
     }
 
     @Test
-    void revokeToken_shouldNotSaveWhenAlreadyRevoked() {
+    void revokeToken_WithAlreadyRevokedToken_ShouldBeIdempotent() {
 
         activeToken.setRevoked(true);
 
-        when(refreshTokenRepository.findByToken(
-                "valid-refresh-token"
+        when(refreshTokenRepository.findByTokenHash(
+                hashToken(RAW_TOKEN)
         )).thenReturn(Optional.of(activeToken));
 
-        refreshTokenService.revokeToken(
-                "valid-refresh-token"
-        );
+        refreshTokenService.revokeToken(RAW_TOKEN);
 
         verify(refreshTokenRepository, never())
                 .save(any(RefreshToken.class));
     }
 
     @Test
-    void revokeToken_shouldThrowWhenTokenDoesNotExist() {
-
-        when(refreshTokenRepository.findByToken(
-                "invalid-token"
-        )).thenReturn(Optional.empty());
-
-        InvalidRefreshTokenException exception =
-                assertThrows(
-                        InvalidRefreshTokenException.class,
-                        () -> refreshTokenService.revokeToken(
-                                "invalid-token"
-                        )
-                );
-
-        assertEquals(
-                "Invalid refresh token",
-                exception.getMessage()
-        );
-
-        verify(refreshTokenRepository, never())
-                .save(any(RefreshToken.class));
-    }
-
-    @Test
-    void revokeToken_shouldThrowWhenTokenIsBlank() {
-
-        InvalidRefreshTokenException exception =
-                assertThrows(
-                        InvalidRefreshTokenException.class,
-                        () -> refreshTokenService.revokeToken("")
-                );
-
-        assertEquals(
-                "Refresh token must not be blank",
-                exception.getMessage()
-        );
-
-        verifyNoInteractions(refreshTokenRepository);
-    }
-
-    @Test
-    void revokeAllUserTokens_shouldRevokeTokensSuccessfully() {
+    void revokeAllUserTokens_WithValidId_ShouldRevokeTokens() {
 
         refreshTokenService.revokeAllUserTokens(1L);
 
@@ -375,62 +368,52 @@ class RefreshTokenServiceImplTest {
     }
 
     @Test
-    void revokeAllUserTokens_shouldThrowWhenUserIdIsNull() {
+    void revokeAllUserTokens_WithNullId_ShouldThrow() {
 
-        IllegalArgumentException exception =
-                assertThrows(
-                        IllegalArgumentException.class,
-                        () -> refreshTokenService
-                                .revokeAllUserTokens(null)
-                );
-
-        assertEquals(
-                "User ID must not be null",
-                exception.getMessage()
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> refreshTokenService
+                        .revokeAllUserTokens(null)
         );
 
         verifyNoInteractions(refreshTokenRepository);
     }
 
     @Test
-    void deleteExpiredTokens_shouldReturnDeletedCount() {
+    void deleteExpiredOrRevokedTokens_ShouldUseCurrentTime() {
 
-        when(refreshTokenRepository.deleteExpiredTokens(
-                any(LocalDateTime.class)
-        )).thenReturn(4);
+        when(refreshTokenRepository
+                .deleteExpiredOrRevokedTokens(
+                        FIXED_DATE_TIME
+                ))
+                .thenReturn(3);
 
-        int result =
-                refreshTokenService.deleteExpiredTokens();
+        int deleted =
+                refreshTokenService
+                        .deleteExpiredOrRevokedTokens();
 
-        assertEquals(4, result);
-
-        ArgumentCaptor<LocalDateTime> timeCaptor =
-                ArgumentCaptor.forClass(LocalDateTime.class);
+        assertEquals(3, deleted);
 
         verify(refreshTokenRepository)
-                .deleteExpiredTokens(timeCaptor.capture());
-
-        LocalDateTime suppliedTime =
-                timeCaptor.getValue();
-
-        assertNotNull(suppliedTime);
-        assertTrue(
-                suppliedTime.isBefore(
-                        LocalDateTime.now().plusSeconds(1)
-                )
-        );
+                .deleteExpiredOrRevokedTokens(
+                        FIXED_DATE_TIME
+                );
     }
 
-    @Test
-    void deleteExpiredTokens_shouldReturnZeroWhenNothingWasDeleted() {
+    private String hashToken(
+            String rawToken
+    ) {
+        try {
+            MessageDigest digest =
+                    MessageDigest.getInstance("SHA-256");
 
-        when(refreshTokenRepository.deleteExpiredTokens(
-                any(LocalDateTime.class)
-        )).thenReturn(0);
+            byte[] hash = digest.digest(
+                    rawToken.getBytes(StandardCharsets.UTF_8)
+            );
 
-        int result =
-                refreshTokenService.deleteExpiredTokens();
-
-        assertEquals(0, result);
+            return HexFormat.of().formatHex(hash);
+        } catch (NoSuchAlgorithmException exception) {
+            throw new AssertionError(exception);
+        }
     }
 }

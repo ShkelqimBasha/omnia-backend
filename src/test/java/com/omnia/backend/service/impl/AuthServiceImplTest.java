@@ -293,10 +293,7 @@ class AuthServiceImplTest {
 
         when(refreshTokenService.createRefreshToken(
                 verifiedUser
-        )).thenReturn(refreshToken);
-
-        when(refreshToken.getToken())
-                .thenReturn("refresh-token");
+        )).thenReturn("refresh-token");
 
         AuthResponse result =
                 authService.login(loginRequest);
@@ -485,10 +482,7 @@ class AuthServiceImplTest {
 
         when(refreshTokenService.createRefreshToken(
                 verifiedUser
-        )).thenReturn(newRefreshToken);
-
-        when(newRefreshToken.getToken())
-                .thenReturn("new-refresh-token");
+        )).thenReturn("new-refresh-token");
 
         when(jwtService.generateToken(
                 "shkelqim@example.com"

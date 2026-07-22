@@ -3,33 +3,45 @@ package com.omnia.backend.service.impl;
 import com.omnia.backend.common.exception.InvalidRefreshTokenException;
 import com.omnia.backend.common.exception.RefreshTokenExpiredException;
 import com.omnia.backend.common.exception.RefreshTokenRevokedException;
+import com.omnia.backend.config.RefreshTokenProperties;
 import com.omnia.backend.entity.RefreshToken;
 import com.omnia.backend.entity.User;
 import com.omnia.backend.repository.RefreshTokenRepository;
+import com.omnia.backend.security.service.SecureTokenService;
 import com.omnia.backend.service.interfaces.RefreshTokenService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
-import java.util.UUID;
 
 @Service
 @Transactional
-public class RefreshTokenServiceImpl implements RefreshTokenService {
+public class RefreshTokenServiceImpl
+        implements RefreshTokenService {
 
-    private static final long REFRESH_TOKEN_DAYS = 30;
+    private static final int MAX_TOKEN_LENGTH = 512;
 
     private final RefreshTokenRepository refreshTokenRepository;
+    private final RefreshTokenProperties properties;
+    private final Clock clock;
+    private final SecureTokenService secureTokenService;
 
     public RefreshTokenServiceImpl(
-            RefreshTokenRepository refreshTokenRepository
+            RefreshTokenRepository refreshTokenRepository,
+            RefreshTokenProperties properties,
+            Clock clock,
+            SecureTokenService secureTokenService
     ) {
-        this.refreshTokenRepository = refreshTokenRepository;
+        this.refreshTokenRepository =
+                refreshTokenRepository;
+        this.properties = properties;
+        this.clock = clock;
+        this.secureTokenService = secureTokenService;
     }
 
     @Override
-    public RefreshToken createRefreshToken(User user) {
-
+    public String createRefreshToken(User user) {
         if (user == null || user.getId() == null) {
             throw new IllegalArgumentException(
                     "User must not be null and must have a valid ID"
@@ -37,42 +49,63 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
         }
 
         refreshTokenRepository
-                .revokeAllActiveTokensByUserId(user.getId());
+                .revokeAllActiveTokensByUserId(
+                        user.getId()
+                );
 
-        LocalDateTime now = LocalDateTime.now();
+        String rawToken =
+                secureTokenService.generateToken();
 
-        RefreshToken refreshToken = RefreshToken.builder()
-                .user(user)
-                .token(UUID.randomUUID().toString())
-                .expiresAt(now.plusDays(REFRESH_TOKEN_DAYS))
-                .revoked(false)
-                .build();
+        RefreshToken refreshToken =
+                RefreshToken.builder()
+                        .user(user)
+                        .tokenHash(
+                                secureTokenService.hashToken(
+                                        rawToken
+                                )
+                        )
+                        .expiresAt(
+                                currentDateTime().plus(
+                                        properties.lifetime()
+                                )
+                        )
+                        .revoked(false)
+                        .build();
 
-        return refreshTokenRepository.save(refreshToken);
+        refreshTokenRepository.save(refreshToken);
+
+        return rawToken;
     }
 
     @Override
     @Transactional(readOnly = true)
-    public RefreshToken verifyRefreshToken(String token) {
+    public RefreshToken verifyRefreshToken(
+            String rawToken
+    ) {
+        validateTokenValue(rawToken);
 
-        validateTokenValue(token);
+        String tokenHash =
+                secureTokenService.hashToken(rawToken);
 
         RefreshToken refreshToken =
-                refreshTokenRepository.findByToken(token)
+                refreshTokenRepository
+                        .findByTokenHash(tokenHash)
                         .orElseThrow(() ->
                                 new InvalidRefreshTokenException(
                                         "Invalid refresh token"
                                 )
                         );
 
-        if (Boolean.TRUE.equals(refreshToken.getRevoked())) {
+        if (Boolean.TRUE.equals(
+                refreshToken.getRevoked()
+        )) {
             throw new RefreshTokenRevokedException(
                     "Refresh token has been revoked"
             );
         }
 
         if (!refreshToken.getExpiresAt()
-                .isAfter(LocalDateTime.now())) {
+                .isAfter(currentDateTime())) {
             throw new RefreshTokenExpiredException(
                     "Refresh token has expired"
             );
@@ -82,19 +115,24 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
     }
 
     @Override
-    public void revokeToken(String token) {
+    public void revokeToken(String rawToken) {
+        validateTokenValue(rawToken);
 
-        validateTokenValue(token);
+        String tokenHash =
+                secureTokenService.hashToken(rawToken);
 
         RefreshToken refreshToken =
-                refreshTokenRepository.findByToken(token)
+                refreshTokenRepository
+                        .findByTokenHash(tokenHash)
                         .orElseThrow(() ->
                                 new InvalidRefreshTokenException(
                                         "Invalid refresh token"
                                 )
                         );
 
-        if (!Boolean.TRUE.equals(refreshToken.getRevoked())) {
+        if (!Boolean.TRUE.equals(
+                refreshToken.getRevoked()
+        )) {
             refreshToken.setRevoked(true);
             refreshTokenRepository.save(refreshToken);
         }
@@ -102,7 +140,6 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
 
     @Override
     public void revokeAllUserTokens(Long userId) {
-
         if (userId == null) {
             throw new IllegalArgumentException(
                     "User ID must not be null"
@@ -114,18 +151,31 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
     }
 
     @Override
-    public int deleteExpiredTokens() {
-
+    public int deleteExpiredOrRevokedTokens() {
         return refreshTokenRepository
-                .deleteExpiredTokens(LocalDateTime.now());
+                .deleteExpiredOrRevokedTokens(
+                        currentDateTime()
+                );
     }
 
     private void validateTokenValue(String token) {
-
         if (token == null || token.isBlank()) {
             throw new InvalidRefreshTokenException(
                     "Refresh token must not be blank"
             );
         }
+
+        if (token.length() > MAX_TOKEN_LENGTH) {
+            throw new InvalidRefreshTokenException(
+                    "Refresh token is too long"
+            );
+        }
+    }
+
+    private LocalDateTime currentDateTime() {
+        return LocalDateTime.ofInstant(
+                clock.instant(),
+                clock.getZone()
+        );
     }
 }

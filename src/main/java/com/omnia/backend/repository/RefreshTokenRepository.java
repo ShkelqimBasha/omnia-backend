@@ -12,21 +12,28 @@ import java.util.Optional;
 public interface RefreshTokenRepository
         extends JpaRepository<RefreshToken, Long> {
 
-    Optional<RefreshToken> findByToken(String token);
+    Optional<RefreshToken> findByTokenHash(
+            String tokenHash
+    );
 
-    @Modifying
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
-            update RefreshToken token
-            set token.revoked = true
-            where token.user.id = :userId
-              and token.revoked = false
+            update RefreshToken refreshToken
+            set refreshToken.revoked = true
+            where refreshToken.user.id = :userId
+              and refreshToken.revoked = false
             """)
-    int revokeAllActiveTokensByUserId(@Param("userId") Long userId);
+    int revokeAllActiveTokensByUserId(
+            @Param("userId") Long userId
+    );
 
-    @Modifying
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
-            delete from RefreshToken token
-            where token.expiresAt < :now
+            delete from RefreshToken refreshToken
+            where refreshToken.expiresAt <= :now
+               or refreshToken.revoked = true
             """)
-    int deleteExpiredTokens(@Param("now") LocalDateTime now);
+    int deleteExpiredOrRevokedTokens(
+            @Param("now") LocalDateTime now
+    );
 }

@@ -4,11 +4,17 @@ import com.omnia.backend.entity.User;
 
 public interface EmailVerificationService {
 
-    void createVerificationToken(User user);
+    void createVerificationToken(
+            User user
+    );
 
-    void verifyEmail(String token);
+    void verifyEmail(
+            String rawToken
+    );
 
-    void resendVerificationEmail(String email);
+    void resendVerificationEmail(
+            String email
+    );
 
-    int deleteExpiredTokens();
+    int deleteExpiredOrUsedTokens();
 }

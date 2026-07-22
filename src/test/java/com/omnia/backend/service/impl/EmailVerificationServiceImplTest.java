@@ -3,29 +3,53 @@ package com.omnia.backend.service.impl;
 import com.omnia.backend.common.exception.EmailAlreadyVerifiedException;
 import com.omnia.backend.common.exception.EmailVerificationTokenExpiredException;
 import com.omnia.backend.common.exception.InvalidEmailVerificationTokenException;
-import com.omnia.backend.common.exception.ResourceNotFoundException;
+import com.omnia.backend.config.EmailVerificationProperties;
 import com.omnia.backend.entity.EmailVerificationToken;
 import com.omnia.backend.entity.User;
 import com.omnia.backend.repository.EmailVerificationTokenRepository;
 import com.omnia.backend.repository.UserRepository;
+import com.omnia.backend.security.service.SecureTokenService;
 import com.omnia.backend.service.interfaces.EmailService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.HexFormat;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class EmailVerificationServiceImplTest {
+
+    private static final Instant FIXED_INSTANT =
+            Instant.parse("2026-07-21T18:00:00Z");
+
+    private static final LocalDateTime FIXED_DATE_TIME =
+            LocalDateTime.ofInstant(
+                    FIXED_INSTANT,
+                    ZoneOffset.UTC
+            );
+
+    private static final String RAW_TOKEN =
+            "valid-verification-token";
 
     @Mock
     private EmailVerificationTokenRepository tokenRepository;
@@ -36,7 +60,6 @@ class EmailVerificationServiceImplTest {
     @Mock
     private EmailService emailService;
 
-    @InjectMocks
     private EmailVerificationServiceImpl verificationService;
 
     private User user;
@@ -44,6 +67,28 @@ class EmailVerificationServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        Clock clock = Clock.fixed(
+                FIXED_INSTANT,
+                ZoneOffset.UTC
+        );
+
+        EmailVerificationProperties properties =
+                new EmailVerificationProperties(
+                        Duration.ofHours(24)
+                );
+
+        SecureTokenService secureTokenService =
+                new SecureTokenService();
+
+        verificationService =
+                new EmailVerificationServiceImpl(
+                        tokenRepository,
+                        userRepository,
+                        emailService,
+                        properties,
+                        clock,
+                        secureTokenService
+                );
 
         user = User.builder()
                 .id(1L)
@@ -54,132 +99,117 @@ class EmailVerificationServiceImplTest {
                 .emailVerified(false)
                 .build();
 
-        activeToken = EmailVerificationToken.builder()
-                .id(10L)
-                .user(user)
-                .token("valid-verification-token")
-                .expiresAt(LocalDateTime.now().plusHours(12))
-                .used(false)
-                .createdAt(LocalDateTime.now())
-                .build();
+        activeToken =
+                EmailVerificationToken.builder()
+                        .id(10L)
+                        .user(user)
+                        .tokenHash(hashToken(RAW_TOKEN))
+                        .expiresAt(
+                                FIXED_DATE_TIME.plusHours(12)
+                        )
+                        .used(false)
+                        .createdAt(FIXED_DATE_TIME)
+                        .build();
     }
 
     @Test
-    void createVerificationToken_shouldCreateAndSendTokenSuccessfully() {
-
-        when(tokenRepository.save(
-                any(EmailVerificationToken.class)
-        )).thenAnswer(invocation -> {
-            EmailVerificationToken token =
-                    invocation.getArgument(0);
-
-            token.setId(10L);
-
-            return token;
-        });
-
+    void createVerificationToken_ShouldStoreHashAndSendRawToken() {
         verificationService.createVerificationToken(user);
 
-        verify(tokenRepository)
-                .deleteByUserId(1L);
+        verify(tokenRepository).deleteByUserId(1L);
 
         ArgumentCaptor<EmailVerificationToken> tokenCaptor =
                 ArgumentCaptor.forClass(
                         EmailVerificationToken.class
                 );
 
-        verify(tokenRepository)
-                .save(tokenCaptor.capture());
+        verify(tokenRepository).save(
+                tokenCaptor.capture()
+        );
+
+        ArgumentCaptor<String> rawTokenCaptor =
+                ArgumentCaptor.forClass(String.class);
+
+        verify(emailService).sendEmailVerification(
+                eq("shkelqim@example.com"),
+                eq("Shkelqim Basha"),
+                rawTokenCaptor.capture()
+        );
 
         EmailVerificationToken savedToken =
                 tokenCaptor.getValue();
 
+        String rawToken = rawTokenCaptor.getValue();
+
+        assertNotNull(rawToken);
+        assertFalse(rawToken.isBlank());
+        assertEquals(43, rawToken.length());
+
         assertEquals(user, savedToken.getUser());
-        assertNotNull(savedToken.getToken());
-        assertFalse(savedToken.getToken().isBlank());
-        assertFalse(savedToken.getUsed());
-        assertNotNull(savedToken.getCreatedAt());
-        assertNotNull(savedToken.getExpiresAt());
-
-        assertTrue(
-                savedToken.getExpiresAt()
-                        .isAfter(
-                                savedToken.getCreatedAt()
-                                        .plusHours(23)
-                        )
+        assertEquals(
+                hashToken(rawToken),
+                savedToken.getTokenHash()
         );
-
-        verify(emailService)
-                .sendEmailVerification(
-                        "shkelqim@example.com",
-                        "Shkelqim Basha",
-                        savedToken.getToken()
-                );
+        assertNotEquals(
+                rawToken,
+                savedToken.getTokenHash()
+        );
+        assertEquals(
+                64,
+                savedToken.getTokenHash().length()
+        );
+        assertEquals(
+                FIXED_DATE_TIME,
+                savedToken.getCreatedAt()
+        );
+        assertEquals(
+                FIXED_DATE_TIME.plusHours(24),
+                savedToken.getExpiresAt()
+        );
+        assertFalse(savedToken.getUsed());
     }
 
     @Test
-    void createVerificationToken_shouldUseUsernameWhenNameIsMissing() {
+    void createVerificationToken_ShouldReplaceExistingToken() {
+        verificationService.createVerificationToken(user);
 
+        verify(tokenRepository)
+                .deleteByUserId(user.getId());
+
+        verify(tokenRepository)
+                .save(any(EmailVerificationToken.class));
+    }
+
+    @Test
+    void createVerificationToken_ShouldUseUsernameWhenNameMissing() {
         user.setFirstName(null);
         user.setLastName("   ");
 
-        when(tokenRepository.save(
-                any(EmailVerificationToken.class)
-        )).thenAnswer(invocation ->
-                invocation.getArgument(0)
-        );
-
         verificationService.createVerificationToken(user);
 
-        ArgumentCaptor<EmailVerificationToken> tokenCaptor =
-                ArgumentCaptor.forClass(
-                        EmailVerificationToken.class
-                );
-
-        verify(tokenRepository)
-                .save(tokenCaptor.capture());
-
-        verify(emailService)
-                .sendEmailVerification(
-                        "shkelqim@example.com",
-                        "shkelqim",
-                        tokenCaptor.getValue().getToken()
-                );
+        verify(emailService).sendEmailVerification(
+                eq("shkelqim@example.com"),
+                eq("shkelqim"),
+                any(String.class)
+        );
     }
 
     @Test
-    void createVerificationToken_shouldTrimRecipientName() {
-
+    void createVerificationToken_ShouldTrimRecipientName() {
         user.setFirstName("  Shkelqim  ");
         user.setLastName("  Basha  ");
 
-        when(tokenRepository.save(
-                any(EmailVerificationToken.class)
-        )).thenAnswer(invocation ->
-                invocation.getArgument(0)
-        );
-
         verificationService.createVerificationToken(user);
 
-        ArgumentCaptor<EmailVerificationToken> tokenCaptor =
-                ArgumentCaptor.forClass(
-                        EmailVerificationToken.class
-                );
-
-        verify(tokenRepository)
-                .save(tokenCaptor.capture());
-
-        verify(emailService)
-                .sendEmailVerification(
-                        "shkelqim@example.com",
-                        "Shkelqim Basha",
-                        tokenCaptor.getValue().getToken()
-                );
+        verify(emailService).sendEmailVerification(
+                eq("shkelqim@example.com"),
+                eq("Shkelqim Basha"),
+                any(String.class)
+        );
     }
 
     @Test
-    void createVerificationToken_shouldThrowWhenUserIsNull() {
-
+    void createVerificationToken_WithNullUser_ShouldThrow() {
         IllegalArgumentException exception =
                 assertThrows(
                         IllegalArgumentException.class,
@@ -200,9 +230,25 @@ class EmailVerificationServiceImplTest {
     }
 
     @Test
-    void createVerificationToken_shouldThrowWhenUserIdIsNull() {
-
+    void createVerificationToken_WithUserWithoutId_ShouldThrow() {
         user.setId(null);
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> verificationService
+                        .createVerificationToken(user)
+        );
+
+        verifyNoInteractions(
+                tokenRepository,
+                userRepository,
+                emailService
+        );
+    }
+
+    @Test
+    void createVerificationToken_WithBlankEmail_ShouldThrow() {
+        user.setEmail("   ");
 
         IllegalArgumentException exception =
                 assertThrows(
@@ -212,7 +258,7 @@ class EmailVerificationServiceImplTest {
                 );
 
         assertEquals(
-                "User must not be null and must have a valid ID",
+                "User email must not be blank",
                 exception.getMessage()
         );
 
@@ -224,8 +270,7 @@ class EmailVerificationServiceImplTest {
     }
 
     @Test
-    void createVerificationToken_shouldThrowWhenEmailAlreadyVerified() {
-
+    void createVerificationToken_WithVerifiedUser_ShouldThrow() {
         user.setEmailVerified(true);
 
         EmailAlreadyVerifiedException exception =
@@ -248,21 +293,12 @@ class EmailVerificationServiceImplTest {
     }
 
     @Test
-    void verifyEmail_shouldVerifyEmailSuccessfully() {
-
-        when(tokenRepository.findByToken(
-                "valid-verification-token"
+    void verifyEmail_WithValidToken_ShouldVerifyUserAndUseToken() {
+        when(tokenRepository.findByTokenHash(
+                hashToken(RAW_TOKEN)
         )).thenReturn(Optional.of(activeToken));
 
-        when(userRepository.save(user))
-                .thenReturn(user);
-
-        when(tokenRepository.save(activeToken))
-                .thenReturn(activeToken);
-
-        verificationService.verifyEmail(
-                "valid-verification-token"
-        );
+        verificationService.verifyEmail(RAW_TOKEN);
 
         assertTrue(user.getEmailVerified());
         assertTrue(activeToken.getUsed());
@@ -271,13 +307,17 @@ class EmailVerificationServiceImplTest {
         verify(tokenRepository).save(activeToken);
     }
 
-    @Test
-    void verifyEmail_shouldThrowWhenTokenIsNull() {
-
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" ", "   "})
+    void verifyEmail_WithBlankToken_ShouldThrow(
+            String invalidToken
+    ) {
         InvalidEmailVerificationTokenException exception =
                 assertThrows(
                         InvalidEmailVerificationTokenException.class,
-                        () -> verificationService.verifyEmail(null)
+                        () -> verificationService
+                                .verifyEmail(invalidToken)
                 );
 
         assertEquals(
@@ -292,16 +332,18 @@ class EmailVerificationServiceImplTest {
     }
 
     @Test
-    void verifyEmail_shouldThrowWhenTokenIsBlank() {
+    void verifyEmail_WithOversizedToken_ShouldThrow() {
+        String oversizedToken = "a".repeat(513);
 
         InvalidEmailVerificationTokenException exception =
                 assertThrows(
                         InvalidEmailVerificationTokenException.class,
-                        () -> verificationService.verifyEmail("   ")
+                        () -> verificationService
+                                .verifyEmail(oversizedToken)
                 );
 
         assertEquals(
-                "Email verification token must not be blank",
+                "Email verification token is too long",
                 exception.getMessage()
         );
 
@@ -312,17 +354,16 @@ class EmailVerificationServiceImplTest {
     }
 
     @Test
-    void verifyEmail_shouldThrowWhenTokenDoesNotExist() {
-
-        when(tokenRepository.findByToken("invalid-token"))
-                .thenReturn(Optional.empty());
+    void verifyEmail_WithUnknownToken_ShouldThrow() {
+        when(tokenRepository.findByTokenHash(
+                hashToken("invalid-token")
+        )).thenReturn(Optional.empty());
 
         InvalidEmailVerificationTokenException exception =
                 assertThrows(
                         InvalidEmailVerificationTokenException.class,
-                        () -> verificationService.verifyEmail(
-                                "invalid-token"
-                        )
+                        () -> verificationService
+                                .verifyEmail("invalid-token")
                 );
 
         assertEquals(
@@ -334,20 +375,18 @@ class EmailVerificationServiceImplTest {
     }
 
     @Test
-    void verifyEmail_shouldThrowWhenTokenWasAlreadyUsed() {
-
+    void verifyEmail_WithUsedToken_ShouldThrow() {
         activeToken.setUsed(true);
 
-        when(tokenRepository.findByToken(
-                "valid-verification-token"
+        when(tokenRepository.findByTokenHash(
+                hashToken(RAW_TOKEN)
         )).thenReturn(Optional.of(activeToken));
 
         InvalidEmailVerificationTokenException exception =
                 assertThrows(
                         InvalidEmailVerificationTokenException.class,
-                        () -> verificationService.verifyEmail(
-                                "valid-verification-token"
-                        )
+                        () -> verificationService
+                                .verifyEmail(RAW_TOKEN)
                 );
 
         assertEquals(
@@ -355,29 +394,28 @@ class EmailVerificationServiceImplTest {
                 exception.getMessage()
         );
 
-        verifyNoInteractions(userRepository);
+        assertFalse(user.getEmailVerified());
 
+        verifyNoInteractions(userRepository);
         verify(tokenRepository, never())
                 .save(any(EmailVerificationToken.class));
     }
 
     @Test
-    void verifyEmail_shouldThrowWhenTokenIsExpired() {
-
+    void verifyEmail_WithExpiredToken_ShouldThrow() {
         activeToken.setExpiresAt(
-                LocalDateTime.now().minusMinutes(1)
+                FIXED_DATE_TIME.minusSeconds(1)
         );
 
-        when(tokenRepository.findByToken(
-                "valid-verification-token"
+        when(tokenRepository.findByTokenHash(
+                hashToken(RAW_TOKEN)
         )).thenReturn(Optional.of(activeToken));
 
         EmailVerificationTokenExpiredException exception =
                 assertThrows(
                         EmailVerificationTokenExpiredException.class,
-                        () -> verificationService.verifyEmail(
-                                "valid-verification-token"
-                        )
+                        () -> verificationService
+                                .verifyEmail(RAW_TOKEN)
                 );
 
         assertEquals(
@@ -386,26 +424,40 @@ class EmailVerificationServiceImplTest {
         );
 
         verifyNoInteractions(userRepository);
-
         verify(tokenRepository, never())
                 .save(any(EmailVerificationToken.class));
     }
 
     @Test
-    void verifyEmail_shouldThrowWhenUserEmailIsAlreadyVerified() {
+    void verifyEmail_WithTokenExpiringNow_ShouldThrow() {
+        activeToken.setExpiresAt(FIXED_DATE_TIME);
 
+        when(tokenRepository.findByTokenHash(
+                hashToken(RAW_TOKEN)
+        )).thenReturn(Optional.of(activeToken));
+
+        assertThrows(
+                EmailVerificationTokenExpiredException.class,
+                () -> verificationService
+                        .verifyEmail(RAW_TOKEN)
+        );
+
+        verifyNoInteractions(userRepository);
+    }
+
+    @Test
+    void verifyEmail_WithAlreadyVerifiedUser_ShouldThrow() {
         user.setEmailVerified(true);
 
-        when(tokenRepository.findByToken(
-                "valid-verification-token"
+        when(tokenRepository.findByTokenHash(
+                hashToken(RAW_TOKEN)
         )).thenReturn(Optional.of(activeToken));
 
         EmailAlreadyVerifiedException exception =
                 assertThrows(
                         EmailAlreadyVerifiedException.class,
-                        () -> verificationService.verifyEmail(
-                                "valid-verification-token"
-                        )
+                        () -> verificationService
+                                .verifyEmail(RAW_TOKEN)
                 );
 
         assertEquals(
@@ -416,26 +468,18 @@ class EmailVerificationServiceImplTest {
         assertFalse(activeToken.getUsed());
 
         verifyNoInteractions(userRepository);
-
         verify(tokenRepository, never())
                 .save(any(EmailVerificationToken.class));
     }
 
     @Test
-    void resendVerificationEmail_shouldSendNewTokenSuccessfully() {
-
+    void resendVerificationEmail_WithValidEmail_ShouldSendToken() {
         when(userRepository.findByEmail(
                 "shkelqim@example.com"
         )).thenReturn(Optional.of(user));
 
-        when(tokenRepository.save(
-                any(EmailVerificationToken.class)
-        )).thenAnswer(invocation ->
-                invocation.getArgument(0)
-        );
-
         verificationService.resendVerificationEmail(
-                "  shkelqim@example.com  "
+                "  SHKELQIM@EXAMPLE.COM  "
         );
 
         verify(userRepository)
@@ -444,85 +488,55 @@ class EmailVerificationServiceImplTest {
         verify(tokenRepository)
                 .deleteByUserId(1L);
 
-        ArgumentCaptor<EmailVerificationToken> tokenCaptor =
-                ArgumentCaptor.forClass(
-                        EmailVerificationToken.class
-                );
-
         verify(tokenRepository)
-                .save(tokenCaptor.capture());
+                .save(any(EmailVerificationToken.class));
 
         verify(emailService)
                 .sendEmailVerification(
-                        "shkelqim@example.com",
-                        "Shkelqim Basha",
-                        tokenCaptor.getValue().getToken()
+                        eq("shkelqim@example.com"),
+                        eq("Shkelqim Basha"),
+                        any(String.class)
                 );
     }
 
-    @Test
-    void resendVerificationEmail_shouldThrowWhenEmailIsNull() {
-
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" ", "   "})
+    void resendVerificationEmail_WithBlankEmail_ShouldThrow(
+            String invalidEmail
+    ) {
         IllegalArgumentException exception =
                 assertThrows(
                         IllegalArgumentException.class,
-                        () -> verificationService
-                                .resendVerificationEmail(null)
-                );
-
-        assertEquals(
-                "Email must not be blank",
-                exception.getMessage()
-        );
-
-        verifyNoInteractions(
-                userRepository,
-                tokenRepository,
-                emailService
-        );
-    }
-
-    @Test
-    void resendVerificationEmail_shouldThrowWhenEmailIsBlank() {
-
-        IllegalArgumentException exception =
-                assertThrows(
-                        IllegalArgumentException.class,
-                        () -> verificationService
-                                .resendVerificationEmail("   ")
-                );
-
-        assertEquals(
-                "Email must not be blank",
-                exception.getMessage()
-        );
-
-        verifyNoInteractions(
-                userRepository,
-                tokenRepository,
-                emailService
-        );
-    }
-
-    @Test
-    void resendVerificationEmail_shouldThrowWhenUserDoesNotExist() {
-
-        when(userRepository.findByEmail(
-                "missing@example.com"
-        )).thenReturn(Optional.empty());
-
-        ResourceNotFoundException exception =
-                assertThrows(
-                        ResourceNotFoundException.class,
                         () -> verificationService
                                 .resendVerificationEmail(
-                                        "missing@example.com"
+                                        invalidEmail
                                 )
                 );
 
         assertEquals(
-                "User not found with this email",
+                "Email must not be blank",
                 exception.getMessage()
+        );
+
+        verifyNoInteractions(
+                userRepository,
+                tokenRepository,
+                emailService
+        );
+    }
+
+    @Test
+    void resendVerificationEmail_WithUnknownEmail_ShouldReturnSilently() {
+        when(userRepository.findByEmail(
+                "missing@example.com"
+        )).thenReturn(Optional.empty());
+
+        assertDoesNotThrow(
+                () -> verificationService
+                        .resendVerificationEmail(
+                                "missing@example.com"
+                        )
         );
 
         verifyNoInteractions(
@@ -532,26 +546,18 @@ class EmailVerificationServiceImplTest {
     }
 
     @Test
-    void resendVerificationEmail_shouldThrowWhenEmailAlreadyVerified() {
-
+    void resendVerificationEmail_WithVerifiedUser_ShouldReturnSilently() {
         user.setEmailVerified(true);
 
         when(userRepository.findByEmail(
                 "shkelqim@example.com"
         )).thenReturn(Optional.of(user));
 
-        EmailAlreadyVerifiedException exception =
-                assertThrows(
-                        EmailAlreadyVerifiedException.class,
-                        () -> verificationService
-                                .resendVerificationEmail(
-                                        "shkelqim@example.com"
-                                )
-                );
-
-        assertEquals(
-                "Email address is already verified",
-                exception.getMessage()
+        assertDoesNotThrow(
+                () -> verificationService
+                        .resendVerificationEmail(
+                                "shkelqim@example.com"
+                        )
         );
 
         verifyNoInteractions(
@@ -561,45 +567,49 @@ class EmailVerificationServiceImplTest {
     }
 
     @Test
-    void deleteExpiredTokens_shouldReturnDeletedCount() {
-
-        when(tokenRepository.deleteExpiredTokens(
-                any(LocalDateTime.class)
+    void deleteExpiredOrUsedTokens_ShouldUseCurrentTime() {
+        when(tokenRepository.deleteExpiredOrUsedTokens(
+                FIXED_DATE_TIME
         )).thenReturn(5);
 
         int result =
-                verificationService.deleteExpiredTokens();
+                verificationService
+                        .deleteExpiredOrUsedTokens();
 
         assertEquals(5, result);
 
-        ArgumentCaptor<LocalDateTime> timeCaptor =
-                ArgumentCaptor.forClass(LocalDateTime.class);
-
         verify(tokenRepository)
-                .deleteExpiredTokens(timeCaptor.capture());
-
-        LocalDateTime suppliedTime =
-                timeCaptor.getValue();
-
-        assertNotNull(suppliedTime);
-
-        assertTrue(
-                suppliedTime.isBefore(
-                        LocalDateTime.now().plusSeconds(1)
-                )
-        );
+                .deleteExpiredOrUsedTokens(
+                        FIXED_DATE_TIME
+                );
     }
 
     @Test
-    void deleteExpiredTokens_shouldReturnZeroWhenNothingDeleted() {
-
-        when(tokenRepository.deleteExpiredTokens(
-                any(LocalDateTime.class)
+    void deleteExpiredOrUsedTokens_WhenNothingDeleted_ShouldReturnZero() {
+        when(tokenRepository.deleteExpiredOrUsedTokens(
+                FIXED_DATE_TIME
         )).thenReturn(0);
 
         int result =
-                verificationService.deleteExpiredTokens();
+                verificationService
+                        .deleteExpiredOrUsedTokens();
 
         assertEquals(0, result);
+    }
+
+    private String hashToken(String rawToken) {
+        try {
+            MessageDigest digest =
+                    MessageDigest.getInstance("SHA-256");
+
+            byte[] hash = digest.digest(
+                    rawToken.getBytes(StandardCharsets.UTF_8)
+            );
+
+            return HexFormat.of().formatHex(hash);
+
+        } catch (NoSuchAlgorithmException exception) {
+            throw new AssertionError(exception);
+        }
     }
 }

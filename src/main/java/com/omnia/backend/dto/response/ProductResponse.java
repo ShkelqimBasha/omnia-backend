@@ -27,5 +27,7 @@ public class ProductResponse {
 
     private String category;
 
+    private Long categoryId;
+
     private String status;
 }

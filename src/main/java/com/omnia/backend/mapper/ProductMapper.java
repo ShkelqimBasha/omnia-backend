@@ -17,6 +17,7 @@ public class ProductMapper {
                 .stock(product.getStock())
                 .brand(product.getBrand())
                 .category(product.getCategory().getName())
+                .categoryId(product.getCategory().getId())
                 .status(product.getStatus().name())
                 .build();
     }

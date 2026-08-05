@@ -30,5 +30,12 @@ public class ProductRequest {
     @NotNull
     private Long categoryId;
 
+    /*
+     * Temporarily optional for compatibility with
+     * existing products and the current Android app.
+     */
+    @Positive
+    private Long organizationId;
+
     private String brand;
 }

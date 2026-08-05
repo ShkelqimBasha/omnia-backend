@@ -141,6 +141,14 @@ public class User {
     private List<PasswordResetToken>
             passwordResetTokens =
             new ArrayList<>();
+    @OneToMany(
+            mappedBy = "user",
+            fetch = FetchType.LAZY
+    )
+    @Builder.Default
+    private List<OrganizationMember>
+            organizationMemberships =
+            new ArrayList<>();
 
     public boolean hasUploadedAvatar() {
         return avatarFile != null;

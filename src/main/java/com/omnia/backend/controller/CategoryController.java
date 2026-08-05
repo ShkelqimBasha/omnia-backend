@@ -22,7 +22,9 @@ public class CategoryController {
     }
 
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize(
+            "hasAnyRole('SUPER_ADMIN', 'ADMIN')"
+    )
     public ResponseEntity<CategoryResponse> createCategory(
             @Valid @RequestBody CategoryRequest request
     ) {
@@ -44,8 +46,10 @@ public class CategoryController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<CategoryResponse> updateCategory(
+    @PreAuthorize(
+            "hasAnyRole('SUPER_ADMIN', 'ADMIN')"
+    )
+        public ResponseEntity<CategoryResponse> updateCategory(
             @PathVariable Long id,
             @Valid @RequestBody CategoryRequest request
     ) {
@@ -55,8 +59,10 @@ public class CategoryController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Void> deleteCategory(
+    @PreAuthorize(
+            "hasAnyRole('SUPER_ADMIN', 'ADMIN')"
+    )
+        public ResponseEntity<Void> deleteCategory(
             @PathVariable Long id
     ) {
         categoryService.deleteCategory(id);

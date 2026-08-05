@@ -20,11 +20,35 @@ public class Product {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "category_id", nullable = false)
+    @ManyToOne(
+            fetch = FetchType.LAZY,
+            optional = false
+    )
+    @JoinColumn(
+            name = "category_id",
+            nullable = false
+    )
     private Category category;
 
-    @Column(nullable = false, length = 150)
+    /*
+     * Nullable temporarily for products that existed
+     * before organization support was introduced.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "organization_id")
+    private Organization organization;
+
+    /*
+     * User who originally created the product.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "created_by")
+    private User createdBy;
+
+    @Column(
+            nullable = false,
+            length = 150
+    )
     private String name;
 
     @Column(columnDefinition = "TEXT")
@@ -33,10 +57,18 @@ public class Product {
     @Column(length = 100)
     private String brand;
 
-    @Column(nullable = false, precision = 10, scale = 2)
+    @Column(
+            nullable = false,
+            precision = 10,
+            scale = 2
+    )
     private BigDecimal price;
 
-    @Column(name = "discount_price", precision = 10, scale = 2)
+    @Column(
+            name = "discount_price",
+            precision = 10,
+            scale = 2
+    )
     private BigDecimal discountPrice;
 
     @Column(nullable = false)
@@ -46,9 +78,17 @@ public class Product {
     @Column(nullable = false)
     private ProductStatus status;
 
-    @Column(name = "created_at", insertable = false, updatable = false)
+    @Column(
+            name = "created_at",
+            insertable = false,
+            updatable = false
+    )
     private LocalDateTime createdAt;
 
-    @Column(name = "updated_at", insertable = false, updatable = false)
+    @Column(
+            name = "updated_at",
+            insertable = false,
+            updatable = false
+    )
     private LocalDateTime updatedAt;
 }

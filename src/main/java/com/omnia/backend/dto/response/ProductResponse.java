@@ -29,5 +29,11 @@ public class ProductResponse {
 
     private Long categoryId;
 
+    private Long organizationId;
+
+    private String organizationName;
+
+    private Long createdByUserId;
+
     private String status;
 }

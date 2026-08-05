@@ -15,6 +15,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import com.omnia.backend.security.service.CurrentUserService;
+import com.omnia.backend.security.service.OrganizationAccessService;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -36,6 +38,12 @@ class ProductImageServiceImplTest {
     @Mock
     private UploadedFileRepository uploadedFileRepository;
 
+    @Mock
+    private OrganizationAccessService accessService;
+
+    @Mock
+    private CurrentUserService currentUserService;
+
     private ProductImageServiceImpl productImageService;
 
     private Product product;
@@ -49,8 +57,16 @@ class ProductImageServiceImplTest {
                 new ProductImageServiceImpl(
                         productRepository,
                         imageRepository,
-                        uploadedFileRepository
+                        uploadedFileRepository,
+                        accessService,
+                        currentUserService
                 );
+        lenient()
+                .when(
+                        currentUserService
+                                .hasCurrentPlatformAdminAuthority()
+                )
+                .thenReturn(true);
 
         product = Product.builder()
                 .id(1L)

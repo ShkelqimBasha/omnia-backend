@@ -3,14 +3,13 @@ package com.omnia.backend.dto.response;
 import lombok.*;
 
 import java.time.LocalDateTime;
-import java.util.List;
 
 @Getter
 @Setter
-@Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class UserResponse {
+@Builder
+public class AdminUserResponse {
 
     private Long id;
 
@@ -24,13 +23,11 @@ public class UserResponse {
 
     private String phone;
 
-    private String role;
-
     private String status;
 
     private Boolean emailVerified;
 
-    private Boolean platformAdmin;
+    private String platformRole;
 
     private Boolean organizationAdmin;
 
@@ -39,10 +36,6 @@ public class UserResponse {
     private Long avatarFileId;
 
     private String avatarUrl;
-
-    @Builder.Default
-    private List<CurrentUserOrganizationResponse>
-            organizations = List.of();
 
     private LocalDateTime createdAt;
 

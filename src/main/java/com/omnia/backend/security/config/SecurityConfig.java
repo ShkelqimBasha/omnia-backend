@@ -129,7 +129,10 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/api/roles/**"
                         )
-                        .hasRole("ADMIN")
+                        .hasAnyRole(
+                                "SUPER_ADMIN",
+                                "ADMIN"
+                        )
 
                         .anyRequest()
                         .authenticated()

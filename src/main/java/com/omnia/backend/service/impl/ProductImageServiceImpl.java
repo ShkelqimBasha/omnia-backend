@@ -3,14 +3,19 @@ package com.omnia.backend.service.impl;
 import com.omnia.backend.common.exception.ResourceNotFoundException;
 import com.omnia.backend.dto.request.ProductImageRequest;
 import com.omnia.backend.dto.response.ProductImageResponse;
+import com.omnia.backend.entity.Organization;
 import com.omnia.backend.entity.Product;
 import com.omnia.backend.entity.ProductImage;
 import com.omnia.backend.entity.UploadedFile;
+import com.omnia.backend.entity.User;
 import com.omnia.backend.mapper.ProductImageMapper;
 import com.omnia.backend.repository.ProductImageRepository;
 import com.omnia.backend.repository.ProductRepository;
 import com.omnia.backend.repository.UploadedFileRepository;
+import com.omnia.backend.security.service.CurrentUserService;
+import com.omnia.backend.security.service.OrganizationAccessService;
 import com.omnia.backend.service.interfaces.ProductImageService;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,18 +27,29 @@ public class ProductImageServiceImpl
         implements ProductImageService {
 
     private final ProductRepository productRepository;
+
     private final ProductImageRepository imageRepository;
-    private final UploadedFileRepository uploadedFileRepository;
+
+    private final UploadedFileRepository
+            uploadedFileRepository;
+
+    private final OrganizationAccessService accessService;
+
+    private final CurrentUserService currentUserService;
 
     public ProductImageServiceImpl(
             ProductRepository productRepository,
             ProductImageRepository imageRepository,
-            UploadedFileRepository uploadedFileRepository
+            UploadedFileRepository uploadedFileRepository,
+            OrganizationAccessService accessService,
+            CurrentUserService currentUserService
     ) {
         this.productRepository = productRepository;
         this.imageRepository = imageRepository;
         this.uploadedFileRepository =
                 uploadedFileRepository;
+        this.accessService = accessService;
+        this.currentUserService = currentUserService;
     }
 
     @Override
@@ -47,18 +63,23 @@ public class ProductImageServiceImpl
                 "Product id"
         );
 
-        Product product = productRepository
-                .findById(productId)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException(
-                                "Product not found"
-                        )
-                );
+        Product product =
+                productRepository
+                        .findById(productId)
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException(
+                                        "Product not found"
+                                )
+                        );
+
+        requireCanManageProduct(product);
 
         UploadedFile uploadedFile =
                 getUploadedFile(
                         request.getUploadedFileId()
                 );
+
+        requireCanUseUploadedFile(uploadedFile);
 
         if (imageRepository.existsByUploadedFileId(
                 uploadedFile.getId()
@@ -81,12 +102,13 @@ public class ProductImageServiceImpl
             );
         }
 
-        ProductImage image = ProductImage.builder()
-                .product(product)
-                .uploadedFile(uploadedFile)
-                .legacyImageUrl(null)
-                .isPrimary(primary)
-                .build();
+        ProductImage image =
+                ProductImage.builder()
+                        .product(product)
+                        .uploadedFile(uploadedFile)
+                        .legacyImageUrl(null)
+                        .isPrimary(primary)
+                        .build();
 
         ProductImage saved =
                 imageRepository.saveAndFlush(image);
@@ -130,18 +152,25 @@ public class ProductImageServiceImpl
                 "Image id"
         );
 
-        ProductImage image = imageRepository
-                .findById(imageId)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException(
-                                "Image not found"
-                        )
-                );
+        ProductImage image =
+                imageRepository
+                        .findById(imageId)
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException(
+                                        "Image not found"
+                                )
+                        );
+
+        requireCanManageProduct(
+                image.getProduct()
+        );
 
         UploadedFile uploadedFile =
                 getUploadedFile(
                         request.getUploadedFileId()
                 );
+
+        requireCanUseUploadedFile(uploadedFile);
 
         if (imageRepository
                 .existsByUploadedFileIdAndIdNot(
@@ -185,24 +214,23 @@ public class ProductImageServiceImpl
                 "Image id"
         );
 
-        ProductImage image = imageRepository
-                .findById(imageId)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException(
-                                "Image not found"
-                        )
-                );
+        ProductImage image =
+                imageRepository
+                        .findById(imageId)
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException(
+                                        "Image not found"
+                                )
+                        );
+
+        requireCanManageProduct(
+                image.getProduct()
+        );
 
         /*
          * Delete only the product-image relationship.
-         *
-         * The uploaded file is intentionally retained.
-         * Automatically deleting a physical file inside the same
-         * database transaction could leave the database pointing
-         * to a missing file if the transaction later rolls back.
-         *
-         * The owner or an administrator can explicitly delete the
-         * detached file through /api/files/{fileId}.
+         * The uploaded file remains stored and can be
+         * removed separately through /api/files/{fileId}.
          */
         imageRepository.delete(image);
         imageRepository.flush();
@@ -246,6 +274,78 @@ public class ProductImageServiceImpl
                             existing
                     );
                 });
+    }
+
+    private void requireCanManageProduct(
+            Product product
+    ) {
+        User currentUser =
+                currentUserService
+                        .findCurrentUser()
+                        .orElse(null);
+
+        if (isPlatformAdministrator(currentUser)) {
+            return;
+        }
+
+        Organization organization =
+                product.getOrganization();
+
+        if (organization == null) {
+            /*
+             * Only the platform administrator can manage
+             * images of old products without an organization.
+             */
+            currentUserService.requirePlatformAdmin();
+            return;
+        }
+
+        accessService.requireCanUpdateProduct(
+                organization.getId(),
+                product.getCategory().getId()
+        );
+    }
+
+    private void requireCanUseUploadedFile(
+            UploadedFile uploadedFile
+    ) {
+        User currentUser =
+                currentUserService
+                        .findCurrentUser()
+                        .orElse(null);
+
+        if (isPlatformAdministrator(currentUser)) {
+            return;
+        }
+
+        if (currentUser == null) {
+            currentUser =
+                    currentUserService.requireCurrentUser();
+        }
+
+        User fileOwner =
+                uploadedFile.getUploadedBy();
+
+        if (fileOwner == null
+                || fileOwner.getId() == null
+                || !Objects.equals(
+                fileOwner.getId(),
+                currentUser.getId()
+        )) {
+            throw new AccessDeniedException(
+                    "You can only attach files "
+                            + "uploaded by your account"
+            );
+        }
+    }
+
+    private boolean isPlatformAdministrator(
+            User currentUser
+    ) {
+        return currentUserService
+                .hasCurrentPlatformAdminAuthority()
+                || currentUserService
+                .hasPlatformAdminAccess(currentUser);
     }
 
     private void validatePositiveId(

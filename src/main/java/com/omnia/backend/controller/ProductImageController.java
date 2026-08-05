@@ -35,7 +35,7 @@ public class ProductImageController {
     }
 
     @PostMapping("/product/{productId}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ProductImageResponse> addImage(
             @PathVariable
             @Positive(message = "Product id must be positive")
@@ -75,7 +75,7 @@ public class ProductImageController {
     }
 
     @PutMapping("/{imageId}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ProductImageResponse> updateImage(
             @PathVariable
             @Positive(message = "Image id must be positive")
@@ -94,7 +94,7 @@ public class ProductImageController {
     }
 
     @DeleteMapping("/{imageId}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<Void> deleteImage(
             @PathVariable
             @Positive(message = "Image id must be positive")

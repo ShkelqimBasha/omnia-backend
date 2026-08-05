@@ -22,6 +22,10 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 
+import com.omnia.backend.repository.OrganizationRepository;
+import com.omnia.backend.security.service.CurrentUserService;
+import com.omnia.backend.security.service.OrganizationAccessService;
+
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
@@ -40,6 +44,15 @@ class ProductServiceImplTest {
     private CategoryRepository categoryRepository;
 
     @Mock
+    private OrganizationRepository organizationRepository;
+
+    @Mock
+    private OrganizationAccessService accessService;
+
+    @Mock
+    private CurrentUserService currentUserService;
+
+    @Mock
     private ProductMapper productMapper;
 
     @InjectMocks
@@ -52,6 +65,13 @@ class ProductServiceImplTest {
 
     @BeforeEach
     void setUp() {
+
+        lenient()
+                .when(
+                        currentUserService
+                                .hasCurrentPlatformAdminAuthority()
+                )
+                .thenReturn(true);
 
         category = Category.builder()
                 .id(1L)

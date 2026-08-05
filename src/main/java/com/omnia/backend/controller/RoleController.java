@@ -9,7 +9,9 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/roles")
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize(
+        "hasAnyRole('SUPER_ADMIN', 'ADMIN')"
+)
 public class RoleController {
 
     private final RoleService service;

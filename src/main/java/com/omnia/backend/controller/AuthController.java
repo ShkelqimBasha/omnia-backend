@@ -12,8 +12,12 @@ import com.omnia.backend.service.interfaces.AuthService;
 import com.omnia.backend.service.interfaces.EmailVerificationService;
 import com.omnia.backend.service.interfaces.PasswordResetService;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.util.UriComponentsBuilder;
+
+import java.net.URI;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -101,6 +105,25 @@ public class AuthController {
     ) {
         passwordResetService.resetPassword(request);
         return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/reset-password-link")
+    public ResponseEntity<Void> openResetPassword(
+            @RequestParam String token
+    ) {
+        URI appLink = UriComponentsBuilder
+                .newInstance()
+                .scheme("omnia")
+                .host("reset-password")
+                .queryParam("token", token)
+                .build()
+                .encode()
+                .toUri();
+
+        return ResponseEntity
+                .status(HttpStatus.FOUND)
+                .location(appLink)
+                .build();
     }
 
     @GetMapping("/me")

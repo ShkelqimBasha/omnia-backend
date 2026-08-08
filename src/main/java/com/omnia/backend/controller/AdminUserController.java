@@ -141,4 +141,14 @@ public class AdminUserController {
                 )
         );
     }
+
+    @DeleteMapping("/{userId}")
+    public ResponseEntity<Void> deleteUser(
+            @PathVariable
+            @Positive
+            Long userId
+    ) {
+        adminUserService.deleteUser(userId);
+        return ResponseEntity.noContent().build();
+    }
 }

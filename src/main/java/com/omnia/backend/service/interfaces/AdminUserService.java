@@ -37,5 +37,7 @@ public interface AdminUserService {
             UserRoleUpdateRequest request
     );
 
+    void deleteUser(Long userId);
+
     AdminUserStatsResponse getStats();
 }

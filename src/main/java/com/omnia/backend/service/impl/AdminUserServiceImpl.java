@@ -386,6 +386,23 @@ public class AdminUserServiceImpl
     }
 
     @Override
+    @Transactional
+    public void deleteUser(Long userId) {
+        User currentUser = requirePlatformAdministrator();
+        User targetUser = findUser(userId);
+
+        if (Objects.equals(currentUser.getId(), targetUser.getId())) {
+            throw new AccessDeniedException("You cannot delete your own account");
+        }
+
+        validateLastPlatformAdministrator(targetUser, UserStatus.INACTIVE);
+        targetUser.setStatus(UserStatus.INACTIVE);
+        targetUser.setDeletedAt(java.time.LocalDateTime.now());
+        userRepository.saveAndFlush(targetUser);
+        refreshTokenService.revokeAllUserTokens(targetUser.getId());
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public AdminUserStatsResponse getStats() {
 

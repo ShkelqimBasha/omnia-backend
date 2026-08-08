@@ -177,13 +177,16 @@ public class AdminUserServiceImpl
         User savedUser =
                 userRepository.saveAndFlush(user);
 
+        AdminUserResponse response =
+                userMapper.toResponse(
+                        savedUser,
+                        false
+                );
+
         emailVerificationService
                 .createVerificationToken(savedUser);
 
-        return userMapper.toResponse(
-                savedUser,
-                false
-        );
+        return response;
     }
 
     @Override

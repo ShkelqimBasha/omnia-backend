@@ -20,6 +20,14 @@ public class OrderResponse {
 
     private Long addressId;
 
+    private String shippingName;
+
+    private String shippingEmail;
+
+    private String shippingPhone;
+
+    private String shippingAddress;
+
     private BigDecimal totalAmount;
 
     private OrderStatus status;

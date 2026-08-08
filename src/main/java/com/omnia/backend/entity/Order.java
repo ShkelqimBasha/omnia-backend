@@ -28,6 +28,30 @@ public class Order {
     @Column(name = "address_id")
     private Long addressId;
 
+    @Column(
+            name = "shipping_name",
+            length = 150
+    )
+    private String shippingName;
+
+    @Column(
+            name = "shipping_email",
+            length = 150
+    )
+    private String shippingEmail;
+
+    @Column(
+            name = "shipping_phone",
+            length = 30
+    )
+    private String shippingPhone;
+
+    @Column(
+            name = "shipping_address",
+            length = 500
+    )
+    private String shippingAddress;
+
     @Column(name = "total_amount", nullable = false, precision = 10, scale = 2)
     private BigDecimal totalAmount;
 

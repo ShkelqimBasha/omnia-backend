@@ -8,9 +8,13 @@ import com.omnia.backend.entity.Order;
 import com.omnia.backend.entity.OrderItem;
 import com.omnia.backend.entity.Product;
 import com.omnia.backend.entity.User;
+import com.omnia.backend.entity.Payment;
+import com.omnia.backend.enums.PaymentMethod;
+import com.omnia.backend.enums.PaymentStatus;
 import com.omnia.backend.enums.OrderStatus;
 import com.omnia.backend.repository.OrderItemRepository;
 import com.omnia.backend.repository.OrderRepository;
+import com.omnia.backend.repository.PaymentRepository;
 import com.omnia.backend.repository.ProductRepository;
 import com.omnia.backend.repository.UserRepository;
 import org.junit.jupiter.api.AfterEach;
@@ -48,6 +52,9 @@ class OrderServiceImplTest {
 
     @Mock
     private UserRepository userRepository;
+
+    @Mock
+    private PaymentRepository paymentRepository;
 
     @InjectMocks
     private OrderServiceImpl orderService;
@@ -100,6 +107,10 @@ class OrderServiceImplTest {
 
         createOrderRequest = CreateOrderRequest.builder()
                 .addressId(100L)
+                .shippingName("Shkelqim Basha")
+                .shippingEmail("shkelqimbasha8@gmail.com")
+                .shippingPhone("+355686574870")
+                .shippingAddress("Tirane, Shqiperi")
                 .items(List.of(firstItemRequest))
                 .build();
 
@@ -222,6 +233,25 @@ class OrderServiceImplTest {
         verify(orderItemRepository).saveAll(any());
         verify(orderRepository, times(2))
                 .save(any(Order.class));
+
+        ArgumentCaptor<Payment> paymentCaptor =
+                ArgumentCaptor.forClass(Payment.class);
+
+        verify(paymentRepository).save(paymentCaptor.capture());
+
+        Payment savedPayment = paymentCaptor.getValue();
+
+        assertSame(finalSavedOrder, savedPayment.getOrder());
+        assertEquals(
+                PaymentMethod.CASH_ON_DELIVERY,
+                savedPayment.getMethod()
+        );
+        assertEquals(
+                PaymentStatus.PENDING,
+                savedPayment.getStatus()
+        );
+        assertNull(savedPayment.getTransactionId());
+        assertNull(savedPayment.getPaidAt());
     }
 
     @Test
@@ -236,6 +266,10 @@ class OrderServiceImplTest {
         CreateOrderRequest request =
                 CreateOrderRequest.builder()
                         .addressId(100L)
+                        .shippingName("Shkelqim Basha")
+                        .shippingEmail("shkelqimbasha8@gmail.com")
+                        .shippingPhone("+355686574870")
+                        .shippingAddress("Tirane, Shqiperi")
                         .items(List.of(regularItemRequest))
                         .build();
 
@@ -471,6 +505,10 @@ class OrderServiceImplTest {
         CreateOrderRequest request =
                 CreateOrderRequest.builder()
                         .addressId(100L)
+                        .shippingName("Shkelqim Basha")
+                        .shippingEmail("shkelqimbasha8@gmail.com")
+                        .shippingPhone("+355686574870")
+                        .shippingAddress("Tirane, Shqiperi")
                         .items(List.of(missingProductItem))
                         .build();
 
@@ -507,6 +545,10 @@ class OrderServiceImplTest {
         CreateOrderRequest request =
                 CreateOrderRequest.builder()
                         .addressId(100L)
+                        .shippingName("Shkelqim Basha")
+                        .shippingEmail("shkelqimbasha8@gmail.com")
+                        .shippingPhone("+355686574870")
+                        .shippingAddress("Tirane, Shqiperi")
                         .items(List.of(
                                 firstItemRequest,
                                 secondItemRequest
@@ -600,6 +642,10 @@ class OrderServiceImplTest {
         CreateOrderRequest request =
                 CreateOrderRequest.builder()
                         .addressId(100L)
+                        .shippingName("Shkelqim Basha")
+                        .shippingEmail("shkelqimbasha8@gmail.com")
+                        .shippingPhone("+355686574870")
+                        .shippingAddress("Tirane, Shqiperi")
                         .items(List.of(
                                 firstItemRequest,
                                 secondItemRequest
@@ -1030,6 +1076,10 @@ class OrderServiceImplTest {
         CreateOrderRequest request =
                 CreateOrderRequest.builder()
                         .addressId(100L)
+                        .shippingName("Shkelqim Basha")
+                        .shippingEmail("shkelqimbasha8@gmail.com")
+                        .shippingPhone("+355686574870")
+                        .shippingAddress("Tirane, Shqiperi")
                         .items(List.of())
                         .build();
 
@@ -1081,6 +1131,10 @@ class OrderServiceImplTest {
         CreateOrderRequest request =
                 CreateOrderRequest.builder()
                         .addressId(100L)
+                        .shippingName("Shkelqim Basha")
+                        .shippingEmail("shkelqimbasha8@gmail.com")
+                        .shippingPhone("+355686574870")
+                        .shippingAddress("Tirane, Shqiperi")
                         .items(List.of(itemRequest))
                         .build();
 
@@ -1135,6 +1189,10 @@ class OrderServiceImplTest {
         CreateOrderRequest request =
                 CreateOrderRequest.builder()
                         .addressId(999L)
+                        .shippingName("Shkelqim Basha")
+                        .shippingEmail("shkelqimbasha8@gmail.com")
+                        .shippingPhone("+355686574870")
+                        .shippingAddress("Tirane, Shqiperi")
                         .items(List.of(firstItemRequest))
                         .build();
 

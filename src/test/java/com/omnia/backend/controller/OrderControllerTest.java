@@ -393,6 +393,10 @@ class OrderControllerTest {
 
         return CreateOrderRequest.builder()
                 .addressId(ADDRESS_ID)
+                .shippingName("Shkelqim Basha")
+                .shippingEmail("shkelqimbasha8@gmail.com")
+                .shippingPhone("+355686574870")
+                .shippingAddress("Tirane, Shqiperi")
                 .items(List.of(item))
                 .build();
     }

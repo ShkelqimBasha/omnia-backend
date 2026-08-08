@@ -8,12 +8,16 @@ import com.omnia.backend.entity.Order;
 import com.omnia.backend.entity.OrderItem;
 import com.omnia.backend.entity.Product;
 import com.omnia.backend.entity.User;
+import com.omnia.backend.entity.Payment;
 import com.omnia.backend.enums.OrderStatus;
+import com.omnia.backend.enums.PaymentMethod;
+import com.omnia.backend.enums.PaymentStatus;
 import com.omnia.backend.mapper.OrderMapper;
 import com.omnia.backend.repository.OrderItemRepository;
 import com.omnia.backend.repository.OrderRepository;
 import com.omnia.backend.repository.ProductRepository;
 import com.omnia.backend.repository.UserRepository;
+import com.omnia.backend.repository.PaymentRepository;
 import com.omnia.backend.service.interfaces.OrderService;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -31,17 +35,20 @@ public class OrderServiceImpl implements OrderService {
     private final OrderItemRepository orderItemRepository;
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
+    private final PaymentRepository paymentRepository;
 
     public OrderServiceImpl(
             OrderRepository orderRepository,
             OrderItemRepository orderItemRepository,
             ProductRepository productRepository,
-            UserRepository userRepository
+            UserRepository userRepository,
+            PaymentRepository paymentRepository
     ) {
         this.orderRepository = orderRepository;
         this.orderItemRepository = orderItemRepository;
         this.productRepository = productRepository;
         this.userRepository = userRepository;
+        this.paymentRepository = paymentRepository;
     }
 
     @Override
@@ -56,9 +63,18 @@ public class OrderServiceImpl implements OrderService {
         Order order = Order.builder()
                 .user(user)
                 .addressId(request.getAddressId())
+                .shippingName(request.getShippingName().trim())
+                .shippingEmail(
+                        request.getShippingEmail()
+                                .trim()
+                                .toLowerCase(java.util.Locale.ROOT)
+                )
+                .shippingPhone(request.getShippingPhone().trim())
+                .shippingAddress(request.getShippingAddress().trim())
                 .totalAmount(BigDecimal.ZERO)
                 .status(OrderStatus.PENDING)
                 .build();
+
 
         Order savedOrder = orderRepository.save(order);
 
@@ -94,6 +110,14 @@ public class OrderServiceImpl implements OrderService {
 
         savedOrder.setTotalAmount(totalAmount);
         Order finalOrder = orderRepository.save(savedOrder);
+
+        Payment payment = Payment.builder()
+                .order(finalOrder)
+                .method(PaymentMethod.CASH_ON_DELIVERY)
+                .status(PaymentStatus.PENDING)
+                .build();
+
+        paymentRepository.save(payment);
 
         return OrderMapper.toResponse(finalOrder, orderItems);
     }

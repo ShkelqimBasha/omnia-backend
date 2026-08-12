@@ -1353,4 +1353,279 @@ class OrderServiceImplTest {
         verify(orderItemRepository, times(1))
                 .findByOrderId(51L);
     }
+    @Test
+    void createOrder_shouldCalculateShippingAndFinalTotal() {
+
+        Product product = Product.builder()
+                .id(30L)
+                .name("Test Product")
+                .price(new BigDecimal("35.90"))
+                .discountPrice(null)
+                .build();
+
+        CreateOrderRequest request = CreateOrderRequest.builder()
+                .shippingName("Test User")
+                .shippingEmail("test@example.com")
+                .shippingPhone("+355690000000")
+                .shippingAddress("Tirane, Shqiperi")
+                .items(List.of(
+                        CreateOrderItemRequest.builder()
+                                .productId(30L)
+                                .quantity(1)
+                                .build()
+                ))
+                .build();
+
+        when(userRepository.findByEmail("shkelqim@example.com"))
+                .thenReturn(Optional.of(currentUser));
+
+        when(productRepository.findById(30L))
+                .thenReturn(Optional.of(product));
+
+        when(orderRepository.save(any(Order.class)))
+                .thenAnswer(invocation -> {
+                    Order savedOrder = invocation.getArgument(0);
+                    savedOrder.setId(60L);
+                    return savedOrder;
+                });
+
+        when(orderItemRepository.saveAll(any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        OrderResponse result = orderService.createOrder(request);
+
+        assertEquals(
+                0,
+                new BigDecimal("35.90")
+                        .compareTo(result.getSubtotalAmount())
+        );
+
+        assertEquals(
+                0,
+                new BigDecimal("3.50")
+                        .compareTo(result.getShippingFee())
+        );
+
+        assertEquals(
+                0,
+                BigDecimal.ZERO
+                        .compareTo(result.getDiscountAmount())
+        );
+
+        assertEquals(
+                0,
+                new BigDecimal("39.40")
+                        .compareTo(result.getTotalAmount())
+        );
+
+        assertNull(result.getCouponCode());
+    }
+    @Test
+    void createOrder_shouldApplyOmnia10Coupon() {
+
+        Product product = Product.builder()
+                .id(31L)
+                .name("Coupon Test Product")
+                .price(new BigDecimal("35.90"))
+                .discountPrice(null)
+                .build();
+
+        CreateOrderRequest request = CreateOrderRequest.builder()
+                .shippingName("Test User")
+                .shippingEmail("test@example.com")
+                .shippingPhone("+355690000000")
+                .shippingAddress("Tirane, Shqiperi")
+                .couponCode(" omnia10 ")
+                .items(List.of(
+                        CreateOrderItemRequest.builder()
+                                .productId(31L)
+                                .quantity(1)
+                                .build()
+                ))
+                .build();
+
+        when(userRepository.findByEmail("shkelqim@example.com"))
+                .thenReturn(Optional.of(currentUser));
+
+        when(productRepository.findById(31L))
+                .thenReturn(Optional.of(product));
+
+        when(orderRepository.save(any(Order.class)))
+                .thenAnswer(invocation -> {
+                    Order savedOrder = invocation.getArgument(0);
+                    savedOrder.setId(61L);
+                    return savedOrder;
+                });
+
+        when(orderItemRepository.saveAll(any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        OrderResponse result = orderService.createOrder(request);
+
+        assertEquals("OMNIA10", result.getCouponCode());
+
+        assertEquals(
+                0,
+                new BigDecimal("3.59")
+                        .compareTo(result.getDiscountAmount())
+        );
+
+        assertEquals(
+                0,
+                new BigDecimal("3.50")
+                        .compareTo(result.getShippingFee())
+        );
+
+        assertEquals(
+                0,
+                new BigDecimal("35.81")
+                        .compareTo(result.getTotalAmount())
+        );
+    }
+    @Test
+    void createOrder_shouldRemoveShippingWhenFreeCouponIsUsed() {
+
+        Product product = Product.builder()
+                .id(32L)
+                .name("Free Shipping Product")
+                .price(new BigDecimal("35.90"))
+                .discountPrice(null)
+                .build();
+
+        CreateOrderRequest request = CreateOrderRequest.builder()
+                .shippingName("Test User")
+                .shippingEmail("test@example.com")
+                .shippingPhone("+355690000000")
+                .shippingAddress("Tirane, Shqiperi")
+                .couponCode("FREE")
+                .items(List.of(
+                        CreateOrderItemRequest.builder()
+                                .productId(32L)
+                                .quantity(1)
+                                .build()
+                ))
+                .build();
+
+        when(userRepository.findByEmail("shkelqim@example.com"))
+                .thenReturn(Optional.of(currentUser));
+
+        when(productRepository.findById(32L))
+                .thenReturn(Optional.of(product));
+
+        when(orderRepository.save(any(Order.class)))
+                .thenAnswer(invocation -> {
+                    Order savedOrder = invocation.getArgument(0);
+                    savedOrder.setId(62L);
+                    return savedOrder;
+                });
+
+        when(orderItemRepository.saveAll(any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        OrderResponse result = orderService.createOrder(request);
+
+        assertEquals("FREE", result.getCouponCode());
+
+        assertEquals(
+                0,
+                BigDecimal.ZERO.compareTo(result.getShippingFee())
+        );
+
+        assertEquals(
+                0,
+                BigDecimal.ZERO.compareTo(result.getDiscountAmount())
+        );
+
+        assertEquals(
+                0,
+                new BigDecimal("35.90")
+                        .compareTo(result.getTotalAmount())
+        );
+    }
+    @Test
+    void createOrder_shouldApplyWelcome5Coupon() {
+
+        Product product = Product.builder()
+                .id(33L)
+                .name("Welcome Coupon Product")
+                .price(new BigDecimal("35.90"))
+                .discountPrice(null)
+                .build();
+
+        CreateOrderRequest request = CreateOrderRequest.builder()
+                .shippingName("Test User")
+                .shippingEmail("test@example.com")
+                .shippingPhone("+355690000000")
+                .shippingAddress("Tirane, Shqiperi")
+                .couponCode("WELCOME5")
+                .items(List.of(
+                        CreateOrderItemRequest.builder()
+                                .productId(33L)
+                                .quantity(1)
+                                .build()
+                ))
+                .build();
+
+        when(userRepository.findByEmail("shkelqim@example.com"))
+                .thenReturn(Optional.of(currentUser));
+
+        when(productRepository.findById(33L))
+                .thenReturn(Optional.of(product));
+
+        when(orderRepository.save(any(Order.class)))
+                .thenAnswer(invocation -> {
+                    Order savedOrder = invocation.getArgument(0);
+                    savedOrder.setId(63L);
+                    return savedOrder;
+                });
+
+        when(orderItemRepository.saveAll(any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        OrderResponse result = orderService.createOrder(request);
+
+        assertEquals("WELCOME5", result.getCouponCode());
+
+        assertEquals(
+                0,
+                new BigDecimal("5.00")
+                        .compareTo(result.getDiscountAmount())
+        );
+
+        assertEquals(
+                0,
+                new BigDecimal("34.40")
+                        .compareTo(result.getTotalAmount())
+        );
+    }
+
+    @Test
+    void createOrder_shouldRejectInvalidCoupon() {
+
+        CreateOrderRequest request = CreateOrderRequest.builder()
+                .shippingName("Test User")
+                .shippingEmail("test@example.com")
+                .shippingPhone("+355690000000")
+                .shippingAddress("Tirane, Shqiperi")
+                .couponCode("INVALID50")
+                .items(List.of(firstItemRequest))
+                .build();
+
+        when(userRepository.findByEmail("shkelqim@example.com"))
+                .thenReturn(Optional.of(currentUser));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> orderService.createOrder(request)
+        );
+
+        assertEquals(
+                "Invalid coupon code",
+                exception.getMessage()
+        );
+
+        verify(orderRepository, never()).save(any(Order.class));
+        verify(orderItemRepository, never()).saveAll(any());
+        verify(paymentRepository, never()).save(any(Payment.class));
+    }
 }

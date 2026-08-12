@@ -55,6 +55,21 @@ public class Order {
     @Column(name = "total_amount", nullable = false, precision = 10, scale = 2)
     private BigDecimal totalAmount;
 
+    @Column(name = "subtotal_amount", nullable = false, precision = 10, scale = 2)
+    @Builder.Default
+    private BigDecimal subtotalAmount = BigDecimal.ZERO;
+
+    @Column(name = "shipping_fee", nullable = false, precision = 10, scale = 2)
+    @Builder.Default
+    private BigDecimal shippingFee = BigDecimal.ZERO;
+
+    @Column(name = "discount_amount", nullable = false, precision = 10, scale = 2)
+    @Builder.Default
+    private BigDecimal discountAmount = BigDecimal.ZERO;
+
+    @Column(name = "coupon_code", length = 50)
+    private String couponCode;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private OrderStatus status;

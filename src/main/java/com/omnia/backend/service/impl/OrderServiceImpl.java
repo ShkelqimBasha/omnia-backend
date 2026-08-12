@@ -24,6 +24,8 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.RoundingMode;
+import java.util.Locale;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
@@ -57,6 +59,23 @@ public class OrderServiceImpl implements OrderService {
 
         User user = getCurrentUser();
 
+        String couponCode = request.getCouponCode() == null
+                ? null
+                : request.getCouponCode()
+                .trim()
+                .toUpperCase(Locale.ROOT);
+
+        if (couponCode != null && couponCode.isEmpty()) {
+            couponCode = null;
+        }
+
+        if (couponCode != null
+                && !couponCode.equals("OMNIA10")
+                && !couponCode.equals("WELCOME5")
+                && !couponCode.equals("FREE")) {
+            throw new IllegalArgumentException("Invalid coupon code");
+        }
+
         BigDecimal totalAmount = BigDecimal.ZERO;
         List<OrderItem> orderItems = new ArrayList<>();
 
@@ -72,6 +91,10 @@ public class OrderServiceImpl implements OrderService {
                 .shippingPhone(request.getShippingPhone().trim())
                 .shippingAddress(request.getShippingAddress().trim())
                 .totalAmount(BigDecimal.ZERO)
+                .subtotalAmount(BigDecimal.ZERO)
+                .shippingFee(BigDecimal.ZERO)
+                .discountAmount(BigDecimal.ZERO)
+                .couponCode(couponCode)
                 .status(OrderStatus.PENDING)
                 .build();
 
@@ -108,7 +131,42 @@ public class OrderServiceImpl implements OrderService {
 
         orderItemRepository.saveAll(orderItems);
 
-        savedOrder.setTotalAmount(totalAmount);
+        BigDecimal subtotalAmount =
+                totalAmount.setScale(2, RoundingMode.HALF_UP);
+
+        BigDecimal discountAmount = BigDecimal.ZERO;
+
+        if ("OMNIA10".equals(couponCode)) {
+            discountAmount = subtotalAmount
+                    .multiply(new BigDecimal("0.10"))
+                    .setScale(2, RoundingMode.HALF_UP);
+        } else if ("WELCOME5".equals(couponCode)) {
+            discountAmount = subtotalAmount.min(
+                    new BigDecimal("5.00")
+            );
+        }
+
+        BigDecimal shippingFee =
+                subtotalAmount.signum() == 0
+                        || subtotalAmount.compareTo(
+                        new BigDecimal("50.00")
+                ) > 0
+                        || "FREE".equals(couponCode)
+                        ? BigDecimal.ZERO
+                        : new BigDecimal("3.50");
+
+        BigDecimal finalTotal = subtotalAmount
+                .add(shippingFee)
+                .subtract(discountAmount)
+                .max(BigDecimal.ZERO)
+                .setScale(2, RoundingMode.HALF_UP);
+
+        savedOrder.setSubtotalAmount(subtotalAmount);
+        savedOrder.setShippingFee(shippingFee);
+        savedOrder.setDiscountAmount(discountAmount);
+        savedOrder.setCouponCode(couponCode);
+        savedOrder.setTotalAmount(finalTotal);
+
         Order finalOrder = orderRepository.save(savedOrder);
 
         Payment payment = Payment.builder()

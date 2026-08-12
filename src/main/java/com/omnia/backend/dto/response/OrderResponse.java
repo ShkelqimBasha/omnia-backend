@@ -30,6 +30,11 @@ public class OrderResponse {
 
     private BigDecimal totalAmount;
 
+    private BigDecimal subtotalAmount;
+    private BigDecimal shippingFee;
+    private BigDecimal discountAmount;
+    private String couponCode;
+
     private OrderStatus status;
 
     private LocalDateTime createdAt;

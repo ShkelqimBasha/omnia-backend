@@ -35,6 +35,9 @@ public class CreateOrderRequest {
     @Size(max = 500)
     private String shippingAddress;
 
+    @Size(max = 50)
+    private String couponCode;
+
     @Valid
     @NotEmpty
     private List<CreateOrderItemRequest> items;

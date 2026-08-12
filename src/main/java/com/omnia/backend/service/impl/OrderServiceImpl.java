@@ -103,8 +103,25 @@ public class OrderServiceImpl implements OrderService {
 
         for (CreateOrderItemRequest itemRequest : request.getItems()) {
 
-            Product product = productRepository.findById(itemRequest.getProductId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
+            Product product = productRepository
+                    .findByIdForUpdate(itemRequest.getProductId())
+                    .orElseThrow(() ->
+                            new ResourceNotFoundException(
+                                    "Product not found"
+                            )
+                    );
+
+            int requestedQuantity = itemRequest.getQuantity();
+            int availableStock = product.getStock() == null
+                    ? 0
+                    : product.getStock();
+
+            if (requestedQuantity > availableStock) {
+                throw new IllegalArgumentException(
+                        "Insufficient stock for product: "
+                                + product.getName()
+                );
+            }
 
             BigDecimal unitPrice = product.getDiscountPrice() != null
                     ? product.getDiscountPrice()
@@ -127,6 +144,9 @@ public class OrderServiceImpl implements OrderService {
 
             totalAmount = totalAmount.add(subtotal);
             orderItems.add(orderItem);
+            product.setStock(
+                    availableStock - requestedQuantity
+            );
         }
 
         orderItemRepository.saveAll(orderItems);

@@ -91,6 +91,7 @@ class OrderServiceImplTest {
                 .name("Samsung Galaxy S24")
                 .price(new BigDecimal("1200.00"))
                 .discountPrice(new BigDecimal("1000.00"))
+                .stock(100)
                 .build();
 
         regularProduct = Product.builder()
@@ -98,6 +99,7 @@ class OrderServiceImplTest {
                 .name("Laptop Lenovo")
                 .price(new BigDecimal("800.00"))
                 .discountPrice(null)
+                .stock(100)
                 .build();
 
         firstItemRequest = CreateOrderItemRequest.builder()
@@ -169,7 +171,7 @@ class OrderServiceImplTest {
                         finalSavedOrder
                 );
 
-        when(productRepository.findById(10L))
+        when(productRepository.findByIdForUpdate(10L))
                 .thenReturn(Optional.of(discountedProduct));
 
         when(orderItemRepository.saveAll(
@@ -229,7 +231,7 @@ class OrderServiceImplTest {
                         )
         );
 
-        verify(productRepository).findById(10L);
+        verify(productRepository).findByIdForUpdate(10L);
         verify(orderItemRepository).saveAll(any());
         verify(orderRepository, times(2))
                 .save(any(Order.class));
@@ -291,7 +293,7 @@ class OrderServiceImplTest {
                         finalOrder
                 );
 
-        when(productRepository.findById(20L))
+        when(productRepository.findByIdForUpdate(20L))
                 .thenReturn(Optional.of(regularProduct));
 
         when(orderItemRepository.saveAll(any()))
@@ -343,7 +345,7 @@ class OrderServiceImplTest {
                         finalSavedOrder
                 );
 
-        when(productRepository.findById(10L))
+        when(productRepository.findByIdForUpdate(10L))
                 .thenReturn(Optional.of(discountedProduct));
 
         when(orderItemRepository.saveAll(any()))
@@ -403,7 +405,7 @@ class OrderServiceImplTest {
                         finalSavedOrder
                 );
 
-        when(productRepository.findById(10L))
+        when(productRepository.findByIdForUpdate(10L))
                 .thenReturn(Optional.of(discountedProduct));
 
         when(orderItemRepository.saveAll(any()))
@@ -450,7 +452,7 @@ class OrderServiceImplTest {
                     return saved;
                 });
 
-        when(productRepository.findById(10L))
+        when(productRepository.findByIdForUpdate(10L))
                 .thenReturn(Optional.of(discountedProduct));
 
         when(orderItemRepository.saveAll(any()))
@@ -493,7 +495,7 @@ class OrderServiceImplTest {
         when(orderRepository.save(any(Order.class)))
                 .thenReturn(initialSavedOrder);
 
-        when(productRepository.findById(99L))
+        when(productRepository.findByIdForUpdate(99L))
                 .thenReturn(Optional.empty());
 
         CreateOrderItemRequest missingProductItem =
@@ -573,10 +575,10 @@ class OrderServiceImplTest {
                         completedOrder
                 );
 
-        when(productRepository.findById(10L))
+        when(productRepository.findByIdForUpdate(10L))
                 .thenReturn(Optional.of(discountedProduct));
 
-        when(productRepository.findById(20L))
+        when(productRepository.findByIdForUpdate(20L))
                 .thenReturn(Optional.of(regularProduct));
 
         when(orderItemRepository.saveAll(any()))
@@ -626,8 +628,8 @@ class OrderServiceImplTest {
                         )
         );
 
-        verify(productRepository).findById(10L);
-        verify(productRepository).findById(20L);
+        verify(productRepository).findByIdForUpdate(10L);
+        verify(productRepository).findByIdForUpdate(20L);
     }
 
     @Test
@@ -670,10 +672,10 @@ class OrderServiceImplTest {
                         completedOrder
                 );
 
-        when(productRepository.findById(10L))
+        when(productRepository.findByIdForUpdate(10L))
                 .thenReturn(Optional.of(discountedProduct));
 
-        when(productRepository.findById(20L))
+        when(productRepository.findByIdForUpdate(20L))
                 .thenReturn(Optional.of(regularProduct));
 
         when(orderItemRepository.saveAll(any()))
@@ -1149,7 +1151,7 @@ class OrderServiceImplTest {
                     return savedOrder;
                 });
 
-        when(productRepository.findById(10L))
+        when(productRepository.findByIdForUpdate(10L))
                 .thenReturn(Optional.of(discountedProduct));
 
         when(orderItemRepository.saveAll(any()))
@@ -1207,7 +1209,7 @@ class OrderServiceImplTest {
                     return savedOrder;
                 });
 
-        when(productRepository.findById(10L))
+        when(productRepository.findByIdForUpdate(10L))
                 .thenReturn(Optional.of(discountedProduct));
 
         when(orderItemRepository.saveAll(any()))
@@ -1247,7 +1249,7 @@ class OrderServiceImplTest {
                         finalSavedOrder
                 );
 
-        when(productRepository.findById(10L))
+        when(productRepository.findByIdForUpdate(10L))
                 .thenReturn(Optional.of(discountedProduct));
 
         when(orderItemRepository.saveAll(any()))
@@ -1361,6 +1363,7 @@ class OrderServiceImplTest {
                 .name("Test Product")
                 .price(new BigDecimal("35.90"))
                 .discountPrice(null)
+                .stock(10)
                 .build();
 
         CreateOrderRequest request = CreateOrderRequest.builder()
@@ -1379,7 +1382,7 @@ class OrderServiceImplTest {
         when(userRepository.findByEmail("shkelqim@example.com"))
                 .thenReturn(Optional.of(currentUser));
 
-        when(productRepository.findById(30L))
+        when(productRepository.findByIdForUpdate(30L))
                 .thenReturn(Optional.of(product));
 
         when(orderRepository.save(any(Order.class)))
@@ -1428,6 +1431,7 @@ class OrderServiceImplTest {
                 .name("Coupon Test Product")
                 .price(new BigDecimal("35.90"))
                 .discountPrice(null)
+                .stock(10)
                 .build();
 
         CreateOrderRequest request = CreateOrderRequest.builder()
@@ -1447,7 +1451,7 @@ class OrderServiceImplTest {
         when(userRepository.findByEmail("shkelqim@example.com"))
                 .thenReturn(Optional.of(currentUser));
 
-        when(productRepository.findById(31L))
+        when(productRepository.findByIdForUpdate(31L))
                 .thenReturn(Optional.of(product));
 
         when(orderRepository.save(any(Order.class)))
@@ -1490,6 +1494,7 @@ class OrderServiceImplTest {
                 .name("Free Shipping Product")
                 .price(new BigDecimal("35.90"))
                 .discountPrice(null)
+                .stock(10)
                 .build();
 
         CreateOrderRequest request = CreateOrderRequest.builder()
@@ -1509,7 +1514,7 @@ class OrderServiceImplTest {
         when(userRepository.findByEmail("shkelqim@example.com"))
                 .thenReturn(Optional.of(currentUser));
 
-        when(productRepository.findById(32L))
+        when(productRepository.findByIdForUpdate(32L))
                 .thenReturn(Optional.of(product));
 
         when(orderRepository.save(any(Order.class)))
@@ -1550,6 +1555,7 @@ class OrderServiceImplTest {
                 .name("Welcome Coupon Product")
                 .price(new BigDecimal("35.90"))
                 .discountPrice(null)
+                .stock(10)
                 .build();
 
         CreateOrderRequest request = CreateOrderRequest.builder()
@@ -1569,7 +1575,7 @@ class OrderServiceImplTest {
         when(userRepository.findByEmail("shkelqim@example.com"))
                 .thenReturn(Optional.of(currentUser));
 
-        when(productRepository.findById(33L))
+        when(productRepository.findByIdForUpdate(33L))
                 .thenReturn(Optional.of(product));
 
         when(orderRepository.save(any(Order.class)))
@@ -1625,6 +1631,93 @@ class OrderServiceImplTest {
         );
 
         verify(orderRepository, never()).save(any(Order.class));
+        verify(orderItemRepository, never()).saveAll(any());
+        verify(paymentRepository, never()).save(any(Payment.class));
+    }
+    @Test
+    void createOrder_shouldDecreaseProductStock() {
+
+        Product product = Product.builder()
+                .id(40L)
+                .name("Stock Test Product")
+                .price(new BigDecimal("10.00"))
+                .stock(7)
+                .build();
+
+        CreateOrderRequest request = CreateOrderRequest.builder()
+                .shippingName("Test User")
+                .shippingEmail("test@example.com")
+                .shippingPhone("+355690000000")
+                .shippingAddress("Tirane, Shqiperi")
+                .items(List.of(
+                        CreateOrderItemRequest.builder()
+                                .productId(40L)
+                                .quantity(3)
+                                .build()
+                ))
+                .build();
+
+        when(userRepository.findByEmail("shkelqim@example.com"))
+                .thenReturn(Optional.of(currentUser));
+
+        when(productRepository.findByIdForUpdate(40L))
+                .thenReturn(Optional.of(product));
+
+        when(orderRepository.save(any(Order.class)))
+                .thenAnswer(invocation -> {
+                    Order savedOrder = invocation.getArgument(0);
+                    savedOrder.setId(70L);
+                    return savedOrder;
+                });
+
+        when(orderItemRepository.saveAll(any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        orderService.createOrder(request);
+
+        assertEquals(4, product.getStock());
+        verify(productRepository).findByIdForUpdate(40L);
+    }
+    @Test
+    void createOrder_shouldRejectOrderWhenStockIsInsufficient() {
+
+        Product product = Product.builder()
+                .id(41L)
+                .name("Limited Stock Product")
+                .price(new BigDecimal("10.00"))
+                .stock(2)
+                .build();
+
+        CreateOrderRequest request = CreateOrderRequest.builder()
+                .shippingName("Test User")
+                .shippingEmail("test@example.com")
+                .shippingPhone("+355690000000")
+                .shippingAddress("Tirane, Shqiperi")
+                .items(List.of(
+                        CreateOrderItemRequest.builder()
+                                .productId(41L)
+                                .quantity(3)
+                                .build()
+                ))
+                .build();
+
+        when(userRepository.findByEmail("shkelqim@example.com"))
+                .thenReturn(Optional.of(currentUser));
+
+        when(productRepository.findByIdForUpdate(41L))
+                .thenReturn(Optional.of(product));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> orderService.createOrder(request)
+        );
+
+        assertEquals(
+                "Insufficient stock for product: Limited Stock Product",
+                exception.getMessage()
+        );
+
+        assertEquals(2, product.getStock());
         verify(orderItemRepository, never()).saveAll(any());
         verify(paymentRepository, never()).save(any(Payment.class));
     }

@@ -1721,4 +1721,106 @@ class OrderServiceImplTest {
         verify(orderItemRepository, never()).saveAll(any());
         verify(paymentRepository, never()).save(any(Payment.class));
     }
+    @Test
+    void cancelMyOrder_shouldCancelOrderAndRestoreStock() {
+
+        Order order = Order.builder()
+                .id(70L)
+                .user(currentUser)
+                .status(OrderStatus.PENDING)
+                .totalAmount(new BigDecimal("2000.00"))
+                .build();
+
+        OrderItem item = OrderItem.builder()
+                .id(80L)
+                .order(order)
+                .productId(discountedProduct.getId())
+                .productName(discountedProduct.getName())
+                .unitPrice(new BigDecimal("1000.00"))
+                .quantity(2)
+                .subtotal(new BigDecimal("2000.00"))
+                .build();
+
+        discountedProduct.setStock(5);
+
+        when(userRepository.findByEmail(
+                "shkelqim@example.com"
+        )).thenReturn(Optional.of(currentUser));
+
+        when(orderRepository.findById(70L))
+                .thenReturn(Optional.of(order));
+
+        when(orderItemRepository.findByOrderId(70L))
+                .thenReturn(List.of(item));
+
+        when(productRepository.findByIdForUpdate(
+                discountedProduct.getId()
+        )).thenReturn(Optional.of(discountedProduct));
+
+        when(orderRepository.save(any(Order.class)))
+                .thenAnswer(invocation ->
+                        invocation.getArgument(0)
+                );
+
+        OrderResponse result =
+                orderService.cancelMyOrder(70L);
+
+        assertEquals(
+                OrderStatus.CANCELLED,
+                result.getStatus()
+        );
+
+        assertEquals(
+                7,
+                discountedProduct.getStock()
+        );
+
+        verify(productRepository)
+                .findByIdForUpdate(
+                        discountedProduct.getId()
+                );
+
+        verify(orderRepository)
+                .save(order);
+    }
+    @Test
+    void cancelMyOrder_shouldRejectShippedOrder() {
+
+        Order shippedOrder = Order.builder()
+                .id(71L)
+                .user(currentUser)
+                .status(OrderStatus.SHIPPED)
+                .totalAmount(new BigDecimal("39.40"))
+                .build();
+
+        when(userRepository.findByEmail(
+                "shkelqim@example.com"
+        )).thenReturn(Optional.of(currentUser));
+
+        when(orderRepository.findById(71L))
+                .thenReturn(Optional.of(shippedOrder));
+
+        IllegalArgumentException exception =
+                assertThrows(
+                        IllegalArgumentException.class,
+                        () -> orderService.cancelMyOrder(
+                                71L
+                        )
+                );
+
+        assertEquals(
+                "Shipped or delivered orders cannot be cancelled",
+                exception.getMessage()
+        );
+
+        verifyNoInteractions(
+                orderItemRepository
+        );
+
+        verify(productRepository, never())
+                .findByIdForUpdate(anyLong());
+
+        verify(orderRepository, never())
+                .save(any(Order.class));
+    }
 }

@@ -40,4 +40,12 @@ public class OrderController {
     ) {
         return ResponseEntity.ok(orderService.getOrderById(id));
     }
+    @PatchMapping("/{id}/cancel")
+    public ResponseEntity<OrderResponse> cancelMyOrder(
+            @PathVariable Long id
+    ) {
+        return ResponseEntity.ok(
+                orderService.cancelMyOrder(id)
+        );
+    }
 }

@@ -232,6 +232,80 @@ public class OrderServiceImpl implements OrderService {
 
         return OrderMapper.toResponse(order, items);
     }
+    @Override
+    @Transactional
+    public OrderResponse cancelMyOrder(Long id) {
+
+        User user = getCurrentUser();
+
+        Order order = orderRepository.findById(id)
+                .orElseThrow(
+                        () -> new ResourceNotFoundException(
+                                "Order not found"
+                        )
+                );
+
+        if (!order.getUser()
+                .getId()
+                .equals(user.getId())) {
+            throw new RuntimeException(
+                    "You are not allowed to cancel this order"
+            );
+        }
+
+        OrderStatus currentStatus =
+                order.getStatus();
+
+        if (currentStatus == OrderStatus.CANCELLED) {
+            throw new IllegalArgumentException(
+                    "Order is already cancelled"
+            );
+        }
+
+        if (currentStatus == OrderStatus.SHIPPED
+                || currentStatus == OrderStatus.DELIVERED) {
+            throw new IllegalArgumentException(
+                    "Shipped or delivered orders cannot be cancelled"
+            );
+        }
+
+        List<OrderItem> items =
+                orderItemRepository.findByOrderId(
+                        order.getId()
+                );
+
+        for (OrderItem item : items) {
+
+            Product product =
+                    productRepository.findByIdForUpdate(
+                                    item.getProductId()
+                            )
+                            .orElseThrow(
+                                    () -> new ResourceNotFoundException(
+                                            "Product not found"
+                                    )
+                            );
+
+            int currentStock =
+                    product.getStock() == null
+                            ? 0
+                            : product.getStock();
+
+            product.setStock(
+                    currentStock + item.getQuantity()
+            );
+        }
+
+        order.setStatus(OrderStatus.CANCELLED);
+
+        Order cancelledOrder =
+                orderRepository.save(order);
+
+        return OrderMapper.toResponse(
+                cancelledOrder,
+                items
+        );
+    }
 
     private User getCurrentUser() {
 

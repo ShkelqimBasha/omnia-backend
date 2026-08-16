@@ -1,0 +1,34 @@
+ALTER TABLE orders
+    MODIFY COLUMN status ENUM(
+    'PENDING',
+    'PAID',
+    'PREPARING',
+    'SHIPPED',
+    'DELIVERED',
+    'CANCELLED',
+    'RETURNED',
+    'CONFIRMED',
+    'PROCESSING'
+    ) NOT NULL DEFAULT 'PENDING';
+
+UPDATE orders
+SET status = 'CONFIRMED'
+WHERE status = 'PAID';
+
+UPDATE orders
+SET status = 'PROCESSING'
+WHERE status = 'PREPARING';
+
+UPDATE orders
+SET status = 'CANCELLED'
+WHERE status = 'RETURNED';
+
+ALTER TABLE orders
+    MODIFY COLUMN status ENUM(
+    'PENDING',
+    'CONFIRMED',
+    'PROCESSING',
+    'SHIPPED',
+    'DELIVERED',
+    'CANCELLED'
+    ) NOT NULL DEFAULT 'PENDING';

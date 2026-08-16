@@ -14,4 +14,11 @@ public interface OrderService {
     OrderResponse getOrderById(Long id);
 
     OrderResponse cancelMyOrder(Long id);
+
+    List<OrderResponse> getAllOrdersForAdmin();
+
+    OrderResponse updateOrderStatusForAdmin(
+            Long id,
+            com.omnia.backend.enums.OrderStatus status
+    );
 }

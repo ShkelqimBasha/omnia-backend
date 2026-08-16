@@ -307,6 +307,145 @@ public class OrderServiceImpl implements OrderService {
         );
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<OrderResponse> getAllOrdersForAdmin() {
+
+        return orderRepository
+                .findAllByOrderByCreatedAtDesc()
+                .stream()
+                .map(order -> {
+                    List<OrderItem> items =
+                            orderItemRepository.findByOrderId(
+                                    order.getId()
+                            );
+
+                    return OrderMapper.toResponse(
+                            order,
+                            items
+                    );
+                })
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public OrderResponse updateOrderStatusForAdmin(
+            Long id,
+            OrderStatus newStatus
+    ) {
+        if (newStatus == null) {
+            throw new IllegalArgumentException(
+                    "Order status is required"
+            );
+        }
+
+        Order order = orderRepository.findById(id)
+                .orElseThrow(
+                        () -> new ResourceNotFoundException(
+                                "Order not found"
+                        )
+                );
+
+        OrderStatus currentStatus =
+                order.getStatus();
+
+        List<OrderItem> items =
+                orderItemRepository.findByOrderId(
+                        order.getId()
+                );
+
+        if (currentStatus == newStatus) {
+            return OrderMapper.toResponse(
+                    order,
+                    items
+            );
+        }
+
+        if (!isAllowedAdminStatusTransition(
+                currentStatus,
+                newStatus
+        )) {
+            throw new IllegalArgumentException(
+                    "Invalid order status transition: "
+                            + currentStatus
+                            + " -> "
+                            + newStatus
+            );
+        }
+
+        if (newStatus == OrderStatus.CANCELLED) {
+            restoreOrderStock(items);
+        }
+
+        order.setStatus(newStatus);
+
+        Order savedOrder =
+                orderRepository.save(order);
+
+        return OrderMapper.toResponse(
+                savedOrder,
+                items
+        );
+    }
+
+    private boolean isAllowedAdminStatusTransition(
+            OrderStatus currentStatus,
+            OrderStatus newStatus
+    ) {
+        if (currentStatus == null) {
+            return newStatus == OrderStatus.PENDING;
+        }
+
+        switch (currentStatus) {
+            case PENDING:
+                return newStatus == OrderStatus.CONFIRMED
+                        || newStatus == OrderStatus.CANCELLED;
+
+            case CONFIRMED:
+                return newStatus == OrderStatus.PROCESSING
+                        || newStatus == OrderStatus.CANCELLED;
+
+            case PROCESSING:
+                return newStatus == OrderStatus.SHIPPED
+                        || newStatus == OrderStatus.CANCELLED;
+
+            case SHIPPED:
+                return newStatus == OrderStatus.DELIVERED;
+
+            case DELIVERED:
+            case CANCELLED:
+            default:
+                return false;
+        }
+    }
+
+    private void restoreOrderStock(
+            List<OrderItem> items
+    ) {
+        for (OrderItem item : items) {
+
+            Product product =
+                    productRepository.findByIdForUpdate(
+                                    item.getProductId()
+                            )
+                            .orElseThrow(
+                                    () -> new ResourceNotFoundException(
+                                            "Product not found"
+                                    )
+                            );
+
+            int currentStock =
+                    product.getStock() == null
+                            ? 0
+                            : product.getStock();
+
+            product.setStock(
+                    currentStock + item.getQuantity()
+            );
+        }
+    }
+
     private User getCurrentUser() {
 
         Authentication authentication =

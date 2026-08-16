@@ -1823,4 +1823,138 @@ class OrderServiceImplTest {
         verify(orderRepository, never())
                 .save(any(Order.class));
     }
+    @Test
+    void updateOrderStatusForAdmin_shouldConfirmPendingOrder() {
+
+        Order order = Order.builder()
+                .id(90L)
+                .user(currentUser)
+                .status(OrderStatus.PENDING)
+                .totalAmount(new BigDecimal("39.40"))
+                .build();
+
+        when(orderRepository.findById(90L))
+                .thenReturn(Optional.of(order));
+
+        when(orderItemRepository.findByOrderId(90L))
+                .thenReturn(List.of());
+
+        when(orderRepository.save(any(Order.class)))
+                .thenAnswer(invocation ->
+                        invocation.getArgument(0)
+                );
+
+        OrderResponse result =
+                orderService.updateOrderStatusForAdmin(
+                        90L,
+                        OrderStatus.CONFIRMED
+                );
+
+        assertEquals(
+                OrderStatus.CONFIRMED,
+                result.getStatus()
+        );
+
+        verify(orderRepository)
+                .save(order);
+
+        verify(productRepository, never())
+                .findByIdForUpdate(anyLong());
+    }
+
+    @Test
+    void updateOrderStatusForAdmin_shouldCancelAndRestoreStock() {
+
+        Order order = Order.builder()
+                .id(91L)
+                .user(currentUser)
+                .status(OrderStatus.CONFIRMED)
+                .totalAmount(new BigDecimal("39.40"))
+                .build();
+
+        OrderItem item = OrderItem.builder()
+                .id(92L)
+                .order(order)
+                .productId(discountedProduct.getId())
+                .productName(discountedProduct.getName())
+                .unitPrice(new BigDecimal("35.90"))
+                .quantity(1)
+                .subtotal(new BigDecimal("35.90"))
+                .build();
+
+        discountedProduct.setStock(4);
+
+        when(orderRepository.findById(91L))
+                .thenReturn(Optional.of(order));
+
+        when(orderItemRepository.findByOrderId(91L))
+                .thenReturn(List.of(item));
+
+        when(productRepository.findByIdForUpdate(
+                discountedProduct.getId()
+        )).thenReturn(Optional.of(discountedProduct));
+
+        when(orderRepository.save(any(Order.class)))
+                .thenAnswer(invocation ->
+                        invocation.getArgument(0)
+                );
+
+        OrderResponse result =
+                orderService.updateOrderStatusForAdmin(
+                        91L,
+                        OrderStatus.CANCELLED
+                );
+
+        assertEquals(
+                OrderStatus.CANCELLED,
+                result.getStatus()
+        );
+
+        assertEquals(
+                5,
+                discountedProduct.getStock()
+        );
+
+        verify(orderRepository)
+                .save(order);
+    }
+
+    @Test
+    void updateOrderStatusForAdmin_shouldRejectInvalidTransition() {
+
+        Order order = Order.builder()
+                .id(93L)
+                .user(currentUser)
+                .status(OrderStatus.PENDING)
+                .totalAmount(new BigDecimal("39.40"))
+                .build();
+
+        when(orderRepository.findById(93L))
+                .thenReturn(Optional.of(order));
+
+        when(orderItemRepository.findByOrderId(93L))
+                .thenReturn(List.of());
+
+        IllegalArgumentException exception =
+                assertThrows(
+                        IllegalArgumentException.class,
+                        () -> orderService
+                                .updateOrderStatusForAdmin(
+                                        93L,
+                                        OrderStatus.DELIVERED
+                                )
+                );
+
+        assertTrue(
+                exception.getMessage().contains(
+                        "Invalid order status transition"
+                )
+        );
+
+        verify(orderRepository, never())
+                .save(any(Order.class));
+
+        verify(productRepository, never())
+                .findByIdForUpdate(anyLong());
+    }
 }

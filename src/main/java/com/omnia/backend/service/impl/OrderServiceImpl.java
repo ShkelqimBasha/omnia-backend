@@ -301,6 +301,7 @@ public class OrderServiceImpl implements OrderService {
         Order cancelledOrder =
                 orderRepository.save(order);
 
+
         return OrderMapper.toResponse(
                 cancelledOrder,
                 items
@@ -382,6 +383,9 @@ public class OrderServiceImpl implements OrderService {
 
         Order savedOrder =
                 orderRepository.save(order);
+        if (newStatus == OrderStatus.DELIVERED) {
+            markCashOnDeliveryAsPaid(savedOrder);
+        }
 
         return OrderMapper.toResponse(
                 savedOrder,
@@ -418,6 +422,43 @@ public class OrderServiceImpl implements OrderService {
             default:
                 return false;
         }
+    }
+    private void markCashOnDeliveryAsPaid(
+            Order order
+    ) {
+        Payment payment =
+                paymentRepository.findByOrderId(
+                                order.getId()
+                        )
+                        .orElseThrow(
+                                () -> new ResourceNotFoundException(
+                                        "Payment not found for order"
+                                )
+                        );
+
+        if (payment.getMethod()
+                != PaymentMethod.CASH_ON_DELIVERY) {
+            return;
+        }
+
+        if (payment.getStatus()
+                == PaymentStatus.SUCCESS) {
+            return;
+        }
+
+        if (payment.getStatus()
+                != PaymentStatus.PENDING) {
+            throw new IllegalStateException(
+                    "Cash on delivery payment is not pending"
+            );
+        }
+
+        payment.setStatus(PaymentStatus.SUCCESS);
+        payment.setPaidAt(
+                java.time.LocalDateTime.now()
+        );
+
+        paymentRepository.save(payment);
     }
 
     private void restoreOrderStock(

@@ -1861,6 +1861,58 @@ class OrderServiceImplTest {
         verify(productRepository, never())
                 .findByIdForUpdate(anyLong());
     }
+    @Test
+    void updateOrderStatusForAdmin_shouldMarkCodPaymentAsSuccessfulWhenDelivered() {
+
+        Order order = Order.builder()
+                .id(94L)
+                .user(currentUser)
+                .status(OrderStatus.SHIPPED)
+                .totalAmount(new BigDecimal("39.40"))
+                .build();
+
+        Payment payment = Payment.builder()
+                .id(95L)
+                .order(order)
+                .method(PaymentMethod.CASH_ON_DELIVERY)
+                .status(PaymentStatus.PENDING)
+                .build();
+
+        when(orderRepository.findById(94L))
+                .thenReturn(Optional.of(order));
+
+        when(orderItemRepository.findByOrderId(94L))
+                .thenReturn(List.of());
+
+        when(orderRepository.save(any(Order.class)))
+                .thenAnswer(invocation ->
+                        invocation.getArgument(0)
+                );
+
+        when(paymentRepository.findByOrderId(94L))
+                .thenReturn(Optional.of(payment));
+
+        OrderResponse result =
+                orderService.updateOrderStatusForAdmin(
+                        94L,
+                        OrderStatus.DELIVERED
+                );
+
+        assertEquals(
+                OrderStatus.DELIVERED,
+                result.getStatus()
+        );
+
+        assertEquals(
+                PaymentStatus.SUCCESS,
+                payment.getStatus()
+        );
+
+        assertNotNull(payment.getPaidAt());
+
+        verify(paymentRepository)
+                .save(payment);
+    }
 
     @Test
     void updateOrderStatusForAdmin_shouldCancelAndRestoreStock() {

@@ -197,7 +197,11 @@ public class OrderServiceImpl implements OrderService {
 
         paymentRepository.save(payment);
 
-        return OrderMapper.toResponse(finalOrder, orderItems);
+        return OrderMapper.toResponse(
+                finalOrder,
+                orderItems,
+                payment
+        );
     }
 
     @Override
@@ -210,7 +214,7 @@ public class OrderServiceImpl implements OrderService {
                 .stream()
                 .map(order -> {
                     List<OrderItem> items = orderItemRepository.findByOrderId(order.getId());
-                    return OrderMapper.toResponse(order, items);
+                    return mapOrderResponse(order, items);
                 })
                 .toList();
     }
@@ -230,7 +234,7 @@ public class OrderServiceImpl implements OrderService {
 
         List<OrderItem> items = orderItemRepository.findByOrderId(order.getId());
 
-        return OrderMapper.toResponse(order, items);
+        return mapOrderResponse(order, items);
     }
     @Override
     @Transactional
@@ -302,7 +306,7 @@ public class OrderServiceImpl implements OrderService {
                 orderRepository.save(order);
 
 
-        return OrderMapper.toResponse(
+        return mapOrderResponse(
                 cancelledOrder,
                 items
         );
@@ -321,7 +325,7 @@ public class OrderServiceImpl implements OrderService {
                                     order.getId()
                             );
 
-                    return OrderMapper.toResponse(
+                    return mapOrderResponse(
                             order,
                             items
                     );
@@ -357,7 +361,7 @@ public class OrderServiceImpl implements OrderService {
                 );
 
         if (currentStatus == newStatus) {
-            return OrderMapper.toResponse(
+            return mapOrderResponse(
                     order,
                     items
             );
@@ -387,7 +391,7 @@ public class OrderServiceImpl implements OrderService {
             markCashOnDeliveryAsPaid(savedOrder);
         }
 
-        return OrderMapper.toResponse(
+        return mapOrderResponse(
                 savedOrder,
                 items
         );
@@ -423,6 +427,23 @@ public class OrderServiceImpl implements OrderService {
                 return false;
         }
     }
+    private OrderResponse mapOrderResponse(
+            Order order,
+            List<OrderItem> items
+    ) {
+        Payment payment =
+                paymentRepository.findByOrderId(
+                                order.getId()
+                        )
+                        .orElse(null);
+
+        return OrderMapper.toResponse(
+                order,
+                items,
+                payment
+        );
+    }
+
     private void markCashOnDeliveryAsPaid(
             Order order
     ) {

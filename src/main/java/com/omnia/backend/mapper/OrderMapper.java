@@ -5,6 +5,8 @@ import com.omnia.backend.dto.response.OrderResponse;
 import com.omnia.backend.entity.Order;
 import com.omnia.backend.entity.OrderItem;
 
+import com.omnia.backend.entity.Payment;
+
 import java.util.List;
 
 public class OrderMapper {
@@ -22,8 +24,18 @@ public class OrderMapper {
                 .build();
     }
 
-    public static OrderResponse toResponse(Order order, List<OrderItem> items) {
+    public static OrderResponse toResponse(
+            Order order,
+            List<OrderItem> items
+    ) {
+        return toResponse(order, items, null);
+    }
 
+    public static OrderResponse toResponse(
+            Order order,
+            List<OrderItem> items,
+            Payment payment
+    ) {
         return OrderResponse.builder()
                 .id(order.getId())
                 .userId(order.getUser().getId())
@@ -38,6 +50,26 @@ public class OrderMapper {
                 .shippingAddress(order.getShippingAddress())
                 .totalAmount(order.getTotalAmount())
                 .status(order.getStatus())
+                .paymentMethod(
+                        payment == null
+                                ? null
+                                : payment.getMethod()
+                )
+                .paymentStatus(
+                        payment == null
+                                ? null
+                                : payment.getStatus()
+                )
+                .paidAt(
+                        payment == null
+                                ? null
+                                : payment.getPaidAt()
+                )
+                .transactionId(
+                        payment == null
+                                ? null
+                                : payment.getTransactionId()
+                )
                 .createdAt(order.getCreatedAt())
                 .items(items.stream()
                         .map(OrderMapper::toItemResponse)

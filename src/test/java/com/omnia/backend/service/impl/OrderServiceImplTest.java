@@ -192,6 +192,16 @@ class OrderServiceImplTest {
                 result.getStatus()
         );
         assertEquals(
+                PaymentMethod.CASH_ON_DELIVERY,
+                result.getPaymentMethod()
+        );
+        assertEquals(
+                PaymentStatus.PENDING,
+                result.getPaymentStatus()
+        );
+        assertNull(result.getPaidAt());
+        assertNull(result.getTransactionId());
+        assertEquals(
                 0,
                 new BigDecimal("2000.00")
                         .compareTo(result.getTotalAmount())
@@ -763,6 +773,13 @@ class OrderServiceImplTest {
                         )
                 )
                 .build();
+        Payment firstPayment = Payment.builder()
+                .id(60L)
+                .order(firstOrder)
+                .method(PaymentMethod.CASH_ON_DELIVERY)
+                .status(PaymentStatus.PENDING)
+                .build();
+
 
         OrderItem firstOrderItem = OrderItem.builder()
                 .id(1L)
@@ -791,6 +808,12 @@ class OrderServiceImplTest {
         when(orderRepository.findByUserId(1L))
                 .thenReturn(List.of(firstOrder, secondOrder));
 
+        when(paymentRepository.findByOrderId(50L))
+                .thenReturn(Optional.of(firstPayment));
+
+        when(paymentRepository.findByOrderId(51L))
+                .thenReturn(Optional.empty());
+
         when(orderItemRepository.findByOrderId(50L))
                 .thenReturn(List.of(firstOrderItem));
 
@@ -805,6 +828,19 @@ class OrderServiceImplTest {
 
         assertEquals(50L, result.get(0).getId());
         assertEquals(51L, result.get(1).getId());
+        assertEquals(
+                PaymentMethod.CASH_ON_DELIVERY,
+                result.get(0).getPaymentMethod()
+        );
+        assertEquals(
+                PaymentStatus.PENDING,
+                result.get(0).getPaymentStatus()
+        );
+        assertNull(result.get(0).getPaidAt());
+        assertNull(result.get(0).getTransactionId());
+
+        assertNull(result.get(1).getPaymentMethod());
+        assertNull(result.get(1).getPaymentStatus());
 
         assertEquals(
                 "Samsung Galaxy S24",
@@ -1909,6 +1945,21 @@ class OrderServiceImplTest {
         );
 
         assertNotNull(payment.getPaidAt());
+
+        assertEquals(
+                PaymentMethod.CASH_ON_DELIVERY,
+                result.getPaymentMethod()
+        );
+        assertEquals(
+                PaymentStatus.SUCCESS,
+                result.getPaymentStatus()
+        );
+        assertEquals(
+                payment.getPaidAt(),
+                result.getPaidAt()
+        );
+        assertNull(result.getTransactionId());
+
 
         verify(paymentRepository)
                 .save(payment);

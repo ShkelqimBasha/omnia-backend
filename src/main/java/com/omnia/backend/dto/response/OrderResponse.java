@@ -1,6 +1,8 @@
 package com.omnia.backend.dto.response;
 
 import com.omnia.backend.enums.OrderStatus;
+import com.omnia.backend.enums.PaymentMethod;
+import com.omnia.backend.enums.PaymentStatus;
 import lombok.*;
 
 import java.math.BigDecimal;
@@ -36,6 +38,10 @@ public class OrderResponse {
     private String couponCode;
 
     private OrderStatus status;
+    private PaymentMethod paymentMethod;
+    private PaymentStatus paymentStatus;
+    private LocalDateTime paidAt;
+    private String transactionId;
 
     private LocalDateTime createdAt;
 

@@ -6,6 +6,8 @@ import com.omnia.backend.dto.request.CreateOrderRequest;
 import com.omnia.backend.dto.response.OrderItemResponse;
 import com.omnia.backend.dto.response.OrderResponse;
 import com.omnia.backend.enums.OrderStatus;
+import com.omnia.backend.enums.PaymentMethod;
+import com.omnia.backend.enums.PaymentStatus;
 import com.omnia.backend.service.interfaces.OrderService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,6 +24,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -118,6 +121,22 @@ class OrderControllerTest {
                 .andExpect(
                         jsonPath("$.status")
                                 .value("PENDING")
+                )
+                .andExpect(
+                        jsonPath("$.paymentMethod")
+                                .value("CASH_ON_DELIVERY")
+                )
+                .andExpect(
+                        jsonPath("$.paymentStatus")
+                                .value("PENDING")
+                )
+                .andExpect(
+                        jsonPath("$.paidAt")
+                                .value(nullValue())
+                )
+                .andExpect(
+                        jsonPath("$.transactionId")
+                                .value(nullValue())
                 )
                 .andExpect(
                         jsonPath("$.createdAt")
@@ -432,6 +451,26 @@ class OrderControllerTest {
                 .addressId(ADDRESS_ID)
                 .totalAmount(subtotal)
                 .status(status)
+                .paymentMethod(
+                        PaymentMethod.CASH_ON_DELIVERY
+                )
+                .paymentStatus(
+                        status == OrderStatus.DELIVERED
+                                ? PaymentStatus.SUCCESS
+                                : PaymentStatus.PENDING
+                )
+                .paidAt(
+                        status == OrderStatus.DELIVERED
+                                ? LocalDateTime.of(
+                                2026,
+                                7,
+                                23,
+                                12,
+                                30
+                        )
+                                : null
+                )
+                .transactionId(null)
                 .createdAt(
                         LocalDateTime.of(
                                 2026,

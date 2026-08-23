@@ -4,8 +4,10 @@ import com.omnia.backend.common.exception.ResourceNotFoundException;
 import com.omnia.backend.dto.request.CreateOrderItemRequest;
 import com.omnia.backend.dto.request.CreateOrderRequest;
 import com.omnia.backend.dto.response.OrderResponse;
+import com.omnia.backend.dto.response.OrderStatusHistoryResponse;
 import com.omnia.backend.entity.Order;
 import com.omnia.backend.entity.OrderItem;
+import com.omnia.backend.entity.OrderStatusHistory;
 import com.omnia.backend.entity.Product;
 import com.omnia.backend.entity.User;
 import com.omnia.backend.entity.Payment;
@@ -14,6 +16,7 @@ import com.omnia.backend.enums.PaymentStatus;
 import com.omnia.backend.enums.OrderStatus;
 import com.omnia.backend.repository.OrderItemRepository;
 import com.omnia.backend.repository.OrderRepository;
+import com.omnia.backend.repository.OrderStatusHistoryRepository;
 import com.omnia.backend.repository.PaymentRepository;
 import com.omnia.backend.repository.ProductRepository;
 import com.omnia.backend.repository.UserRepository;
@@ -43,6 +46,9 @@ class OrderServiceImplTest {
 
     @Mock
     private OrderRepository orderRepository;
+    @Mock
+    private OrderStatusHistoryRepository
+            orderStatusHistoryRepository;
 
     @Mock
     private OrderItemRepository orderItemRepository;
@@ -151,6 +157,15 @@ class OrderServiceImplTest {
         SecurityContextHolder
                 .getContext()
                 .setAuthentication(authentication);
+        lenient()
+                .when(
+                        userRepository.findByEmail(
+                                "shkelqim@example.com"
+                        )
+                )
+                .thenReturn(
+                        Optional.of(currentUser)
+                );
     }
 
     @AfterEach
@@ -1893,6 +1908,33 @@ class OrderServiceImplTest {
 
         verify(orderRepository)
                 .save(order);
+        ArgumentCaptor<OrderStatusHistory> historyCaptor =
+                ArgumentCaptor.forClass(
+                        OrderStatusHistory.class
+                );
+
+        verify(orderStatusHistoryRepository)
+                .save(historyCaptor.capture());
+
+        OrderStatusHistory savedHistory =
+                historyCaptor.getValue();
+
+        assertEquals(
+                90L,
+                savedHistory.getOrder().getId()
+        );
+        assertEquals(
+                OrderStatus.PENDING,
+                savedHistory.getFromStatus()
+        );
+        assertEquals(
+                OrderStatus.CONFIRMED,
+                savedHistory.getToStatus()
+        );
+        assertEquals(
+                currentUser,
+                savedHistory.getChangedByUser()
+        );
 
         verify(productRepository, never())
                 .findByIdForUpdate(anyLong());
@@ -2059,5 +2101,80 @@ class OrderServiceImplTest {
 
         verify(productRepository, never())
                 .findByIdForUpdate(anyLong());
+    }
+    @Test
+    void getOrderStatusHistoryForAdmin_shouldReturnMappedHistory() {
+
+        Order order = Order.builder()
+                .id(90L)
+                .user(currentUser)
+                .status(OrderStatus.CONFIRMED)
+                .build();
+
+        LocalDateTime changedAt =
+                LocalDateTime.of(
+                        2026,
+                        8,
+                        23,
+                        12,
+                        0
+                );
+
+        OrderStatusHistory history =
+                OrderStatusHistory.builder()
+                        .id(100L)
+                        .order(order)
+                        .fromStatus(OrderStatus.PENDING)
+                        .toStatus(OrderStatus.CONFIRMED)
+                        .changedByUser(currentUser)
+                        .changedAt(changedAt)
+                        .build();
+
+        when(orderRepository.existsById(90L))
+                .thenReturn(true);
+
+        when(orderStatusHistoryRepository.findAllForOrder(90L))
+                .thenReturn(List.of(history));
+
+        List<OrderStatusHistoryResponse> result =
+                orderService.getOrderStatusHistoryForAdmin(90L);
+
+        assertEquals(1, result.size());
+        assertEquals(100L, result.get(0).getId());
+        assertEquals(90L, result.get(0).getOrderId());
+        assertEquals(
+                OrderStatus.PENDING,
+                result.get(0).getFromStatus()
+        );
+        assertEquals(
+                OrderStatus.CONFIRMED,
+                result.get(0).getToStatus()
+        );
+        assertEquals(1L, result.get(0).getChangedByUserId());
+        assertEquals(
+                "shkelqim",
+                result.get(0).getChangedByName()
+        );
+        assertEquals(
+                changedAt,
+                result.get(0).getChangedAt()
+        );
+    }
+    @Test
+    void getOrderStatusHistoryForAdmin_shouldRejectMissingOrder() {
+
+        when(orderRepository.existsById(999L))
+                .thenReturn(false);
+
+        assertThrows(
+                ResourceNotFoundException.class,
+                () -> orderService
+                        .getOrderStatusHistoryForAdmin(999L)
+        );
+
+        verify(
+                orderStatusHistoryRepository,
+                never()
+        ).findAllForOrder(anyLong());
     }
 }

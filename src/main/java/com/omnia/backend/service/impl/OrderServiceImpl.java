@@ -4,8 +4,10 @@ import com.omnia.backend.common.exception.ResourceNotFoundException;
 import com.omnia.backend.dto.request.CreateOrderItemRequest;
 import com.omnia.backend.dto.request.CreateOrderRequest;
 import com.omnia.backend.dto.response.OrderResponse;
+import com.omnia.backend.dto.response.OrderStatusHistoryResponse;
 import com.omnia.backend.entity.Order;
 import com.omnia.backend.entity.OrderItem;
+import com.omnia.backend.entity.OrderStatusHistory;
 import com.omnia.backend.entity.Product;
 import com.omnia.backend.entity.User;
 import com.omnia.backend.entity.Payment;
@@ -15,6 +17,7 @@ import com.omnia.backend.enums.PaymentStatus;
 import com.omnia.backend.mapper.OrderMapper;
 import com.omnia.backend.repository.OrderItemRepository;
 import com.omnia.backend.repository.OrderRepository;
+import com.omnia.backend.repository.OrderStatusHistoryRepository;
 import com.omnia.backend.repository.ProductRepository;
 import com.omnia.backend.repository.UserRepository;
 import com.omnia.backend.repository.PaymentRepository;
@@ -34,6 +37,8 @@ import java.util.List;
 public class OrderServiceImpl implements OrderService {
 
     private final OrderRepository orderRepository;
+    private final OrderStatusHistoryRepository
+            orderStatusHistoryRepository;
     private final OrderItemRepository orderItemRepository;
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
@@ -41,12 +46,16 @@ public class OrderServiceImpl implements OrderService {
 
     public OrderServiceImpl(
             OrderRepository orderRepository,
+            OrderStatusHistoryRepository
+                    orderStatusHistoryRepository,
             OrderItemRepository orderItemRepository,
             ProductRepository productRepository,
             UserRepository userRepository,
             PaymentRepository paymentRepository
     ) {
         this.orderRepository = orderRepository;
+        this.orderStatusHistoryRepository =
+                orderStatusHistoryRepository;
         this.orderItemRepository = orderItemRepository;
         this.productRepository = productRepository;
         this.userRepository = userRepository;
@@ -100,6 +109,13 @@ public class OrderServiceImpl implements OrderService {
 
 
         Order savedOrder = orderRepository.save(order);
+        recordOrderStatusChange(
+                savedOrder,
+                null,
+                OrderStatus.PENDING,
+                user
+        );
+
 
         for (CreateOrderItemRequest itemRequest : request.getItems()) {
 
@@ -304,6 +320,13 @@ public class OrderServiceImpl implements OrderService {
 
         Order cancelledOrder =
                 orderRepository.save(order);
+        recordOrderStatusChange(
+                cancelledOrder,
+                currentStatus,
+                OrderStatus.CANCELLED,
+                user
+        );
+
 
 
         return mapOrderResponse(
@@ -332,6 +355,88 @@ public class OrderServiceImpl implements OrderService {
                 })
                 .toList();
     }
+    @Override
+    @Transactional(readOnly = true)
+    public List<OrderStatusHistoryResponse>
+    getOrderStatusHistoryForAdmin(
+            Long id
+    ) {
+        if (!orderRepository.existsById(id)) {
+            throw new ResourceNotFoundException(
+                    "Order not found"
+            );
+        }
+
+        return orderStatusHistoryRepository
+                .findAllForOrder(id)
+                .stream()
+                .map(history -> {
+                    User changedByUser =
+                            history.getChangedByUser();
+
+                    return OrderStatusHistoryResponse
+                            .builder()
+                            .id(history.getId())
+                            .orderId(id)
+                            .fromStatus(
+                                    history.getFromStatus()
+                            )
+                            .toStatus(
+                                    history.getToStatus()
+                            )
+                            .changedByUserId(
+                                    changedByUser == null
+                                            ? null
+                                            : changedByUser.getId()
+                            )
+                            .changedByName(
+                                    getChangedByDisplayName(
+                                            changedByUser
+                                    )
+                            )
+                            .changedAt(
+                                    history.getChangedAt()
+                            )
+                            .build();
+                })
+                .toList();
+    }
+
+    private String getChangedByDisplayName(
+            User user
+    ) {
+        if (user == null) {
+            return "System";
+        }
+
+        String firstName =
+                user.getFirstName() == null
+                        ? ""
+                        : user.getFirstName().trim();
+
+        String lastName =
+                user.getLastName() == null
+                        ? ""
+                        : user.getLastName().trim();
+
+        String fullName =
+                (firstName + " " + lastName)
+                        .trim();
+
+        if (!fullName.isEmpty()) {
+            return fullName;
+        }
+
+        if (user.getUsername() != null
+                && !user.getUsername()
+                .trim()
+                .isEmpty()) {
+            return user.getUsername().trim();
+        }
+
+        return user.getEmail();
+    }
+
 
     @Override
     @Transactional
@@ -390,12 +495,38 @@ public class OrderServiceImpl implements OrderService {
         if (newStatus == OrderStatus.DELIVERED) {
             markCashOnDeliveryAsPaid(savedOrder);
         }
+        recordOrderStatusChange(
+                savedOrder,
+                currentStatus,
+                newStatus,
+                getCurrentUser()
+        );
+
 
         return mapOrderResponse(
                 savedOrder,
                 items
         );
     }
+    private void recordOrderStatusChange(
+            Order order,
+            OrderStatus fromStatus,
+            OrderStatus toStatus,
+            User changedByUser
+    ) {
+        OrderStatusHistory history =
+                OrderStatusHistory.builder()
+                        .order(order)
+                        .fromStatus(fromStatus)
+                        .toStatus(toStatus)
+                        .changedByUser(changedByUser)
+                        .build();
+
+        orderStatusHistoryRepository.save(
+                history
+        );
+    }
+
 
     private boolean isAllowedAdminStatusTransition(
             OrderStatus currentStatus,

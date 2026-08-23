@@ -2,6 +2,7 @@ package com.omnia.backend.controller;
 
 import com.omnia.backend.dto.request.AdminOrderStatusUpdateRequest;
 import com.omnia.backend.dto.response.OrderResponse;
+import com.omnia.backend.dto.response.OrderStatusHistoryResponse;
 import com.omnia.backend.service.interfaces.OrderService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
@@ -34,6 +35,23 @@ public class AdminOrderController {
                 orderService.getAllOrdersForAdmin()
         );
     }
+    @GetMapping("/{id}/status-history")
+    public ResponseEntity<
+            List<OrderStatusHistoryResponse>
+            >
+    getOrderStatusHistory(
+            @PathVariable
+            @Positive
+            Long id
+    ) {
+        return ResponseEntity.ok(
+                orderService
+                        .getOrderStatusHistoryForAdmin(
+                                id
+                        )
+        );
+    }
+
 
     @PatchMapping("/{id}/status")
     public ResponseEntity<OrderResponse>

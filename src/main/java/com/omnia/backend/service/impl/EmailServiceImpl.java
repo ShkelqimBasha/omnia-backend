@@ -186,7 +186,7 @@ public class EmailServiceImpl implements EmailService {
                         + orderId
                         + "\n"
                         + "Statusi: "
-                        + status
+                        + getOrderStatusLabel(status)
                         + "\n"
                         + "Totali: "
                         + formattedTotal
@@ -199,6 +199,22 @@ public class EmailServiceImpl implements EmailService {
                 subject,
                 body
         );
+    }
+    private String getOrderStatusLabel(
+            OrderStatus status
+    ) {
+        if (status == null) {
+            return "-";
+        }
+
+        return switch (status) {
+            case PENDING -> "Në pritje";
+            case CONFIRMED -> "Konfirmuar";
+            case PROCESSING -> "Në përpunim";
+            case SHIPPED -> "Dërguar";
+            case DELIVERED -> "E dorëzuar";
+            case CANCELLED -> "E anuluar";
+        };
     }
 
     private void sendSimpleEmail(

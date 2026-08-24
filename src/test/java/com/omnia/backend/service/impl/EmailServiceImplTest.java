@@ -353,5 +353,46 @@ class EmailServiceImplTest {
                 exception.getMessage()
         );
     }
+    @Test
+    void sendOrderStatusEmail_shouldUseAlbanianStatusLabel() {
+
+        emailService.sendOrderStatusEmail(
+                "buyer@example.com",
+                "Shkelqim Basha",
+                25L,
+                OrderStatus.DELIVERED,
+                new BigDecimal("39.40")
+        );
+
+        ArgumentCaptor<SimpleMailMessage> messageCaptor =
+                ArgumentCaptor.forClass(
+                        SimpleMailMessage.class
+                );
+
+        verify(mailSender)
+                .send(messageCaptor.capture());
+
+        SimpleMailMessage message =
+                messageCaptor.getValue();
+
+        assertEquals(
+                "Porosia juaj Omnia u dorëzua",
+                message.getSubject()
+        );
+
+        assertTrue(
+                message.getText()
+                        .contains(
+                                "Statusi: E dorëzuar"
+                        )
+        );
+
+        assertTrue(
+                message.getText()
+                        .contains(
+                                "Totali: 39.40 €"
+                        )
+        );
+    }
 
 }

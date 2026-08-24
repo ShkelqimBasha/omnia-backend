@@ -30,6 +30,15 @@ public class Coupon {
 
     @Column(name = "discount_value", nullable = false, precision = 10, scale = 2)
     private BigDecimal discountValue;
+    @Column(
+            name = "minimum_order_amount",
+            nullable = false,
+            precision = 10,
+            scale = 2
+    )
+    @Builder.Default
+    private BigDecimal minimumOrderAmount =
+            BigDecimal.ZERO;
 
     @Column(name = "start_date")
     private LocalDateTime startDate;
@@ -39,6 +48,8 @@ public class Coupon {
 
     @Column(name = "usage_limit")
     private Integer usageLimit;
+    @Column(name = "per_user_limit")
+    private Integer perUserLimit;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)

@@ -33,6 +33,12 @@ import org.springframework.security.core.authority.AuthorityUtils;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.context.ApplicationEventPublisher;
 import com.omnia.backend.event.OrderStatusChangedEvent;
+import com.omnia.backend.repository.CouponRepository;
+import com.omnia.backend.repository.OrderCouponRepository;
+import com.omnia.backend.entity.Coupon;
+import com.omnia.backend.enums.CouponStatus;
+import com.omnia.backend.enums.DiscountType;
+import com.omnia.backend.entity.OrderCoupon;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -51,6 +57,13 @@ class OrderServiceImplTest {
     @Mock
     private OrderStatusHistoryRepository
             orderStatusHistoryRepository;
+
+    @Mock
+    private CouponRepository couponRepository;
+
+    @Mock
+    private OrderCouponRepository
+            orderCouponRepository;
 
     @Mock
     private OrderItemRepository orderItemRepository;
@@ -169,6 +182,81 @@ class OrderServiceImplTest {
                 )
                 .thenReturn(
                         Optional.of(currentUser)
+                );
+        lenient()
+                .when(
+                        couponRepository.findByCodeForUpdate(
+                                "OMNIA10"
+                        )
+                )
+                .thenReturn(
+                        Optional.of(
+                                Coupon.builder()
+                                        .id(201L)
+                                        .code("OMNIA10")
+                                        .discountType(
+                                                DiscountType.PERCENTAGE
+                                        )
+                                        .discountValue(
+                                                new BigDecimal("10.00")
+                                        )
+                                        .minimumOrderAmount(
+                                                BigDecimal.ZERO
+                                        )
+                                        .status(CouponStatus.ACTIVE)
+                                        .build()
+                        )
+                );
+
+        lenient()
+                .when(
+                        couponRepository.findByCodeForUpdate(
+                                "WELCOME5"
+                        )
+                )
+                .thenReturn(
+                        Optional.of(
+                                Coupon.builder()
+                                        .id(202L)
+                                        .code("WELCOME5")
+                                        .discountType(
+                                                DiscountType.FIXED
+                                        )
+                                        .discountValue(
+                                                new BigDecimal("5.00")
+                                        )
+                                        .minimumOrderAmount(
+                                                BigDecimal.ZERO
+                                        )
+                                        .perUserLimit(1)
+                                        .status(CouponStatus.ACTIVE)
+                                        .build()
+                        )
+                );
+
+        lenient()
+                .when(
+                        couponRepository.findByCodeForUpdate(
+                                "FREE"
+                        )
+                )
+                .thenReturn(
+                        Optional.of(
+                                Coupon.builder()
+                                        .id(203L)
+                                        .code("FREE")
+                                        .discountType(
+                                                DiscountType.FREE_SHIPPING
+                                        )
+                                        .discountValue(
+                                                BigDecimal.ZERO
+                                        )
+                                        .minimumOrderAmount(
+                                                BigDecimal.ZERO
+                                        )
+                                        .status(CouponStatus.ACTIVE)
+                                        .build()
+                        )
                 );
     }
 
@@ -1571,6 +1659,38 @@ class OrderServiceImplTest {
                 new BigDecimal("35.81")
                         .compareTo(result.getTotalAmount())
         );
+        ArgumentCaptor<OrderCoupon> orderCouponCaptor =
+                ArgumentCaptor.forClass(
+                        OrderCoupon.class
+                );
+
+        verify(orderCouponRepository)
+                .save(
+                        orderCouponCaptor.capture()
+                );
+
+        OrderCoupon savedOrderCoupon =
+                orderCouponCaptor.getValue();
+
+        assertNotNull(
+                savedOrderCoupon.getOrder()
+        );
+
+        assertEquals(
+                "OMNIA10",
+                savedOrderCoupon
+                        .getCoupon()
+                        .getCode()
+        );
+
+        assertEquals(
+                0,
+                new BigDecimal("3.59")
+                        .compareTo(
+                                savedOrderCoupon
+                                        .getDiscountAmount()
+                        )
+        );
     }
     @Test
     void createOrder_shouldRemoveShippingWhenFreeCouponIsUsed() {
@@ -1719,6 +1839,396 @@ class OrderServiceImplTest {
         verify(orderRepository, never()).save(any(Order.class));
         verify(orderItemRepository, never()).saveAll(any());
         verify(paymentRepository, never()).save(any(Payment.class));
+    }
+    @Test
+    void createOrder_shouldRejectInactiveCoupon() {
+
+        Coupon inactiveCoupon =
+                Coupon.builder()
+                        .id(204L)
+                        .code("INACTIVE10")
+                        .discountType(
+                                DiscountType.PERCENTAGE
+                        )
+                        .discountValue(
+                                new BigDecimal("10.00")
+                        )
+                        .minimumOrderAmount(
+                                BigDecimal.ZERO
+                        )
+                        .status(
+                                CouponStatus.INACTIVE
+                        )
+                        .build();
+
+        when(
+                couponRepository.findByCodeForUpdate(
+                        "INACTIVE10"
+                )
+        ).thenReturn(
+                Optional.of(inactiveCoupon)
+        );
+
+        when(
+                userRepository.findByEmail(
+                        "shkelqim@example.com"
+                )
+        ).thenReturn(
+                Optional.of(currentUser)
+        );
+
+        CreateOrderRequest request =
+                CreateOrderRequest.builder()
+                        .shippingName("Test User")
+                        .shippingEmail("test@example.com")
+                        .shippingPhone("+355690000000")
+                        .shippingAddress("Tirane, Shqiperi")
+                        .couponCode("INACTIVE10")
+                        .items(
+                                List.of(firstItemRequest)
+                        )
+                        .build();
+
+        IllegalArgumentException exception =
+                assertThrows(
+                        IllegalArgumentException.class,
+                        () -> orderService.createOrder(
+                                request
+                        )
+                );
+
+        assertEquals(
+                "Coupon is inactive",
+                exception.getMessage()
+        );
+
+        verify(orderRepository, never())
+                .save(any(Order.class));
+    }
+    @Test
+    void createOrder_shouldRejectExpiredCoupon() {
+
+        Coupon expiredCoupon =
+                Coupon.builder()
+                        .id(205L)
+                        .code("EXPIRED10")
+                        .discountType(
+                                DiscountType.PERCENTAGE
+                        )
+                        .discountValue(
+                                new BigDecimal("10.00")
+                        )
+                        .minimumOrderAmount(
+                                BigDecimal.ZERO
+                        )
+                        .endDate(
+                                LocalDateTime.now()
+                                        .minusDays(1)
+                        )
+                        .status(
+                                CouponStatus.ACTIVE
+                        )
+                        .build();
+
+        when(
+                couponRepository.findByCodeForUpdate(
+                        "EXPIRED10"
+                )
+        ).thenReturn(
+                Optional.of(expiredCoupon)
+        );
+
+        when(
+                userRepository.findByEmail(
+                        "shkelqim@example.com"
+                )
+        ).thenReturn(
+                Optional.of(currentUser)
+        );
+
+        CreateOrderRequest request =
+                CreateOrderRequest.builder()
+                        .shippingName("Test User")
+                        .shippingEmail("test@example.com")
+                        .shippingPhone("+355690000000")
+                        .shippingAddress("Tirane, Shqiperi")
+                        .couponCode("EXPIRED10")
+                        .items(
+                                List.of(firstItemRequest)
+                        )
+                        .build();
+
+        IllegalArgumentException exception =
+                assertThrows(
+                        IllegalArgumentException.class,
+                        () -> orderService.createOrder(
+                                request
+                        )
+                );
+
+        assertEquals(
+                "Coupon has expired",
+                exception.getMessage()
+        );
+
+        verify(orderRepository, never())
+                .save(any(Order.class));
+    }
+    @Test
+    void createOrder_shouldRejectCouponBelowMinimumOrderAmount() {
+
+        Coupon minimumCoupon =
+                Coupon.builder()
+                        .id(206L)
+                        .code("MINIMUM50")
+                        .discountType(
+                                DiscountType.FIXED
+                        )
+                        .discountValue(
+                                new BigDecimal("5.00")
+                        )
+                        .minimumOrderAmount(
+                                new BigDecimal("3000.00")
+                        )
+                        .status(
+                                CouponStatus.ACTIVE
+                        )
+                        .build();
+
+        when(
+                couponRepository.findByCodeForUpdate(
+                        "MINIMUM50"
+                )
+        ).thenReturn(
+                Optional.of(minimumCoupon)
+        );
+
+        when(
+                userRepository.findByEmail(
+                        "shkelqim@example.com"
+                )
+        ).thenReturn(
+                Optional.of(currentUser)
+        );
+
+        when(
+                orderRepository.save(
+                        any(Order.class)
+                )
+        ).thenReturn(initialSavedOrder);
+
+        when(
+                productRepository.findByIdForUpdate(
+                        10L
+                )
+        ).thenReturn(
+                Optional.of(discountedProduct)
+        );
+
+        when(
+                orderItemRepository.saveAll(any())
+        ).thenAnswer(
+                invocation -> invocation.getArgument(0)
+        );
+
+        CreateOrderRequest request =
+                CreateOrderRequest.builder()
+                        .shippingName("Test User")
+                        .shippingEmail("test@example.com")
+                        .shippingPhone("+355690000000")
+                        .shippingAddress("Tirane, Shqiperi")
+                        .couponCode("MINIMUM50")
+                        .items(
+                                List.of(firstItemRequest)
+                        )
+                        .build();
+
+        IllegalArgumentException exception =
+                assertThrows(
+                        IllegalArgumentException.class,
+                        () -> orderService.createOrder(
+                                request
+                        )
+                );
+
+        assertEquals(
+                "Minimum order amount for coupon is not reached",
+                exception.getMessage()
+        );
+
+        verify(paymentRepository, never())
+                .save(any(Payment.class));
+
+        verify(orderCouponRepository, never())
+                .save(any(OrderCoupon.class));
+    }
+    @Test
+    void createOrder_shouldRejectCouponWhenUsageLimitIsReached() {
+
+        Coupon limitedCoupon =
+                Coupon.builder()
+                        .id(207L)
+                        .code("LIMITED10")
+                        .discountType(
+                                DiscountType.PERCENTAGE
+                        )
+                        .discountValue(
+                                new BigDecimal("10.00")
+                        )
+                        .minimumOrderAmount(
+                                BigDecimal.ZERO
+                        )
+                        .usageLimit(2)
+                        .status(
+                                CouponStatus.ACTIVE
+                        )
+                        .build();
+
+        when(
+                couponRepository.findByCodeForUpdate(
+                        "LIMITED10"
+                )
+        ).thenReturn(
+                Optional.of(limitedCoupon)
+        );
+
+        when(
+                orderCouponRepository
+                        .countUsagesExcludingStatus(
+                                207L,
+                                OrderStatus.CANCELLED
+                        )
+        ).thenReturn(2L);
+
+        when(
+                userRepository.findByEmail(
+                        "shkelqim@example.com"
+                )
+        ).thenReturn(
+                Optional.of(currentUser)
+        );
+
+        when(
+                orderRepository.save(
+                        any(Order.class)
+                )
+        ).thenReturn(initialSavedOrder);
+
+        when(
+                productRepository.findByIdForUpdate(
+                        10L
+                )
+        ).thenReturn(
+                Optional.of(discountedProduct)
+        );
+
+        when(
+                orderItemRepository.saveAll(any())
+        ).thenAnswer(
+                invocation -> invocation.getArgument(0)
+        );
+
+        CreateOrderRequest request =
+                CreateOrderRequest.builder()
+                        .shippingName("Test User")
+                        .shippingEmail("test@example.com")
+                        .shippingPhone("+355690000000")
+                        .shippingAddress("Tirane, Shqiperi")
+                        .couponCode("LIMITED10")
+                        .items(
+                                List.of(firstItemRequest)
+                        )
+                        .build();
+
+        IllegalArgumentException exception =
+                assertThrows(
+                        IllegalArgumentException.class,
+                        () -> orderService.createOrder(
+                                request
+                        )
+                );
+
+        assertEquals(
+                "Coupon usage limit has been reached",
+                exception.getMessage()
+        );
+
+        verify(paymentRepository, never())
+                .save(any(Payment.class));
+
+        verify(orderCouponRepository, never())
+                .save(any(OrderCoupon.class));
+    }
+    @Test
+    void createOrder_shouldRejectCouponWhenUserLimitIsReached() {
+
+        when(
+                orderCouponRepository
+                        .countUserUsagesExcludingStatus(
+                                202L,
+                                currentUser.getId(),
+                                OrderStatus.CANCELLED
+                        )
+        ).thenReturn(1L);
+
+        when(
+                userRepository.findByEmail(
+                        "shkelqim@example.com"
+                )
+        ).thenReturn(
+                Optional.of(currentUser)
+        );
+
+        when(
+                orderRepository.save(
+                        any(Order.class)
+                )
+        ).thenReturn(initialSavedOrder);
+
+        when(
+                productRepository.findByIdForUpdate(
+                        10L
+                )
+        ).thenReturn(
+                Optional.of(discountedProduct)
+        );
+
+        when(
+                orderItemRepository.saveAll(any())
+        ).thenAnswer(
+                invocation -> invocation.getArgument(0)
+        );
+
+        CreateOrderRequest request =
+                CreateOrderRequest.builder()
+                        .shippingName("Test User")
+                        .shippingEmail("test@example.com")
+                        .shippingPhone("+355690000000")
+                        .shippingAddress("Tirane, Shqiperi")
+                        .couponCode("WELCOME5")
+                        .items(
+                                List.of(firstItemRequest)
+                        )
+                        .build();
+
+        IllegalArgumentException exception =
+                assertThrows(
+                        IllegalArgumentException.class,
+                        () -> orderService.createOrder(
+                                request
+                        )
+                );
+
+        assertEquals(
+                "Coupon usage limit for this user has been reached",
+                exception.getMessage()
+        );
+
+        verify(paymentRepository, never())
+                .save(any(Payment.class));
+
+        verify(orderCouponRepository, never())
+                .save(any(OrderCoupon.class));
     }
     @Test
     void createOrder_shouldDecreaseProductStock() {

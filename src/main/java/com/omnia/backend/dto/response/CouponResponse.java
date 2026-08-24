@@ -22,11 +22,15 @@ public class CouponResponse {
 
     private BigDecimal discountValue;
 
+    private BigDecimal minimumOrderAmount;
+
     private LocalDateTime startDate;
 
     private LocalDateTime endDate;
 
     private Integer usageLimit;
+
+    private Integer perUserLimit;
 
     private CouponStatus status;
 }

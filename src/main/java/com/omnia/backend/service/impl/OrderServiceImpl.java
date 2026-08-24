@@ -28,6 +28,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.omnia.backend.event.OrderStatusChangedEvent;
 import org.springframework.context.ApplicationEventPublisher;
+import com.omnia.backend.entity.Coupon;
+import com.omnia.backend.entity.OrderCoupon;
+import com.omnia.backend.enums.CouponStatus;
+import com.omnia.backend.enums.DiscountType;
+import com.omnia.backend.repository.CouponRepository;
+import com.omnia.backend.repository.OrderCouponRepository;
+
+import java.time.LocalDateTime;
 
 import java.math.RoundingMode;
 import java.util.Locale;
@@ -41,6 +49,9 @@ public class OrderServiceImpl implements OrderService {
     private final OrderRepository orderRepository;
     private final OrderStatusHistoryRepository
             orderStatusHistoryRepository;
+    private final CouponRepository couponRepository;
+    private final OrderCouponRepository
+            orderCouponRepository;
     private final OrderItemRepository orderItemRepository;
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
@@ -51,6 +62,9 @@ public class OrderServiceImpl implements OrderService {
             OrderRepository orderRepository,
             OrderStatusHistoryRepository
                     orderStatusHistoryRepository,
+            CouponRepository couponRepository,
+            OrderCouponRepository
+                    orderCouponRepository,
             OrderItemRepository orderItemRepository,
             ProductRepository productRepository,
             UserRepository userRepository,
@@ -60,6 +74,9 @@ public class OrderServiceImpl implements OrderService {
         this.orderRepository = orderRepository;
         this.orderStatusHistoryRepository =
                 orderStatusHistoryRepository;
+        this.couponRepository = couponRepository;
+        this.orderCouponRepository =
+                orderCouponRepository;
         this.orderItemRepository = orderItemRepository;
         this.productRepository = productRepository;
         this.userRepository = userRepository;
@@ -82,13 +99,12 @@ public class OrderServiceImpl implements OrderService {
         if (couponCode != null && couponCode.isEmpty()) {
             couponCode = null;
         }
+        Coupon appliedCoupon =
+                findCouponForCheckout(
+                        couponCode
+                );
 
-        if (couponCode != null
-                && !couponCode.equals("OMNIA10")
-                && !couponCode.equals("WELCOME5")
-                && !couponCode.equals("FREE")) {
-            throw new IllegalArgumentException("Invalid coupon code");
-        }
+
 
         BigDecimal totalAmount = BigDecimal.ZERO;
         List<OrderItem> orderItems = new ArrayList<>();
@@ -175,24 +191,30 @@ public class OrderServiceImpl implements OrderService {
         BigDecimal subtotalAmount =
                 totalAmount.setScale(2, RoundingMode.HALF_UP);
 
-        BigDecimal discountAmount = BigDecimal.ZERO;
+        validateCouponForCheckout(
+                appliedCoupon,
+                user,
+                subtotalAmount
+        );
 
-        if ("OMNIA10".equals(couponCode)) {
-            discountAmount = subtotalAmount
-                    .multiply(new BigDecimal("0.10"))
-                    .setScale(2, RoundingMode.HALF_UP);
-        } else if ("WELCOME5".equals(couponCode)) {
-            discountAmount = subtotalAmount.min(
-                    new BigDecimal("5.00")
-            );
-        }
+        BigDecimal discountAmount =
+                calculateCouponDiscount(
+                        appliedCoupon,
+                        subtotalAmount
+                );
+
+        boolean freeShippingCoupon =
+                appliedCoupon != null
+                        && appliedCoupon
+                        .getDiscountType()
+                        == DiscountType.FREE_SHIPPING;
 
         BigDecimal shippingFee =
                 subtotalAmount.signum() == 0
                         || subtotalAmount.compareTo(
                         new BigDecimal("50.00")
                 ) > 0
-                        || "FREE".equals(couponCode)
+                        || freeShippingCoupon
                         ? BigDecimal.ZERO
                         : new BigDecimal("3.50");
 
@@ -215,6 +237,20 @@ public class OrderServiceImpl implements OrderService {
                 .method(PaymentMethod.CASH_ON_DELIVERY)
                 .status(PaymentStatus.PENDING)
                 .build();
+        if (appliedCoupon != null) {
+            OrderCoupon orderCoupon =
+                    OrderCoupon.builder()
+                            .order(finalOrder)
+                            .coupon(appliedCoupon)
+                            .discountAmount(
+                                    discountAmount
+                            )
+                            .build();
+
+            orderCouponRepository.save(
+                    orderCoupon
+            );
+        }
 
         paymentRepository.save(payment);
         publishOrderStatusChangedEvent(
@@ -521,6 +557,141 @@ public class OrderServiceImpl implements OrderService {
                 savedOrder,
                 items
         );
+    }
+    private Coupon findCouponForCheckout(
+            String couponCode
+    ) {
+        if (couponCode == null) {
+            return null;
+        }
+
+        Coupon coupon =
+                couponRepository.findByCodeForUpdate(
+                                couponCode
+                        )
+                        .orElseThrow(
+                                () -> new IllegalArgumentException(
+                                        "Invalid coupon code"
+                                )
+                        );
+
+        if (coupon.getStatus() != CouponStatus.ACTIVE) {
+            throw new IllegalArgumentException(
+                    "Coupon is inactive"
+            );
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+
+        if (coupon.getStartDate() != null
+                && now.isBefore(coupon.getStartDate())) {
+            throw new IllegalArgumentException(
+                    "Coupon is not active yet"
+            );
+        }
+
+        if (coupon.getEndDate() != null
+                && now.isAfter(coupon.getEndDate())) {
+            throw new IllegalArgumentException(
+                    "Coupon has expired"
+            );
+        }
+
+        return coupon;
+    }
+
+    private void validateCouponForCheckout(
+            Coupon coupon,
+            User user,
+            BigDecimal subtotalAmount
+    ) {
+        if (coupon == null) {
+            return;
+        }
+
+        BigDecimal minimumOrderAmount =
+                coupon.getMinimumOrderAmount() == null
+                        ? BigDecimal.ZERO
+                        : coupon.getMinimumOrderAmount();
+
+        if (subtotalAmount.compareTo(
+                minimumOrderAmount
+        ) < 0) {
+            throw new IllegalArgumentException(
+                    "Minimum order amount for coupon is not reached"
+            );
+        }
+
+        if (coupon.getUsageLimit() != null) {
+            long totalUsages =
+                    orderCouponRepository
+                            .countUsagesExcludingStatus(
+                                    coupon.getId(),
+                                    OrderStatus.CANCELLED
+                            );
+
+            if (totalUsages
+                    >= coupon.getUsageLimit()) {
+                throw new IllegalArgumentException(
+                        "Coupon usage limit has been reached"
+                );
+            }
+        }
+
+        if (coupon.getPerUserLimit() != null) {
+            long userUsages =
+                    orderCouponRepository
+                            .countUserUsagesExcludingStatus(
+                                    coupon.getId(),
+                                    user.getId(),
+                                    OrderStatus.CANCELLED
+                            );
+
+            if (userUsages
+                    >= coupon.getPerUserLimit()) {
+                throw new IllegalArgumentException(
+                        "Coupon usage limit for this user has been reached"
+                );
+            }
+        }
+    }
+    private BigDecimal calculateCouponDiscount(
+            Coupon coupon,
+            BigDecimal subtotalAmount
+    ) {
+        if (coupon == null) {
+            return BigDecimal.ZERO;
+        }
+
+        BigDecimal discountAmount =
+                switch (
+                        coupon.getDiscountType()
+                        ) {
+                    case PERCENTAGE ->
+                            subtotalAmount
+                                    .multiply(
+                                            coupon.getDiscountValue()
+                                    )
+                                    .divide(
+                                            new BigDecimal("100"),
+                                            2,
+                                            RoundingMode.HALF_UP
+                                    );
+
+                    case FIXED ->
+                            coupon.getDiscountValue();
+
+                    case FREE_SHIPPING ->
+                            BigDecimal.ZERO;
+                };
+
+        return discountAmount
+                .max(BigDecimal.ZERO)
+                .min(subtotalAmount)
+                .setScale(
+                        2,
+                        RoundingMode.HALF_UP
+                );
     }
     private void recordOrderStatusChange(
             Order order,

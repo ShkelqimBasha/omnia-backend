@@ -63,9 +63,13 @@ class CouponServiceImplTest {
                 .code("SUMMER20")
                 .discountType(DiscountType.PERCENTAGE)
                 .discountValue(new BigDecimal("20.00"))
+                .minimumOrderAmount(
+                        new BigDecimal("50.00")
+                )
                 .startDate(startDate)
                 .endDate(endDate)
                 .usageLimit(100)
+                .perUserLimit(2)
                 .build();
 
         coupon = Coupon.builder()
@@ -73,9 +77,13 @@ class CouponServiceImplTest {
                 .code("SUMMER20")
                 .discountType(DiscountType.PERCENTAGE)
                 .discountValue(new BigDecimal("20.00"))
+                .minimumOrderAmount(
+                        new BigDecimal("50.00")
+                )
                 .startDate(startDate)
                 .endDate(endDate)
                 .usageLimit(100)
+                .perUserLimit(2)
                 .status(CouponStatus.ACTIVE)
                 .build();
     }
@@ -83,7 +91,7 @@ class CouponServiceImplTest {
     @Test
     void createCoupon_shouldCreateCouponSuccessfully() {
 
-        when(couponRepository.existsByCode("SUMMER20"))
+        when(couponRepository.existsByCodeIgnoreCase("SUMMER20"))
                 .thenReturn(false);
 
         when(couponRepository.save(any(Coupon.class)))
@@ -102,6 +110,15 @@ class CouponServiceImplTest {
         assertEquals(
                 new BigDecimal("20.00"),
                 result.getDiscountValue()
+        );
+        assertEquals(
+                new BigDecimal("50.00"),
+                result.getMinimumOrderAmount()
+        );
+
+        assertEquals(
+                2,
+                result.getPerUserLimit()
         );
         assertEquals(startDate, result.getStartDate());
         assertEquals(endDate, result.getEndDate());
@@ -130,6 +147,16 @@ class CouponServiceImplTest {
                 new BigDecimal("20.00"),
                 savedCoupon.getDiscountValue()
         );
+        assertEquals(
+                new BigDecimal("50.00"),
+                savedCoupon.getMinimumOrderAmount()
+        );
+
+        assertEquals(
+                2,
+                savedCoupon.getPerUserLimit()
+        );
+
         assertEquals(startDate, savedCoupon.getStartDate());
         assertEquals(endDate, savedCoupon.getEndDate());
         assertEquals(100, savedCoupon.getUsageLimit());
@@ -139,13 +166,13 @@ class CouponServiceImplTest {
         );
 
         verify(couponRepository)
-                .existsByCode("SUMMER20");
+                .existsByCodeIgnoreCase("SUMMER20");
     }
 
     @Test
     void createCoupon_shouldThrowWhenCouponAlreadyExists() {
 
-        when(couponRepository.existsByCode("SUMMER20"))
+        when(couponRepository.existsByCodeIgnoreCase("SUMMER20"))
                 .thenReturn(true);
 
         ResourceAlreadyExistsException exception =
@@ -222,7 +249,7 @@ class CouponServiceImplTest {
     @Test
     void getCouponByCode_shouldReturnCoupon() {
 
-        when(couponRepository.findByCode("SUMMER20"))
+        when(couponRepository.findByCodeIgnoreCase("SUMMER20"))
                 .thenReturn(Optional.of(coupon));
 
         CouponResponse result =
@@ -237,13 +264,13 @@ class CouponServiceImplTest {
         );
 
         verify(couponRepository)
-                .findByCode("SUMMER20");
+                .findByCodeIgnoreCase("SUMMER20");
     }
 
     @Test
     void getCouponByCode_shouldThrowWhenCouponDoesNotExist() {
 
-        when(couponRepository.findByCode("INVALID"))
+        when(couponRepository.findByCodeIgnoreCase("INVALID"))
                 .thenReturn(Optional.empty());
 
         ResourceNotFoundException exception =
@@ -261,15 +288,28 @@ class CouponServiceImplTest {
     }
 
     @Test
-    void deleteCoupon_shouldDeleteCouponSuccessfully() {
+    void deleteCoupon_shouldDeactivateCouponSuccessfully() {
 
         when(couponRepository.findById(1L))
-                .thenReturn(Optional.of(coupon));
+                .thenReturn(
+                        Optional.of(coupon)
+                );
+
+        when(couponRepository.save(coupon))
+                .thenReturn(coupon);
 
         couponService.deleteCoupon(1L);
 
+        assertEquals(
+                CouponStatus.INACTIVE,
+                coupon.getStatus()
+        );
+
         verify(couponRepository)
-                .delete(coupon);
+                .save(coupon);
+
+        verify(couponRepository, never())
+                .delete(any(Coupon.class));
     }
 
     @Test
@@ -290,6 +330,6 @@ class CouponServiceImplTest {
         );
 
         verify(couponRepository, never())
-                .delete(any(Coupon.class));
+                .save(any(Coupon.class));
     }
 }

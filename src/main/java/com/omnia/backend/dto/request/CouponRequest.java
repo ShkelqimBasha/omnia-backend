@@ -18,10 +18,12 @@ public class CouponRequest {
     private DiscountType discountType;
 
     private BigDecimal discountValue;
+    private BigDecimal minimumOrderAmount;
 
     private LocalDateTime startDate;
 
     private LocalDateTime endDate;
 
     private Integer usageLimit;
+    private Integer perUserLimit;
 }

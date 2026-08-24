@@ -9,6 +9,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.test.util.ReflectionTestUtils;
+import com.omnia.backend.enums.OrderStatus;
+
+
+import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -349,4 +353,5 @@ class EmailServiceImplTest {
                 exception.getMessage()
         );
     }
+
 }

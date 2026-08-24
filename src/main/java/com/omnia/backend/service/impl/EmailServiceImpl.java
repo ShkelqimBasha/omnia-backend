@@ -5,6 +5,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
+import com.omnia.backend.enums.OrderStatus;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 
 @Service
 public class EmailServiceImpl implements EmailService {
@@ -78,6 +82,117 @@ public class EmailServiceImpl implements EmailService {
                         + "\n\nThis link expires in 30 minutes and can be used only once.\n\n"
                         + "If you did not request a password reset, ignore this email.\n\n"
                         + "Omnia Team";
+
+        sendSimpleEmail(
+                recipientEmail,
+                subject,
+                body
+        );
+    }
+    @Override
+    public void sendOrderStatusEmail(
+            String recipientEmail,
+            String recipientName,
+            Long orderId,
+            OrderStatus status,
+            BigDecimal totalAmount
+    ) {
+        String subject;
+        String statusMessage;
+
+        switch (status) {
+            case PENDING -> {
+                subject =
+                        "Porosia juaj Omnia u krijua";
+
+                statusMessage =
+                        "Porosia juaj u krijua me sukses "
+                                + "dhe është në pritje të konfirmimit.";
+            }
+
+            case CONFIRMED -> {
+                subject =
+                        "Porosia juaj Omnia u konfirmua";
+
+                statusMessage =
+                        "Porosia juaj është konfirmuar.";
+            }
+
+            case PROCESSING -> {
+                subject =
+                        "Porosia juaj Omnia është në përpunim";
+
+                statusMessage =
+                        "Porosia juaj po përgatitet.";
+            }
+
+            case SHIPPED -> {
+                subject =
+                        "Porosia juaj Omnia është dërguar";
+
+                statusMessage =
+                        "Porosia juaj është nisur për dërgesë.";
+            }
+
+            case DELIVERED -> {
+                subject =
+                        "Porosia juaj Omnia u dorëzua";
+
+                statusMessage =
+                        "Porosia juaj është dorëzuar me sukses.";
+            }
+
+            case CANCELLED -> {
+                subject =
+                        "Porosia juaj Omnia u anulua";
+
+                statusMessage =
+                        "Porosia juaj është anuluar.";
+            }
+
+            default -> {
+                subject =
+                        "Statusi i porosisë suaj Omnia ndryshoi";
+
+                statusMessage =
+                        "Statusi i porosisë suaj është përditësuar.";
+            }
+        }
+
+        String displayName =
+                recipientName == null
+                        || recipientName.trim().isEmpty()
+                        ? "klient"
+                        : recipientName.trim();
+
+        String formattedTotal =
+                totalAmount == null
+                        ? "-"
+                        : totalAmount
+                        .setScale(
+                                2,
+                                RoundingMode.HALF_UP
+                        )
+                        .toPlainString()
+                        + " €";
+
+        String body =
+                "Përshëndetje "
+                        + displayName
+                        + ",\n\n"
+                        + statusMessage
+                        + "\n\n"
+                        + "Porosia: #"
+                        + orderId
+                        + "\n"
+                        + "Statusi: "
+                        + status
+                        + "\n"
+                        + "Totali: "
+                        + formattedTotal
+                        + "\n\n"
+                        + "Faleminderit që zgjodhët Omnia.\n\n"
+                        + "Ekipi Omnia";
 
         sendSimpleEmail(
                 recipientEmail,

@@ -26,6 +26,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.omnia.backend.event.OrderStatusChangedEvent;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.math.RoundingMode;
 import java.util.Locale;
@@ -43,6 +45,7 @@ public class OrderServiceImpl implements OrderService {
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
     private final PaymentRepository paymentRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     public OrderServiceImpl(
             OrderRepository orderRepository,
@@ -51,7 +54,8 @@ public class OrderServiceImpl implements OrderService {
             OrderItemRepository orderItemRepository,
             ProductRepository productRepository,
             UserRepository userRepository,
-            PaymentRepository paymentRepository
+            PaymentRepository paymentRepository,
+            ApplicationEventPublisher eventPublisher
     ) {
         this.orderRepository = orderRepository;
         this.orderStatusHistoryRepository =
@@ -60,6 +64,7 @@ public class OrderServiceImpl implements OrderService {
         this.productRepository = productRepository;
         this.userRepository = userRepository;
         this.paymentRepository = paymentRepository;
+        this.eventPublisher = eventPublisher;
     }
 
     @Override
@@ -212,6 +217,9 @@ public class OrderServiceImpl implements OrderService {
                 .build();
 
         paymentRepository.save(payment);
+        publishOrderStatusChangedEvent(
+                finalOrder
+        );
 
         return OrderMapper.toResponse(
                 finalOrder,
@@ -325,6 +333,9 @@ public class OrderServiceImpl implements OrderService {
                 currentStatus,
                 OrderStatus.CANCELLED,
                 user
+        );
+        publishOrderStatusChangedEvent(
+                cancelledOrder
         );
 
 
@@ -501,6 +512,9 @@ public class OrderServiceImpl implements OrderService {
                 newStatus,
                 getCurrentUser()
         );
+        publishOrderStatusChangedEvent(
+                savedOrder
+        );
 
 
         return mapOrderResponse(
@@ -524,6 +538,48 @@ public class OrderServiceImpl implements OrderService {
 
         orderStatusHistoryRepository.save(
                 history
+        );
+    }
+    private void publishOrderStatusChangedEvent(
+            Order order
+    ) {
+        if (order == null) {
+            return;
+        }
+
+        String recipientEmail =
+                order.getShippingEmail();
+
+        if ((recipientEmail == null
+                || recipientEmail.trim().isEmpty())
+                && order.getUser() != null) {
+            recipientEmail =
+                    order.getUser().getEmail();
+        }
+
+        if (recipientEmail == null
+                || recipientEmail.trim().isEmpty()) {
+            return;
+        }
+
+        String recipientName =
+                order.getShippingName();
+
+        if ((recipientName == null
+                || recipientName.trim().isEmpty())
+                && order.getUser() != null) {
+            recipientName =
+                    order.getUser().getUsername();
+        }
+
+        eventPublisher.publishEvent(
+                new OrderStatusChangedEvent(
+                        recipientEmail.trim(),
+                        recipientName,
+                        order.getId(),
+                        order.getStatus(),
+                        order.getTotalAmount()
+                )
         );
     }
 
@@ -609,8 +665,8 @@ public class OrderServiceImpl implements OrderService {
         payment.setPaidAt(
                 java.time.LocalDateTime.now()
         );
-
         paymentRepository.save(payment);
+
     }
 
     private void restoreOrderStock(

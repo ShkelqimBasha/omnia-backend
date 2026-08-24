@@ -31,6 +31,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.AuthorityUtils;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.context.ApplicationEventPublisher;
+import com.omnia.backend.event.OrderStatusChangedEvent;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -61,6 +63,8 @@ class OrderServiceImplTest {
 
     @Mock
     private PaymentRepository paymentRepository;
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private OrderServiceImpl orderService;
@@ -279,6 +283,37 @@ class OrderServiceImplTest {
         );
         assertNull(savedPayment.getTransactionId());
         assertNull(savedPayment.getPaidAt());
+        ArgumentCaptor<OrderStatusChangedEvent> eventCaptor =
+                ArgumentCaptor.forClass(
+                        OrderStatusChangedEvent.class
+                );
+
+        verify(eventPublisher)
+                .publishEvent(
+                        eventCaptor.capture()
+                );
+
+        OrderStatusChangedEvent event =
+                eventCaptor.getValue();
+
+        assertEquals(
+                "shkelqim@example.com",
+                event.recipientEmail()
+        );
+        assertEquals(
+                "shkelqim",
+                event.recipientName()
+        );
+        assertEquals(50L, event.orderId());
+        assertEquals(
+                OrderStatus.PENDING,
+                event.status()
+        );
+        assertEquals(
+                0,
+                new BigDecimal("2000.00")
+                        .compareTo(event.totalAmount())
+        );
     }
 
     @Test
@@ -1833,6 +1868,39 @@ class OrderServiceImplTest {
 
         verify(orderRepository)
                 .save(order);
+        ArgumentCaptor<OrderStatusChangedEvent>
+                cancellationEventCaptor =
+                ArgumentCaptor.forClass(
+                        OrderStatusChangedEvent.class
+                );
+
+        verify(eventPublisher)
+                .publishEvent(
+                        cancellationEventCaptor.capture()
+                );
+
+        OrderStatusChangedEvent cancellationEvent =
+                cancellationEventCaptor.getValue();
+
+        assertEquals(
+                70L,
+                cancellationEvent.orderId()
+        );
+        assertEquals(
+                OrderStatus.CANCELLED,
+                cancellationEvent.status()
+        );
+        assertEquals(
+                "shkelqim@example.com",
+                cancellationEvent.recipientEmail()
+        );
+        assertEquals(
+                0,
+                new BigDecimal("2000.00")
+                        .compareTo(
+                                cancellationEvent.totalAmount()
+                        )
+        );
     }
     @Test
     void cancelMyOrder_shouldRejectShippedOrder() {
@@ -1934,6 +2002,36 @@ class OrderServiceImplTest {
         assertEquals(
                 currentUser,
                 savedHistory.getChangedByUser()
+        );
+        ArgumentCaptor<OrderStatusChangedEvent>
+                notificationCaptor =
+                ArgumentCaptor.forClass(
+                        OrderStatusChangedEvent.class
+                );
+
+        verify(eventPublisher)
+                .publishEvent(
+                        notificationCaptor.capture()
+                );
+
+        OrderStatusChangedEvent notification =
+                notificationCaptor.getValue();
+
+        assertEquals(90L, notification.orderId());
+        assertEquals(
+                OrderStatus.CONFIRMED,
+                notification.status()
+        );
+        assertEquals(
+                "shkelqim@example.com",
+                notification.recipientEmail()
+        );
+        assertEquals(
+                0,
+                new BigDecimal("39.40")
+                        .compareTo(
+                                notification.totalAmount()
+                        )
         );
 
         verify(productRepository, never())

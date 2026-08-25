@@ -288,6 +288,75 @@ class ReviewControllerTest {
 
         verifyNoMoreInteractions(reviewService);
     }
+    @Test
+    void getAllReviewsForAdmin_ShouldReturnReviews()
+            throws Exception {
+
+        ReviewResponse firstReview =
+                createResponse(20L, PRODUCT_ID);
+
+        ReviewResponse secondReview =
+                createResponse(21L, 11L);
+
+        secondReview.setUsername("second-user");
+        secondReview.setProductName("Second Product");
+        secondReview.setRating(3);
+        secondReview.setComment("Good product");
+
+        when(reviewService.getAllReviewsForAdmin())
+                .thenReturn(
+                        List.of(
+                                firstReview,
+                                secondReview
+                        )
+                );
+
+        mockMvc.perform(
+                        get("/api/reviews/admin")
+                )
+                .andExpect(status().isOk())
+                .andExpect(
+                        content().contentTypeCompatibleWith(
+                                MediaType.APPLICATION_JSON
+                        )
+                )
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].id").value(20L))
+                .andExpect(
+                        jsonPath("$[0].username")
+                                .value("review-user")
+                )
+                .andExpect(jsonPath("$[1].id").value(21L))
+                .andExpect(
+                        jsonPath("$[1].productName")
+                                .value("Second Product")
+                )
+                .andExpect(jsonPath("$[1].rating").value(3));
+
+        verify(reviewService).getAllReviewsForAdmin();
+
+        verifyNoMoreInteractions(reviewService);
+    }
+
+    @Test
+    void deleteReviewForAdmin_ShouldReturnNoContent()
+            throws Exception {
+
+        mockMvc.perform(
+                        delete(
+                                "/api/reviews/admin/{reviewId}",
+                                REVIEW_ID
+                        )
+                )
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""));
+
+        verify(reviewService)
+                .deleteReviewForAdmin(REVIEW_ID);
+
+        verifyNoMoreInteractions(reviewService);
+    }
 
     private ReviewRequest createRequest() {
 

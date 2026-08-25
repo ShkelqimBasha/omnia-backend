@@ -7,13 +7,25 @@ import java.util.List;
 
 public interface ReviewService {
 
-    ReviewResponse createReview(Long productId, ReviewRequest request);
+    ReviewResponse createReview(
+            Long productId,
+            ReviewRequest request
+    );
 
-    List<ReviewResponse> getProductReviews(Long productId);
+    List<ReviewResponse> getProductReviews(
+            Long productId
+    );
 
     List<ReviewResponse> getMyReviews();
 
-    ReviewResponse updateReview(Long reviewId, ReviewRequest request);
+    ReviewResponse updateReview(
+            Long reviewId,
+            ReviewRequest request
+    );
 
     void deleteReview(Long reviewId);
+
+    List<ReviewResponse> getAllReviewsForAdmin();
+
+    void deleteReviewForAdmin(Long reviewId);
 }

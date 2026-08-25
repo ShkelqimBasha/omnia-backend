@@ -529,4 +529,81 @@ class ReviewServiceImplTest {
 
         verifyNoInteractions(reviewRepository);
     }
+    @Test
+    void getAllReviewsForAdmin_shouldReturnNewestReviewsFirst() {
+
+        Review secondReview = Review.builder()
+                .id(101L)
+                .user(anotherUser)
+                .product(product)
+                .rating(3)
+                .comment("Good product")
+                .createdAt(
+                        LocalDateTime.of(
+                                2026,
+                                8,
+                                25,
+                                18,
+                                30
+                        )
+                )
+                .build();
+
+        when(
+                reviewRepository
+                        .findAllByOrderByCreatedAtDesc()
+        ).thenReturn(
+                List.of(
+                        secondReview,
+                        review
+                )
+        );
+
+        List<ReviewResponse> result =
+                reviewService.getAllReviewsForAdmin();
+
+        assertNotNull(result);
+        assertEquals(2, result.size());
+        assertEquals(101L, result.get(0).getId());
+        assertEquals(100L, result.get(1).getId());
+
+        verify(reviewRepository)
+                .findAllByOrderByCreatedAtDesc();
+    }
+
+    @Test
+    void deleteReviewForAdmin_shouldDeleteReviewSuccessfully() {
+
+        when(reviewRepository.findById(100L))
+                .thenReturn(Optional.of(review));
+
+        reviewService.deleteReviewForAdmin(100L);
+
+        verify(reviewRepository).delete(review);
+        verifyNoInteractions(userRepository);
+    }
+
+    @Test
+    void deleteReviewForAdmin_shouldThrowWhenReviewDoesNotExist() {
+
+        when(reviewRepository.findById(99L))
+                .thenReturn(Optional.empty());
+
+        ResourceNotFoundException exception =
+                assertThrows(
+                        ResourceNotFoundException.class,
+                        () -> reviewService
+                                .deleteReviewForAdmin(99L)
+                );
+
+        assertEquals(
+                "Review not found",
+                exception.getMessage()
+        );
+
+        verify(reviewRepository, never())
+                .delete(any(Review.class));
+
+        verifyNoInteractions(userRepository);
+    }
 }

@@ -6,6 +6,7 @@ import com.omnia.backend.service.interfaces.ReviewService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -16,7 +17,9 @@ public class ReviewController {
 
     private final ReviewService reviewService;
 
-    public ReviewController(ReviewService reviewService) {
+    public ReviewController(
+            ReviewService reviewService
+    ) {
         this.reviewService = reviewService;
     }
 
@@ -27,19 +30,32 @@ public class ReviewController {
     ) {
         return ResponseEntity
                 .status(HttpStatus.CREATED)
-                .body(reviewService.createReview(productId, request));
+                .body(
+                        reviewService.createReview(
+                                productId,
+                                request
+                        )
+                );
     }
 
     @GetMapping("/product/{productId}")
-    public ResponseEntity<List<ReviewResponse>> getProductReviews(
+    public ResponseEntity<List<ReviewResponse>>
+    getProductReviews(
             @PathVariable Long productId
     ) {
-        return ResponseEntity.ok(reviewService.getProductReviews(productId));
+        return ResponseEntity.ok(
+                reviewService.getProductReviews(
+                        productId
+                )
+        );
     }
 
     @GetMapping("/my")
-    public ResponseEntity<List<ReviewResponse>> getMyReviews() {
-        return ResponseEntity.ok(reviewService.getMyReviews());
+    public ResponseEntity<List<ReviewResponse>>
+    getMyReviews() {
+        return ResponseEntity.ok(
+                reviewService.getMyReviews()
+        );
     }
 
     @PutMapping("/{reviewId}")
@@ -47,7 +63,12 @@ public class ReviewController {
             @PathVariable Long reviewId,
             @Valid @RequestBody ReviewRequest request
     ) {
-        return ResponseEntity.ok(reviewService.updateReview(reviewId, request));
+        return ResponseEntity.ok(
+                reviewService.updateReview(
+                        reviewId,
+                        request
+                )
+        );
     }
 
     @DeleteMapping("/{reviewId}")
@@ -55,6 +76,27 @@ public class ReviewController {
             @PathVariable Long reviewId
     ) {
         reviewService.deleteReview(reviewId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/admin")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ResponseEntity<List<ReviewResponse>>
+    getAllReviewsForAdmin() {
+        return ResponseEntity.ok(
+                reviewService.getAllReviewsForAdmin()
+        );
+    }
+
+    @DeleteMapping("/admin/{reviewId}")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ResponseEntity<Void> deleteReviewForAdmin(
+            @PathVariable Long reviewId
+    ) {
+        reviewService.deleteReviewForAdmin(
+                reviewId
+        );
+
         return ResponseEntity.noContent().build();
     }
 }

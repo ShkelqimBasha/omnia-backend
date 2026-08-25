@@ -121,6 +121,30 @@ public class ReviewServiceImpl implements ReviewService {
 
         reviewRepository.delete(review);
     }
+    @Override
+    @Transactional(readOnly = true)
+    public List<ReviewResponse> getAllReviewsForAdmin() {
+
+        return reviewRepository
+                .findAllByOrderByCreatedAtDesc()
+                .stream()
+                .map(ReviewMapper::toResponse)
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public void deleteReviewForAdmin(Long reviewId) {
+
+        Review review = reviewRepository.findById(reviewId)
+                .orElseThrow(
+                        () -> new ResourceNotFoundException(
+                                "Review not found"
+                        )
+                );
+
+        reviewRepository.delete(review);
+    }
 
     private User getCurrentUser() {
 

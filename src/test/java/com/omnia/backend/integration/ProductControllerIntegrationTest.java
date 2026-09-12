@@ -11,10 +11,13 @@ import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
 import com.omnia.backend.dto.request.ProductRequest;
 import com.omnia.backend.entity.Category;
+import com.omnia.backend.entity.Organization;
 import com.omnia.backend.entity.Product;
 import com.omnia.backend.enums.CategoryStatus;
+import com.omnia.backend.enums.OrganizationStatus;
 import com.omnia.backend.enums.ProductStatus;
 import com.omnia.backend.repository.CategoryRepository;
+import com.omnia.backend.repository.OrganizationRepository;
 import com.omnia.backend.repository.ProductRepository;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -42,6 +45,8 @@ class ProductControllerIntegrationTest extends AbstractIntegrationTest {
 
     @Autowired
     private CategoryRepository categoryRepository;
+    @Autowired
+    private OrganizationRepository organizationRepository;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -51,6 +56,7 @@ class ProductControllerIntegrationTest extends AbstractIntegrationTest {
     @BeforeEach
     void setUp() {
         productRepository.deleteAll();
+        organizationRepository.deleteAll();
         categoryRepository.deleteAll();
 
         category = Category.builder()
@@ -145,6 +151,101 @@ class ProductControllerIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.last").value(true))
                 .andExpect(jsonPath("$.hasNext").value(false))
                 .andExpect(jsonPath("$.hasPrevious").value(false));
+    }
+
+    @Test
+    void getAllProducts_WithOrganizationId_ShouldReturnOnlyProductsFromOrganization()
+            throws Exception {
+
+        Organization omniaStore = organizationRepository.save(
+                Organization.builder()
+                        .name("Omnia Store Test")
+                        .slug("omnia-store-product-filter")
+                        .description("Organization used by product filter test")
+                        .status(OrganizationStatus.ACTIVE)
+                        .build()
+        );
+
+        Organization secondStore = organizationRepository.save(
+                Organization.builder()
+                        .name("Second Store Test")
+                        .slug("second-store-product-filter")
+                        .description("Second organization used by product filter test")
+                        .status(OrganizationStatus.ACTIVE)
+                        .build()
+        );
+
+        Product omniaProduct = createProduct(
+                "Omnia Phone",
+                "Product belonging to Omnia Store",
+                "Omnia",
+                new BigDecimal("599.99"),
+                null,
+                10
+        );
+        omniaProduct.setOrganization(omniaStore);
+        productRepository.save(omniaProduct);
+
+        Product secondProduct = createProduct(
+                "Second Store Phone",
+                "Product belonging to the second store",
+                "Second",
+                new BigDecimal("499.99"),
+                null,
+                8
+        );
+        secondProduct.setOrganization(secondStore);
+        productRepository.save(secondProduct);
+
+        createProduct(
+                "Legacy Product",
+                "Product without an organization",
+                "Legacy",
+                new BigDecimal("99.99"),
+                null,
+                5
+        );
+
+        mockMvc.perform(
+                        get("/api/products")
+                                .param(
+                                        "organizationId",
+                                        omniaStore.getId().toString()
+                                )
+                                .param("sortBy", "id")
+                                .param("sortDir", "asc")
+                                .accept(MediaType.APPLICATION_JSON)
+                )
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[*].name").value(
+                        contains("Omnia Phone")
+                ))
+                .andExpect(jsonPath("$.content[0].organizationId").value(
+                        omniaStore.getId()
+                ))
+                .andExpect(jsonPath("$.content[0].organizationName").value(
+                        "Omnia Store Test"
+                ));
+    }
+
+    @Test
+    void getAllProducts_WithNonPositiveOrganizationId_ShouldReturnBadRequest()
+            throws Exception {
+
+        mockMvc.perform(
+                        get("/api/products")
+                                .param("organizationId", "0")
+                                .accept(MediaType.APPLICATION_JSON)
+                )
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.message").value(
+                        "Organization id must be positive"
+                ))
+                .andExpect(jsonPath("$.path").value("/api/products"));
     }
 
     @Test

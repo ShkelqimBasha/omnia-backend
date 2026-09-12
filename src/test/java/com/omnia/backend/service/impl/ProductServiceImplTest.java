@@ -234,6 +234,7 @@ class ProductServiceImplTest {
                         null,
                         null,
                         null,
+                        null,
                         ProductStatus.ACTIVE,
                         null,
                         null
@@ -268,6 +269,7 @@ class ProductServiceImplTest {
                                 null,
                                 null,
                                 null,
+                                null,
                                 null
                         )
                 );
@@ -296,6 +298,7 @@ class ProductServiceImplTest {
                                 null,
                                 null,
                                 null,
+                                null,
                                 null
                         )
                 );
@@ -319,6 +322,7 @@ class ProductServiceImplTest {
                                 10,
                                 "id",
                                 "asc",
+                                null,
                                 null,
                                 null,
                                 null,

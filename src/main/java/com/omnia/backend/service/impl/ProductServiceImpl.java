@@ -152,6 +152,7 @@ public class ProductServiceImpl
             String sortDir,
             String keyword,
             Long categoryId,
+            Long organizationId,
             String brand,
             ProductStatus status,
             BigDecimal minPrice,
@@ -159,6 +160,13 @@ public class ProductServiceImpl
     ) {
         validatePagination(page, size);
         validatePriceRange(minPrice, maxPrice);
+
+        if (organizationId != null
+                && organizationId <= 0) {
+            throw new IllegalArgumentException(
+                    "Organization id must be positive"
+            );
+        }
 
         Pageable pageable =
                 PageRequest.of(
@@ -177,6 +185,7 @@ public class ProductServiceImpl
                                         .filterProducts(
                                                 keyword,
                                                 categoryId,
+                                                organizationId,
                                                 brand,
                                                 status,
                                                 minPrice,

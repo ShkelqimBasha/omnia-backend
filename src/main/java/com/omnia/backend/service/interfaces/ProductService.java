@@ -24,6 +24,7 @@ public interface ProductService {
             String sortDir,
             String keyword,
             Long categoryId,
+            Long organizationId,
             String brand,
             ProductStatus status,
             BigDecimal minPrice,

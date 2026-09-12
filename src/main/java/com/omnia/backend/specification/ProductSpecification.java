@@ -18,6 +18,7 @@ public final class ProductSpecification {
     public static Specification<Product> filterProducts(
             String keyword,
             Long categoryId,
+            Long organizationId,
             String brand,
             ProductStatus status,
             BigDecimal minPrice,
@@ -27,6 +28,7 @@ public final class ProductSpecification {
                 List.of(
                         containsKeyword(keyword),
                         hasCategory(categoryId),
+                        hasOrganization(organizationId),
                         hasBrand(brand),
                         hasStatus(status),
                         priceGreaterThanOrEqual(minPrice),
@@ -86,6 +88,20 @@ public final class ProductSpecification {
         };
     }
 
+    private static Specification<Product> hasOrganization(
+            Long organizationId
+    ) {
+        return (root, query, criteriaBuilder) -> {
+            if (organizationId == null) {
+                return criteriaBuilder.conjunction();
+            }
+
+            return criteriaBuilder.equal(
+                    root.get("organization").get("id"),
+                    organizationId
+            );
+        };
+    }
     private static Specification<Product> hasBrand(
             String brand
     ) {

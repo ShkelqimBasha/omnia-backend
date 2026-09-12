@@ -4,8 +4,11 @@ import com.omnia.backend.dto.request.OrganizationMemberRequest;
 import com.omnia.backend.dto.request.OrganizationMemberUpdateRequest;
 import com.omnia.backend.dto.response.OrganizationMemberResponse;
 import com.omnia.backend.service.interfaces.OrganizationMemberService;
+import com.omnia.backend.dto.response.OrganizationMemberCandidateResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -61,6 +64,26 @@ public class OrganizationMemberController {
         return ResponseEntity.ok(
                 memberService.getMembers(
                         organizationId
+                )
+        );
+    }
+    @GetMapping("/candidates")
+    public ResponseEntity<
+            List<OrganizationMemberCandidateResponse>
+            > searchMemberCandidates(
+            @PathVariable
+            @Positive
+            Long organizationId,
+
+            @RequestParam
+            @NotBlank
+            @Size(min = 2, max = 100)
+            String query
+    ) {
+        return ResponseEntity.ok(
+                memberService.searchMemberCandidates(
+                        organizationId,
+                        query
                 )
         );
     }

@@ -1,11 +1,16 @@
 package com.omnia.backend.mapper;
 
+
+import com.omnia.backend.dto.response.OrganizationMemberCandidateResponse;
 import com.omnia.backend.dto.response.OrganizationMemberResponse;
 import com.omnia.backend.entity.OrganizationMember;
+import com.omnia.backend.entity.User;
 import org.springframework.stereotype.Component;
 
 @Component
 public class OrganizationMemberMapper {
+
+
 
     public OrganizationMemberResponse toResponse(
             OrganizationMember member
@@ -55,6 +60,23 @@ public class OrganizationMemberMapper {
                 )
                 .createdAt(member.getCreatedAt())
                 .updatedAt(member.getUpdatedAt())
+                .build();
+    }
+    public OrganizationMemberCandidateResponse
+    toCandidateResponse(User user) {
+        if (user == null) {
+            throw new IllegalArgumentException(
+                    "User must not be null"
+            );
+        }
+
+        return OrganizationMemberCandidateResponse
+                .builder()
+                .id(user.getId())
+                .firstName(user.getFirstName())
+                .lastName(user.getLastName())
+                .username(user.getUsername())
+                .email(user.getEmail())
                 .build();
     }
 }

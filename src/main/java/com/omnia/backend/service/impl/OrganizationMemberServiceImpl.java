@@ -5,6 +5,7 @@ import com.omnia.backend.common.exception.ResourceNotFoundException;
 import com.omnia.backend.dto.request.OrganizationMemberRequest;
 import com.omnia.backend.dto.request.OrganizationMemberUpdateRequest;
 import com.omnia.backend.dto.response.OrganizationMemberResponse;
+import com.omnia.backend.dto.response.OrganizationMemberCandidateResponse;
 import com.omnia.backend.entity.Organization;
 import com.omnia.backend.entity.OrganizationMember;
 import com.omnia.backend.entity.User;
@@ -20,6 +21,7 @@ import com.omnia.backend.security.service.OrganizationAccessService;
 import com.omnia.backend.service.interfaces.OrganizationMemberService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.data.domain.PageRequest;
 
 import java.util.List;
 import java.util.Objects;
@@ -27,6 +29,7 @@ import java.util.Objects;
 @Service
 public class OrganizationMemberServiceImpl
         implements OrganizationMemberService {
+    private static final int MAX_CANDIDATE_RESULTS = 20;
 
     private final OrganizationRepository
             organizationRepository;
@@ -143,6 +146,57 @@ public class OrganizationMemberServiceImpl
                 )
                 .stream()
                 .map(memberMapper::toResponse)
+                .toList();
+    }
+    @Override
+    @Transactional(readOnly = true)
+    public List<OrganizationMemberCandidateResponse>
+    searchMemberCandidates(
+            Long organizationId,
+            String query
+    ) {
+        validatePositiveId(
+                organizationId,
+                "Organization id"
+        );
+
+        accessService.requireCanManageMembers(
+                organizationId
+        );
+
+        findOrganization(organizationId);
+
+        String normalizedQuery =
+                query == null
+                        ? ""
+                        : query.trim();
+
+        if (normalizedQuery.length() < 2) {
+            throw new IllegalArgumentException(
+                                    "Search query must contain at least "
+                    + "2 characters"
+            );
+        }
+
+        if (normalizedQuery.length() > 100) {
+            throw new IllegalArgumentException(
+                    "Search query must not exceed "
+                            + "100 characters"
+            );
+        }
+
+        return userRepository
+                .searchOrganizationMemberCandidates(
+                        organizationId,
+                        UserStatus.ACTIVE,
+                        normalizedQuery,
+                        PageRequest.of(
+                                0,
+                                MAX_CANDIDATE_RESULTS
+                        )
+                )
+                .stream()
+                .map(memberMapper::toCandidateResponse)
                 .toList();
     }
 

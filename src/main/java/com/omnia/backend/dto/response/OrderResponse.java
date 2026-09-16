@@ -20,6 +20,16 @@ public class OrderResponse {
 
     private Long userId;
 
+    private String checkoutReference;
+
+    private Integer checkoutSequence;
+
+    private Integer checkoutOrderCount;
+
+    private Long organizationId;
+
+    private String organizationName;
+
     private Long addressId;
 
     private String shippingName;
@@ -33,14 +43,21 @@ public class OrderResponse {
     private BigDecimal totalAmount;
 
     private BigDecimal subtotalAmount;
+
     private BigDecimal shippingFee;
+
     private BigDecimal discountAmount;
+
     private String couponCode;
 
     private OrderStatus status;
+
     private PaymentMethod paymentMethod;
+
     private PaymentStatus paymentStatus;
+
     private LocalDateTime paidAt;
+
     private String transactionId;
 
     private LocalDateTime createdAt;

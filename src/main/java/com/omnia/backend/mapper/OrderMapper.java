@@ -2,17 +2,19 @@ package com.omnia.backend.mapper;
 
 import com.omnia.backend.dto.response.OrderItemResponse;
 import com.omnia.backend.dto.response.OrderResponse;
+import com.omnia.backend.entity.CheckoutGroup;
 import com.omnia.backend.entity.Order;
 import com.omnia.backend.entity.OrderItem;
-
+import com.omnia.backend.entity.Organization;
 import com.omnia.backend.entity.Payment;
 
 import java.util.List;
 
 public class OrderMapper {
 
-    public static OrderItemResponse toItemResponse(OrderItem item) {
-
+    public static OrderItemResponse toItemResponse(
+            OrderItem item
+    ) {
         return OrderItemResponse.builder()
                 .productId(item.getProductId())
                 .productName(item.getProductName())
@@ -36,9 +38,44 @@ public class OrderMapper {
             List<OrderItem> items,
             Payment payment
     ) {
+        CheckoutGroup checkoutGroup =
+                order.getCheckoutGroup();
+
+        Organization organization =
+                order.getOrganization();
+
+        String organizationName =
+                order.getOrganizationName();
+
+        if ((organizationName == null
+                || organizationName.isBlank())
+                && organization != null) {
+            organizationName = organization.getName();
+        }
+
         return OrderResponse.builder()
                 .id(order.getId())
                 .userId(order.getUser().getId())
+                .checkoutReference(
+                        checkoutGroup == null
+                                ? null
+                                : checkoutGroup
+                                .getCheckoutReference()
+                )
+                .checkoutSequence(
+                        order.getCheckoutSequence()
+                )
+                .checkoutOrderCount(
+                        checkoutGroup == null
+                                ? null
+                                : checkoutGroup.getOrderCount()
+                )
+                .organizationId(
+                        organization == null
+                                ? null
+                                : organization.getId()
+                )
+                .organizationName(organizationName)
                 .addressId(order.getAddressId())
                 .subtotalAmount(order.getSubtotalAmount())
                 .shippingFee(order.getShippingFee())
@@ -71,9 +108,11 @@ public class OrderMapper {
                                 : payment.getTransactionId()
                 )
                 .createdAt(order.getCreatedAt())
-                .items(items.stream()
-                        .map(OrderMapper::toItemResponse)
-                        .toList())
+                .items(
+                        items.stream()
+                                .map(OrderMapper::toItemResponse)
+                                .toList()
+                )
                 .build();
     }
 

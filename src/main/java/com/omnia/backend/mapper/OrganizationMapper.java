@@ -1,5 +1,6 @@
 package com.omnia.backend.mapper;
 
+import com.omnia.backend.dto.response.OrganizationCatalogResponse;
 import com.omnia.backend.dto.response.OrganizationResponse;
 import com.omnia.backend.entity.Organization;
 import org.springframework.stereotype.Component;
@@ -38,4 +39,22 @@ public class OrganizationMapper {
                 .updatedAt(organization.getUpdatedAt())
                 .build();
     }
-}
+
+    public OrganizationCatalogResponse toCatalogResponse(
+            Organization organization
+    ) {
+        if (organization == null) {
+            throw new IllegalArgumentException(
+                    "Organization must not be null"
+            );
+        }
+
+        return OrganizationCatalogResponse.builder()
+                .id(organization.getId())
+                .name(organization.getName())
+                .slug(organization.getSlug())
+                .description(
+                        organization.getDescription()
+                )
+                .build();
+    }}

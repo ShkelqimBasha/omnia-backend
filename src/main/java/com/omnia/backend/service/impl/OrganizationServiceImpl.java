@@ -2,6 +2,7 @@ package com.omnia.backend.service.impl;
 
 import com.omnia.backend.common.exception.ResourceNotFoundException;
 import com.omnia.backend.dto.request.OrganizationRequest;
+import com.omnia.backend.dto.response.OrganizationCatalogResponse;
 import com.omnia.backend.dto.response.OrganizationResponse;
 import com.omnia.backend.entity.Organization;
 import com.omnia.backend.entity.User;
@@ -86,6 +87,22 @@ public class OrganizationServiceImpl
         );
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<OrganizationCatalogResponse>
+    getCatalogOrganizations() {
+
+        return organizationRepository
+                .findAllByStatusOrderByNameAsc(
+                        OrganizationStatus.ACTIVE
+                )
+                .stream()
+                .map(
+                        organizationMapper
+                                ::toCatalogResponse
+                )
+                .toList();
+    }
     @Override
     @Transactional(readOnly = true)
     public List<OrganizationResponse>

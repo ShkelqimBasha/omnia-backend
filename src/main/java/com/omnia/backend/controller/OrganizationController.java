@@ -1,6 +1,7 @@
 package com.omnia.backend.controller;
 
 import com.omnia.backend.dto.request.OrganizationRequest;
+import com.omnia.backend.dto.response.OrganizationCatalogResponse;
 import com.omnia.backend.dto.response.OrganizationResponse;
 import com.omnia.backend.enums.OrganizationStatus;
 import com.omnia.backend.service.interfaces.OrganizationService;
@@ -62,6 +63,16 @@ public class OrganizationController {
         );
     }
 
+    @GetMapping("/catalog")
+    public ResponseEntity<
+            List<OrganizationCatalogResponse>>
+    getCatalogOrganizations() {
+
+        return ResponseEntity.ok(
+                organizationService
+                        .getCatalogOrganizations()
+        );
+    }
     @GetMapping("/{organizationId}")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<OrganizationResponse>

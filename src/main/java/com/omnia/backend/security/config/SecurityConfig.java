@@ -123,7 +123,8 @@ public class SecurityConfig {
                                 "/api/products",
                                 "/api/products/**",
                                 "/api/categories",
-                                "/api/categories/**"
+                                "/api/categories/**",
+                                "/api/organizations/catalog"
                         )
                         .permitAll()
 

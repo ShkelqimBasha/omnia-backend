@@ -9,6 +9,11 @@ import java.util.List;
 
 public interface OrganizationMemberService {
 
+    com.omnia.backend.dto.response.OrganizationMemberAccountResponse
+    createMemberAccount(
+            Long organizationId,
+            com.omnia.backend.dto.request.OrganizationMemberAccountRequest request
+    );
     OrganizationMemberResponse addMember(
             Long organizationId,
             OrganizationMemberRequest request

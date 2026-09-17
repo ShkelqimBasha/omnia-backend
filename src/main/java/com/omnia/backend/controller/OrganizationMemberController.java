@@ -33,6 +33,36 @@ public class OrganizationMemberController {
         this.memberService = memberService;
     }
 
+    @PostMapping("/accounts")
+    public ResponseEntity<
+            com.omnia.backend.dto.response.OrganizationMemberAccountResponse>
+    createMemberAccount(
+            @PathVariable
+            @Positive
+            Long organizationId,
+
+            @Valid
+            @RequestBody
+            com.omnia.backend.dto.request.OrganizationMemberAccountRequest
+                    request
+    ) {
+        com.omnia.backend.dto.response.OrganizationMemberAccountResponse
+                response =
+                memberService.createMemberAccount(
+                        organizationId,
+                        request
+                );
+
+        if (response.isConfirmationRequired()) {
+            return ResponseEntity.ok(response);
+        }
+
+        return ResponseEntity
+                .status(
+                        org.springframework.http.HttpStatus.CREATED
+                )
+                .body(response);
+    }
     @PostMapping
     public ResponseEntity<OrganizationMemberResponse>
     addMember(

@@ -22,6 +22,7 @@ import com.omnia.backend.repository.ProductRepository;
 import com.omnia.backend.repository.UserRepository;
 import com.omnia.backend.repository.PaymentRepository;
 import com.omnia.backend.service.interfaces.OrderService;
+import com.omnia.backend.security.service.OrganizationAccessService;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -56,6 +57,7 @@ public class OrderServiceImpl implements OrderService {
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
     private final PaymentRepository paymentRepository;
+    private final OrganizationAccessService organizationAccessService;
     private final ApplicationEventPublisher eventPublisher;
 
     public OrderServiceImpl(
@@ -69,6 +71,7 @@ public class OrderServiceImpl implements OrderService {
             ProductRepository productRepository,
             UserRepository userRepository,
             PaymentRepository paymentRepository,
+            OrganizationAccessService organizationAccessService,
             ApplicationEventPublisher eventPublisher
     ) {
         this.orderRepository = orderRepository;
@@ -81,6 +84,7 @@ public class OrderServiceImpl implements OrderService {
         this.productRepository = productRepository;
         this.userRepository = userRepository;
         this.paymentRepository = paymentRepository;
+        this.organizationAccessService = organizationAccessService;
         this.eventPublisher = eventPublisher;
     }
 
@@ -382,6 +386,103 @@ public class OrderServiceImpl implements OrderService {
         );
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<OrderResponse> getOrdersForOrganization(
+            Long organizationId
+    ) {
+        organizationAccessService
+                .requireCanAccessOrganization(
+                        organizationId
+                );
+
+        return orderRepository
+                .findAllByOrganizationIdOrderByCreatedAtDesc(
+                        organizationId
+                )
+                .stream()
+                .map(order -> {
+                    List<OrderItem> items =
+                            orderItemRepository.findByOrderId(
+                                    order.getId()
+                            );
+
+                    return mapOrderResponse(
+                            order,
+                            items
+                    );
+                })
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<OrderStatusHistoryResponse>
+    getOrderStatusHistoryForOrganization(
+            Long organizationId,
+            Long orderId
+    ) {
+        organizationAccessService
+                .requireCanAccessOrganization(
+                        organizationId
+                );
+
+        requireOrderForOrganization(
+                organizationId,
+                orderId
+        );
+
+        return getOrderStatusHistoryForAdmin(
+                orderId
+        );
+    }
+
+    @Override
+    @Transactional
+    public OrderResponse updateOrderStatusForOrganization(
+            Long organizationId,
+            Long orderId,
+            OrderStatus status
+    ) {
+        organizationAccessService
+                .requireCanManageOrders(
+                        organizationId
+                );
+
+        requireOrderForOrganization(
+                organizationId,
+                orderId
+        );
+
+        return updateOrderStatusForAdmin(
+                orderId,
+                status
+        );
+    }
+
+    private Order requireOrderForOrganization(
+            Long organizationId,
+            Long orderId
+    ) {
+        Order order =
+                orderRepository.findById(orderId)
+                        .orElseThrow(
+                                () -> new ResourceNotFoundException(
+                                        "Order not found"
+                                )
+                        );
+
+        if (order.getOrganization() == null
+                || !organizationId.equals(
+                order.getOrganization().getId()
+        )) {
+            throw new ResourceNotFoundException(
+                    "Order not found"
+            );
+        }
+
+        return order;
+    }
     @Override
     @Transactional(readOnly = true)
     public List<OrderResponse> getAllOrdersForAdmin() {

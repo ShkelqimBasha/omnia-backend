@@ -6,6 +6,7 @@ import com.omnia.backend.dto.request.CreateOrderRequest;
 import com.omnia.backend.dto.response.OrderResponse;
 import com.omnia.backend.dto.response.OrderStatusHistoryResponse;
 import com.omnia.backend.entity.Order;
+import com.omnia.backend.entity.Organization;
 import com.omnia.backend.entity.OrderItem;
 import com.omnia.backend.entity.OrderStatusHistory;
 import com.omnia.backend.entity.Product;
@@ -20,6 +21,7 @@ import com.omnia.backend.repository.OrderStatusHistoryRepository;
 import com.omnia.backend.repository.PaymentRepository;
 import com.omnia.backend.repository.ProductRepository;
 import com.omnia.backend.repository.UserRepository;
+import com.omnia.backend.security.service.OrganizationAccessService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -79,6 +81,9 @@ class OrderServiceImplTest {
     @Mock
     private ApplicationEventPublisher eventPublisher;
 
+    @Mock
+    private OrganizationAccessService
+            organizationAccessService;
     @InjectMocks
     private OrderServiceImpl orderService;
 
@@ -2448,6 +2453,93 @@ class OrderServiceImplTest {
 
         verify(productRepository, never())
                 .findByIdForUpdate(anyLong());
+
+        verify(orderRepository, never())
+                .save(any(Order.class));
+    }
+    @Test
+    void getOrdersForOrganization_shouldUseOrganizationFilter() {
+        when(orderRepository
+                .findAllByOrganizationIdOrderByCreatedAtDesc(
+                        10L
+                ))
+                .thenReturn(List.of());
+
+        List<OrderResponse> result =
+                orderService.getOrdersForOrganization(
+                        10L
+                );
+
+        assertTrue(result.isEmpty());
+
+        verify(organizationAccessService)
+                .requireCanAccessOrganization(10L);
+
+        verify(orderRepository)
+                .findAllByOrganizationIdOrderByCreatedAtDesc(
+                        10L
+                );
+    }
+
+    @Test
+    void getOrganizationOrderHistory_shouldRejectOtherOrganization() {
+        Organization otherOrganization =
+                Organization.builder()
+                        .id(20L)
+                        .build();
+
+        Order order = Order.builder()
+                .id(90L)
+                .organization(otherOrganization)
+                .build();
+
+        when(orderRepository.findById(90L))
+                .thenReturn(Optional.of(order));
+
+        assertThrows(
+                ResourceNotFoundException.class,
+                () -> orderService
+                        .getOrderStatusHistoryForOrganization(
+                                10L,
+                                90L
+                        )
+        );
+
+        verify(organizationAccessService)
+                .requireCanAccessOrganization(10L);
+
+        verifyNoInteractions(
+                orderStatusHistoryRepository
+        );
+    }
+
+    @Test
+    void updateOrganizationOrder_shouldRejectOtherOrganization() {
+        Organization otherOrganization =
+                Organization.builder()
+                        .id(20L)
+                        .build();
+
+        Order order = Order.builder()
+                .id(91L)
+                .organization(otherOrganization)
+                .build();
+
+        when(orderRepository.findById(91L))
+                .thenReturn(Optional.of(order));
+
+        assertThrows(
+                ResourceNotFoundException.class,
+                () -> orderService
+                        .updateOrderStatusForOrganization(
+                                10L,
+                                91L,
+                                OrderStatus.CONFIRMED
+                        )
+        );
+
+        verify(organizationAccessService)
+                .requireCanManageOrders(10L);
 
         verify(orderRepository, never())
                 .save(any(Order.class));

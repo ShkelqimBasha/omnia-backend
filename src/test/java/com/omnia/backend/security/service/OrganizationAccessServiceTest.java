@@ -5,6 +5,7 @@ import com.omnia.backend.entity.OrganizationCategoryPermission;
 import com.omnia.backend.entity.OrganizationMember;
 import com.omnia.backend.entity.User;
 import com.omnia.backend.enums.OrganizationMemberStatus;
+import com.omnia.backend.enums.OrganizationMemberRole;
 import com.omnia.backend.enums.OrganizationPermissionStatus;
 import com.omnia.backend.repository.OrganizationCategoryPermissionRepository;
 import com.omnia.backend.repository.OrganizationMemberRepository;
@@ -19,6 +20,8 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -248,6 +251,124 @@ class OrganizationAccessServiceTest {
         );
     }
 
+    @Test
+    void platformAdminCanManageOrdersWithoutMembership() {
+        when(currentUserService.requireCurrentUser())
+                .thenReturn(currentUser);
+
+        when(currentUserService
+                .hasPlatformAdminAccess(currentUser))
+                .thenReturn(true);
+
+        assertDoesNotThrow(() ->
+                accessService.requireCanManageOrders(
+                        ORGANIZATION_ID
+                )
+        );
+
+        verifyNoInteractions(memberRepository);
+    }
+
+    @Test
+    void activeMemberCanAccessOrganizationOrders() {
+        mockRegularUser();
+        mockActiveMember();
+
+        assertDoesNotThrow(() ->
+                accessService.requireCanAccessOrganization(
+                        ORGANIZATION_ID
+                )
+        );
+    }
+
+    @Test
+    void organizationOrderManagerCanManageOrders() {
+        mockRegularUser();
+        mockActiveMember();
+
+        when(member.getOrganization())
+                .thenReturn(organization);
+
+        when(organization.isActive())
+                .thenReturn(true);
+
+        when(member.canManageOrders())
+                .thenReturn(true);
+
+        assertDoesNotThrow(() ->
+                accessService.requireCanManageOrders(
+                        ORGANIZATION_ID
+                )
+        );
+    }
+
+    @Test
+    void staffCannotManageOrders() {
+        mockRegularUser();
+        mockActiveMember();
+
+        when(member.getOrganization())
+                .thenReturn(organization);
+
+        when(organization.isActive())
+                .thenReturn(true);
+
+        when(member.canManageOrders())
+                .thenReturn(false);
+
+        assertThrows(
+                AccessDeniedException.class,
+                () -> accessService.requireCanManageOrders(
+                        ORGANIZATION_ID
+                )
+        );
+    }
+
+    @Test
+    void inactiveOrganizationCannotManageOrders() {
+        mockRegularUser();
+        mockActiveMember();
+
+        when(member.getOrganization())
+                .thenReturn(organization);
+
+        when(organization.isActive())
+                .thenReturn(false);
+
+        assertThrows(
+                AccessDeniedException.class,
+                () -> accessService.requireCanManageOrders(
+                        ORGANIZATION_ID
+                )
+        );
+    }
+    @Test
+    void organizationRolesShouldDefineOrderManagement() {
+        OrganizationMember owner =
+                OrganizationMember.builder()
+                        .membershipRole(
+                                OrganizationMemberRole.OWNER
+                        )
+                        .build();
+
+        OrganizationMember admin =
+                OrganizationMember.builder()
+                        .membershipRole(
+                                OrganizationMemberRole.ADMIN
+                        )
+                        .build();
+
+        OrganizationMember staff =
+                OrganizationMember.builder()
+                        .membershipRole(
+                                OrganizationMemberRole.STAFF
+                        )
+                        .build();
+
+        assertTrue(owner.canManageOrders());
+        assertTrue(admin.canManageOrders());
+        assertFalse(staff.canManageOrders());
+    }
     private void mockRegularUser() {
         when(currentUserService.requireCurrentUser())
                 .thenReturn(currentUser);

@@ -133,6 +133,36 @@ public class OrganizationAccessService {
     }
 
     @Transactional(readOnly = true)
+    public void requireCanManageOrders(
+            Long organizationId
+    ) {
+        User currentUser =
+                currentUserService.requireCurrentUser();
+
+        if (currentUserService
+                .hasPlatformAdminAccess(currentUser)) {
+            return;
+        }
+
+        OrganizationMember member =
+                requireActiveMember(
+                        currentUser,
+                        organizationId
+                );
+
+        if (!member.getOrganization().isActive()) {
+            throw new AccessDeniedException(
+                    "Organization is not active"
+            );
+        }
+
+        if (!member.canManageOrders()) {
+            throw new AccessDeniedException(
+                    "Order management permission is required"
+            );
+        }
+    }
+    @Transactional(readOnly = true)
     public void requireCanManageMembers(
             Long organizationId
     ) {

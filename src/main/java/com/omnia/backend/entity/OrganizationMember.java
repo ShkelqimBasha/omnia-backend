@@ -99,6 +99,10 @@ public class OrganizationMember {
                 || OrganizationMemberRole.ADMIN.equals(membershipRole);
     }
 
+    public boolean canManageOrders() {
+        return OrganizationMemberRole.OWNER.equals(membershipRole)
+                || OrganizationMemberRole.ADMIN.equals(membershipRole);
+    }
     public boolean canManageMembers() {
         return OrganizationMemberRole.OWNER.equals(membershipRole);
     }

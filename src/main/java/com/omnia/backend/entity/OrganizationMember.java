@@ -103,6 +103,13 @@ public class OrganizationMember {
         return OrganizationMemberRole.OWNER.equals(membershipRole)
                 || OrganizationMemberRole.ADMIN.equals(membershipRole);
     }
+    public boolean canManageCoupons() {
+        return OrganizationMemberRole.OWNER.equals(
+                membershipRole
+        ) || OrganizationMemberRole.ADMIN.equals(
+                membershipRole
+        );
+    }
     public boolean canManageMembers() {
         return OrganizationMemberRole.OWNER.equals(membershipRole);
     }

@@ -7,11 +7,31 @@ import java.util.List;
 
 public interface CouponService {
 
-    CouponResponse createCoupon(CouponRequest request);
+    CouponResponse createCoupon(
+            CouponRequest request
+    );
 
     List<CouponResponse> getAllCoupons();
 
-    CouponResponse getCouponByCode(String code);
+    CouponResponse getCouponByCode(
+            String code
+    );
 
-    void deleteCoupon(Long id);
+    void deleteCoupon(
+            Long id
+    );
+
+    CouponResponse createCouponForOrganization(
+            Long organizationId,
+            CouponRequest request
+    );
+
+    List<CouponResponse> getCouponsForOrganization(
+            Long organizationId
+    );
+
+    void deleteCouponForOrganization(
+            Long organizationId,
+            Long couponId
+    );
 }

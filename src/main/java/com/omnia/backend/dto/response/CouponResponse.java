@@ -16,6 +16,10 @@ public class CouponResponse {
 
     private Long id;
 
+    private Long organizationId;
+
+    private String organizationName;
+
     private String code;
 
     private DiscountType discountType;

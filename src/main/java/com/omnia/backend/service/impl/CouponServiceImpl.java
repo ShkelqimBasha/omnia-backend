@@ -5,27 +5,42 @@ import com.omnia.backend.common.exception.ResourceNotFoundException;
 import com.omnia.backend.dto.request.CouponRequest;
 import com.omnia.backend.dto.response.CouponResponse;
 import com.omnia.backend.entity.Coupon;
+import com.omnia.backend.entity.Organization;
 import com.omnia.backend.enums.CouponStatus;
+import com.omnia.backend.enums.DiscountType;
 import com.omnia.backend.mapper.CouponMapper;
 import com.omnia.backend.repository.CouponRepository;
+import com.omnia.backend.repository.OrganizationRepository;
+import com.omnia.backend.security.service.OrganizationAccessService;
 import com.omnia.backend.service.interfaces.CouponService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import com.omnia.backend.enums.DiscountType;
 
 import java.math.BigDecimal;
-import java.util.Locale;
-
-import java.util.List;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Locale;
 
 @Service
 public class CouponServiceImpl implements CouponService {
 
     private final CouponRepository couponRepository;
+    private final OrganizationRepository
+            organizationRepository;
+    private final OrganizationAccessService
+            organizationAccessService;
 
-    public CouponServiceImpl(CouponRepository couponRepository) {
+    public CouponServiceImpl(
+            CouponRepository couponRepository,
+            OrganizationRepository organizationRepository,
+            OrganizationAccessService
+                    organizationAccessService
+    ) {
         this.couponRepository = couponRepository;
+        this.organizationRepository =
+                organizationRepository;
+        this.organizationAccessService =
+                organizationAccessService;
     }
 
     @Override
@@ -33,18 +48,153 @@ public class CouponServiceImpl implements CouponService {
     public CouponResponse createCoupon(
             CouponRequest request
     ) {
-        String code =
-                request.getCode() == null
-                        ? ""
-                        : request.getCode()
-                        .trim()
-                        .toUpperCase(Locale.ROOT);
+        return createCouponInternal(
+                request,
+                null
+        );
+    }
 
-        if (code.isEmpty()) {
+    @Override
+    @Transactional(readOnly = true)
+    public List<CouponResponse> getAllCoupons() {
+        return couponRepository.findAll()
+                .stream()
+                .map(CouponMapper::toResponse)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public CouponResponse getCouponByCode(
+            String code
+    ) {
+        String normalizedCode =
+                normalizeCode(code);
+
+        Coupon coupon =
+                couponRepository
+                        .findByCodeIgnoreCase(
+                                normalizedCode
+                        )
+                        .orElseThrow(
+                                () ->
+                                        new ResourceNotFoundException(
+                                                "Coupon not found"
+                                        )
+                        );
+
+        return CouponMapper.toResponse(coupon);
+    }
+
+    @Override
+    @Transactional
+    public void deleteCoupon(
+            Long id
+    ) {
+        Coupon coupon =
+                couponRepository.findById(id)
+                        .orElseThrow(
+                                () ->
+                                        new ResourceNotFoundException(
+                                                "Coupon not found"
+                                        )
+                        );
+
+        deactivateCoupon(coupon);
+    }
+
+    @Override
+    @Transactional
+    public CouponResponse
+    createCouponForOrganization(
+            Long organizationId,
+            CouponRequest request
+    ) {
+        organizationAccessService
+                .requireCanManageCoupons(
+                        organizationId
+                );
+
+        Organization organization =
+                requireOrganization(
+                        organizationId
+                );
+
+        if (!organization.isActive()) {
             throw new IllegalArgumentException(
-                    "Coupon code is required"
+                    "Organization is not active"
             );
         }
+
+        return createCouponInternal(
+                request,
+                organization
+        );
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<CouponResponse>
+    getCouponsForOrganization(
+            Long organizationId
+    ) {
+        organizationAccessService
+                .requireCanAccessOrganization(
+                        organizationId
+                );
+
+        requireOrganization(organizationId);
+
+        return couponRepository
+                .findAllByOrganizationIdOrderByCodeAsc(
+                        organizationId
+                )
+                .stream()
+                .map(CouponMapper::toResponse)
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public void deleteCouponForOrganization(
+            Long organizationId,
+            Long couponId
+    ) {
+        organizationAccessService
+                .requireCanManageCoupons(
+                        organizationId
+                );
+
+        Coupon coupon =
+                couponRepository
+                        .findByIdAndOrganizationId(
+                                couponId,
+                                organizationId
+                        )
+                        .orElseThrow(
+                                () ->
+                                        new ResourceNotFoundException(
+                                                "Coupon not found"
+                                        )
+                        );
+
+        deactivateCoupon(coupon);
+    }
+
+    private CouponResponse createCouponInternal(
+            CouponRequest request,
+            Organization organization
+    ) {
+        if (request == null) {
+            throw new IllegalArgumentException(
+                    "Coupon request is required"
+            );
+        }
+
+        String code =
+                normalizeCode(
+                        request.getCode()
+                );
 
         DiscountType discountType =
                 request.getDiscountType();
@@ -81,6 +231,7 @@ public class CouponServiceImpl implements CouponService {
         }
 
         Coupon coupon = Coupon.builder()
+                .organization(organization)
                 .code(code)
                 .discountType(discountType)
                 .discountValue(discountValue)
@@ -102,20 +253,37 @@ public class CouponServiceImpl implements CouponService {
         return CouponMapper.toResponse(saved);
     }
 
-    @Override
-    @Transactional(readOnly = true)
-    public List<CouponResponse> getAllCoupons() {
+    private Organization requireOrganization(
+            Long organizationId
+    ) {
+        if (organizationId == null
+                || organizationId <= 0L) {
+            throw new IllegalArgumentException(
+                    "Organization id must be positive"
+            );
+        }
 
-        return couponRepository.findAll()
-                .stream()
-                .map(CouponMapper::toResponse)
-                .toList();
+        return organizationRepository
+                .findById(organizationId)
+                .orElseThrow(
+                        () ->
+                                new ResourceNotFoundException(
+                                        "Organization not found"
+                                )
+                );
     }
 
+    private void deactivateCoupon(
+            Coupon coupon
+    ) {
+        coupon.setStatus(
+                CouponStatus.INACTIVE
+        );
 
-    @Override
-    @Transactional(readOnly = true)
-    public CouponResponse getCouponByCode(
+        couponRepository.save(coupon);
+    }
+
+    private String normalizeCode(
             String code
     ) {
         String normalizedCode =
@@ -130,43 +298,9 @@ public class CouponServiceImpl implements CouponService {
             );
         }
 
-        Coupon coupon =
-                couponRepository
-                        .findByCodeIgnoreCase(
-                                normalizedCode
-                        )
-                        .orElseThrow(
-                                () -> new ResourceNotFoundException(
-                                        "Coupon not found"
-                                )
-                        );
-
-        return CouponMapper.toResponse(
-                coupon
-        );
+        return normalizedCode;
     }
 
-    @Override
-    @Transactional
-    public void deleteCoupon(
-            Long id
-    ) {
-        Coupon coupon =
-                couponRepository.findById(id)
-                        .orElseThrow(
-                                () -> new ResourceNotFoundException(
-                                        "Coupon not found"
-                                )
-                        );
-
-        coupon.setStatus(
-                CouponStatus.INACTIVE
-        );
-
-        couponRepository.save(
-                coupon
-        );
-    }
     private void validateCouponRules(
             DiscountType discountType,
             BigDecimal discountValue,

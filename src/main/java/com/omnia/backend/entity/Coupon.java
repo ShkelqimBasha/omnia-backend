@@ -21,6 +21,10 @@ public class Coupon {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "organization_id")
+    private Organization organization;
+
     @Column(nullable = false, unique = true, length = 50)
     private String code;
 
@@ -28,8 +32,14 @@ public class Coupon {
     @Column(name = "discount_type", nullable = false)
     private DiscountType discountType;
 
-    @Column(name = "discount_value", nullable = false, precision = 10, scale = 2)
+    @Column(
+            name = "discount_value",
+            nullable = false,
+            precision = 10,
+            scale = 2
+    )
     private BigDecimal discountValue;
+
     @Column(
             name = "minimum_order_amount",
             nullable = false,
@@ -48,6 +58,7 @@ public class Coupon {
 
     @Column(name = "usage_limit")
     private Integer usageLimit;
+
     @Column(name = "per_user_limit")
     private Integer perUserLimit;
 

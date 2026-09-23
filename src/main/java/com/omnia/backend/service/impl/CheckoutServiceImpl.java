@@ -241,25 +241,47 @@ public class CheckoutServiceImpl
                                 RoundingMode.HALF_UP
                         );
 
+        List<VendorOrderDraft> couponDrafts =
+                findCouponEligibleDrafts(
+                        coupon,
+                        vendorDrafts
+                );
+
+        BigDecimal couponSubtotal =
+                couponDrafts.stream()
+                        .map(draft -> draft.subtotal)
+                        .reduce(
+                                BigDecimal.ZERO,
+                                BigDecimal::add
+                        )
+                        .setScale(
+                                2,
+                                RoundingMode.HALF_UP
+                        );
+
         validateCouponForCheckout(
                 coupon,
                 user,
-                checkoutSubtotal
+                couponSubtotal
         );
 
         BigDecimal checkoutDiscount =
                 calculateCouponDiscount(
                         coupon,
-                        checkoutSubtotal
+                        couponSubtotal
                 );
-
-        boolean freeShippingCoupon =
-                coupon != null
-                        && coupon.getDiscountType()
-                        == DiscountType.FREE_SHIPPING;
 
         for (VendorOrderDraft draft
                 : vendorDrafts) {
+            boolean freeShippingCoupon =
+                    coupon != null
+                            && coupon.getDiscountType()
+                            == DiscountType.FREE_SHIPPING
+                            && couponAppliesToDraft(
+                            coupon,
+                            draft
+                    );
+
             draft.shippingFee =
                     calculateShippingFee(
                             draft.subtotal,
@@ -268,7 +290,7 @@ public class CheckoutServiceImpl
         }
 
         distributeDiscount(
-                vendorDrafts,
+                couponDrafts,
                 checkoutDiscount
         );
 
@@ -380,7 +402,14 @@ public class CheckoutServiceImpl
                     .discountAmount(
                             draft.discount
                     )
-                    .couponCode(couponCode)
+                    .couponCode(
+                            couponAppliesToDraft(
+                                    coupon,
+                                    draft
+                            )
+                                    ? couponCode
+                                    : null
+                    )
                     .totalAmount(orderTotal)
                     .status(OrderStatus.PENDING)
                     .build();
@@ -655,6 +684,54 @@ public class CheckoutServiceImpl
         }
     }
 
+    private List<VendorOrderDraft>
+    findCouponEligibleDrafts(
+            Coupon coupon,
+            List<VendorOrderDraft> vendorDrafts
+    ) {
+        if (coupon == null
+                || coupon.getOrganization() == null) {
+            return vendorDrafts;
+        }
+
+        List<VendorOrderDraft> eligibleDrafts =
+                vendorDrafts.stream()
+                        .filter(draft ->
+                                couponAppliesToDraft(
+                                        coupon,
+                                        draft
+                                )
+                        )
+                        .toList();
+
+        if (eligibleDrafts.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Coupon does not apply to products "
+                            + "in this checkout"
+            );
+        }
+
+        return eligibleDrafts;
+    }
+
+    private boolean couponAppliesToDraft(
+            Coupon coupon,
+            VendorOrderDraft draft
+    ) {
+        if (coupon == null || draft == null) {
+            return false;
+        }
+
+        if (coupon.getOrganization() == null) {
+            return true;
+        }
+
+        return draft.organization != null
+                && draft.organization.getId() != null
+                && draft.organization.getId().equals(
+                coupon.getOrganization().getId()
+        );
+    }
     private String normalizeCouponCode(
             String couponCode
     ) {

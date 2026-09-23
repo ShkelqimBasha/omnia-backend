@@ -676,6 +676,12 @@ public class OrderServiceImpl implements OrderService {
                                 )
                         );
 
+        if (coupon.getOrganization() != null) {
+            throw new IllegalArgumentException(
+                    "Organization coupon requires checkout endpoint"
+            );
+        }
+
         if (coupon.getStatus() != CouponStatus.ACTIVE) {
             throw new IllegalArgumentException(
                     "Coupon is inactive"

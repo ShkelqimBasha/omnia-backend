@@ -163,6 +163,36 @@ public class OrganizationAccessService {
         }
     }
     @Transactional(readOnly = true)
+    public void requireCanManageCoupons(
+            Long organizationId
+    ) {
+        User currentUser =
+                currentUserService.requireCurrentUser();
+
+        if (currentUserService
+                .hasPlatformAdminAccess(currentUser)) {
+            return;
+        }
+
+        OrganizationMember member =
+                requireActiveMember(
+                        currentUser,
+                        organizationId
+                );
+
+        if (!member.getOrganization().isActive()) {
+            throw new AccessDeniedException(
+                    "Organization is not active"
+            );
+        }
+
+        if (!member.canManageCoupons()) {
+            throw new AccessDeniedException(
+                    "Coupon management permission is required"
+            );
+        }
+    }
+    @Transactional(readOnly = true)
     public void requireCanManageMembers(
             Long organizationId
     ) {

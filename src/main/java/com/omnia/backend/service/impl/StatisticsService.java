@@ -1,6 +1,7 @@
 package com.omnia.backend.service.impl;
 
 import com.omnia.backend.common.exception.ResourceNotFoundException;
+import com.omnia.backend.dto.response.DailyRevenueResponse;
 import com.omnia.backend.dto.response.OrganizationStatisticsResponse;
 import com.omnia.backend.enums.OrderStatus;
 import com.omnia.backend.enums.PaymentStatus;
@@ -21,7 +22,10 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @Transactional(readOnly = true)
@@ -129,6 +133,20 @@ public class StatisticsService {
                                 PageRequest.of(0, 1)
                         );
 
+        List<Object[]> dailyRevenueRows =
+                paymentRepository
+                        .findDailyRevenueByOrganizationIdAndStatusAndPaidAtBetween(
+                                organizationId,
+                                PaymentStatus.SUCCESS,
+                                startOfToday.minusDays(6),
+                                startOfTomorrow
+                        );
+
+        List<DailyRevenueResponse> dailyRevenue =
+                buildDailyRevenue(
+                        dailyRevenueRows,
+                        startOfToday.toLocalDate()
+                );
         return OrganizationStatisticsResponse.builder()
                 .totalProducts(
                         productRepository
@@ -202,6 +220,7 @@ public class StatisticsService {
                 .bestSellingProduct(
                         firstLabel(bestSellingProducts)
                 )
+                .dailyRevenue(dailyRevenue)
                 .build();
     }
 
@@ -247,6 +266,19 @@ public class StatisticsService {
                                 PageRequest.of(0, 1)
                         );
 
+        List<Object[]> dailyRevenueRows =
+                paymentRepository
+                        .findDailyRevenueByStatusAndPaidAtBetween(
+                                PaymentStatus.SUCCESS,
+                                startOfToday.minusDays(6),
+                                startOfTomorrow
+                        );
+
+        List<DailyRevenueResponse> dailyRevenue =
+                buildDailyRevenue(
+                        dailyRevenueRows,
+                        startOfToday.toLocalDate()
+                );
         return OrganizationStatisticsResponse.builder()
                 .totalProducts(
                         productRepository.count()
@@ -305,9 +337,98 @@ public class StatisticsService {
                 .bestSellingProduct(
                         firstLabel(bestSellingProducts)
                 )
+                .dailyRevenue(dailyRevenue)
                 .build();
     }
 
+    private List<DailyRevenueResponse> buildDailyRevenue(
+            List<Object[]> rows,
+            LocalDate today
+    ) {
+        Map<LocalDate, BigDecimal> revenueByDate =
+                new HashMap<>();
+
+        if (rows != null) {
+            for (Object[] row : rows) {
+                if (row == null
+                        || row.length < 2
+                        || row[0] == null
+                        || row[1] == null) {
+                    continue;
+                }
+
+                LocalDate date =
+                        parseDatabaseDate(row[0]);
+
+                if (date == null) {
+                    continue;
+                }
+
+                BigDecimal revenue;
+
+                if (row[1] instanceof BigDecimal) {
+                    revenue = (BigDecimal) row[1];
+                } else {
+                    revenue = new BigDecimal(
+                            String.valueOf(row[1])
+                    );
+                }
+
+                revenueByDate.put(
+                        date,
+                        revenue
+                );
+            }
+        }
+
+        List<DailyRevenueResponse> result =
+                new ArrayList<>();
+
+        for (int offset = 6;
+             offset >= 0;
+             offset--) {
+            LocalDate date =
+                    today.minusDays(offset);
+
+            result.add(
+                    new DailyRevenueResponse(
+                            date.toString(),
+                            revenueByDate.getOrDefault(
+                                    date,
+                                    BigDecimal.ZERO
+                            )
+                    )
+            );
+        }
+
+        return result;
+    }
+
+    private LocalDate parseDatabaseDate(
+            Object value
+    ) {
+        try {
+            if (value instanceof LocalDate) {
+                return (LocalDate) value;
+            }
+
+            if (value instanceof java.sql.Date) {
+                return ((java.sql.Date) value)
+                        .toLocalDate();
+            }
+
+            String text =
+                    String.valueOf(value);
+
+            if (text.length() >= 10) {
+                text = text.substring(0, 10);
+            }
+
+            return LocalDate.parse(text);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
     private LocalDateTime startOfTodayUtc() {
         return LocalDate.now(
                 ZoneOffset.UTC

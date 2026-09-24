@@ -103,4 +103,45 @@ public interface PaymentRepository
             Long organizationId,
             @Param("status")
             PaymentStatus status
+    );
+    @Query("""
+            select function('date', payment.paidAt),
+                   coalesce(sum(payment.order.totalAmount), 0)
+            from Payment payment
+            where payment.status = :status
+              and payment.paidAt >= :startDate
+              and payment.paidAt < :endDate
+            group by function('date', payment.paidAt)
+            order by function('date', payment.paidAt) asc
+            """)
+    List<Object[]> findDailyRevenueByStatusAndPaidAtBetween(
+            @Param("status")
+            PaymentStatus status,
+            @Param("startDate")
+            LocalDateTime startDate,
+            @Param("endDate")
+            LocalDateTime endDate
+    );
+
+    @Query("""
+            select function('date', payment.paidAt),
+                   coalesce(sum(payment.order.totalAmount), 0)
+            from Payment payment
+            where payment.order.organization.id = :organizationId
+              and payment.status = :status
+              and payment.paidAt >= :startDate
+              and payment.paidAt < :endDate
+            group by function('date', payment.paidAt)
+            order by function('date', payment.paidAt) asc
+            """)
+    List<Object[]>
+    findDailyRevenueByOrganizationIdAndStatusAndPaidAtBetween(
+            @Param("organizationId")
+            Long organizationId,
+            @Param("status")
+            PaymentStatus status,
+            @Param("startDate")
+            LocalDateTime startDate,
+            @Param("endDate")
+            LocalDateTime endDate
     );}

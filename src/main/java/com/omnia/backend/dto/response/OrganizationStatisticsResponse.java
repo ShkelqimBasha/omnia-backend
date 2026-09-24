@@ -7,6 +7,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 @Getter
 @Setter
@@ -39,4 +40,5 @@ public class OrganizationStatisticsResponse {
 
     private String topSellingCategory;
 
-    private String bestSellingProduct;}
+    private String bestSellingProduct;
+    private List<DailyRevenueResponse> dailyRevenue;}

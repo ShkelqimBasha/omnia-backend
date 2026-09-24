@@ -26,4 +26,17 @@ public class OrganizationStatisticsResponse {
     private Long activeOrders;
 
     private BigDecimal totalRevenue;
-}
+
+    private Long outOfStockProducts;
+
+    private BigDecimal salesToday;
+
+    private Long activeCustomers;
+
+    private BigDecimal averageRating;
+
+    private String mostUsedPaymentMethod;
+
+    private String topSellingCategory;
+
+    private String bestSellingProduct;}

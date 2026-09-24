@@ -1,24 +1,32 @@
 package com.omnia.backend.service.impl;
 
 import com.omnia.backend.dto.response.OrganizationStatisticsResponse;
+import com.omnia.backend.enums.OrderStatus;
+import com.omnia.backend.enums.PaymentMethod;
 import com.omnia.backend.enums.PaymentStatus;
 import com.omnia.backend.enums.ProductStatus;
+import com.omnia.backend.repository.OrderItemRepository;
 import com.omnia.backend.repository.OrderRepository;
 import com.omnia.backend.repository.OrganizationRepository;
 import com.omnia.backend.repository.PaymentRepository;
 import com.omnia.backend.repository.ProductRepository;
+import com.omnia.backend.repository.ReviewRepository;
 import com.omnia.backend.security.service.OrganizationAccessService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -42,6 +50,12 @@ class StatisticsServiceTest {
 
     @Mock
     private OrganizationRepository organizationRepository;
+
+    @Mock
+    private OrderItemRepository orderItemRepository;
+
+    @Mock
+    private ReviewRepository reviewRepository;
 
     @Mock
     private OrganizationAccessService
@@ -162,6 +176,114 @@ class StatisticsServiceTest {
     }
 
     @Test
+    void platformStatisticsShouldMapDetailedMetrics() {
+        when(productRepository
+                .countByStatusAndStockLessThanEqual(
+                        ProductStatus.ACTIVE,
+                        0
+                ))
+                .thenReturn(2L);
+
+        when(paymentRepository
+                .sumRevenueByStatusAndPaidAtBetween(
+                        eq(PaymentStatus.SUCCESS),
+                        any(LocalDateTime.class),
+                        any(LocalDateTime.class)
+                ))
+                .thenReturn(
+                        new BigDecimal("120.50")
+                );
+
+        when(orderRepository
+                .countDistinctCustomersExcludingStatus(
+                        OrderStatus.CANCELLED
+                ))
+                .thenReturn(3L);
+
+        when(reviewRepository.findAverageRating())
+                .thenReturn(4.25);
+
+        when(paymentRepository
+                .findPaymentMethodUsageByStatus(
+                        PaymentStatus.SUCCESS
+                ))
+                .thenReturn(
+                        List.<Object[]>of(
+                                new Object[]{
+                                        PaymentMethod.CASH_ON_DELIVERY,
+                                        5L
+                                }
+                        )
+                );
+
+        when(orderItemRepository
+                .findBestSellingProducts(
+                        eq(OrderStatus.DELIVERED),
+                        any(Pageable.class)
+                ))
+                .thenReturn(
+                        List.<Object[]>of(
+                                new Object[]{
+                                        "Produkti Test",
+                                        4L
+                                }
+                        )
+                );
+
+        when(orderItemRepository
+                .findTopSellingCategories(
+                        eq(OrderStatus.DELIVERED),
+                        any(Pageable.class)
+                ))
+                .thenReturn(
+                        List.<Object[]>of(
+                                new Object[]{
+                                        "Elektronikë",
+                                        4L
+                                }
+                        )
+                );
+
+        OrganizationStatisticsResponse response =
+                statisticsService
+                        .getPlatformStatistics();
+
+        assertEquals(
+                2L,
+                response.getOutOfStockProducts()
+        );
+
+        assertEquals(
+                new BigDecimal("120.50"),
+                response.getSalesToday()
+        );
+
+        assertEquals(
+                3L,
+                response.getActiveCustomers()
+        );
+
+        assertEquals(
+                new BigDecimal("4.3"),
+                response.getAverageRating()
+        );
+
+        assertEquals(
+                "CASH_ON_DELIVERY",
+                response.getMostUsedPaymentMethod()
+        );
+
+        assertEquals(
+                "Elektronikë",
+                response.getTopSellingCategory()
+        );
+
+        assertEquals(
+                "Produkti Test",
+                response.getBestSellingProduct()
+        );
+    }
+    @Test
     void unauthorizedMemberCannotReadStatistics() {
         doThrow(
                 new AccessDeniedException("Denied")
@@ -183,7 +305,9 @@ class StatisticsServiceTest {
                 productRepository,
                 orderRepository,
                 paymentRepository,
-                organizationRepository
+                organizationRepository,
+                orderItemRepository,
+                reviewRepository
         );
     }
 

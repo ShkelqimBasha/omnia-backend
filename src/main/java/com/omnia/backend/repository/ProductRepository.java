@@ -44,4 +44,14 @@ public interface ProductRepository
             ProductStatus status,
             Integer stock
     );
-}
+
+    long countByOrganizationIdAndStatusAndStockLessThanEqual(
+            Long organizationId,
+            ProductStatus status,
+            Integer stock
+    );
+
+    long countByStatusAndStockLessThanEqual(
+            ProductStatus status,
+            Integer stock
+    );}

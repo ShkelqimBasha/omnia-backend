@@ -45,7 +45,7 @@ class StatisticsControllerTest {
             throws Exception {
 
         when(statisticsService
-                .getOrganizationStatistics(10L))
+                .getOrganizationStatistics(10L, 7))
                 .thenReturn(createResponse());
 
         mockMvc.perform(
@@ -81,7 +81,7 @@ class StatisticsControllerTest {
                 );
 
         verify(statisticsService)
-                .getOrganizationStatistics(10L);
+                .getOrganizationStatistics(10L, 7);
     }
 
     @Test
@@ -89,7 +89,7 @@ class StatisticsControllerTest {
             throws Exception {
 
         when(statisticsService
-                .getPlatformStatistics())
+                .getPlatformStatistics(7))
                 .thenReturn(createResponse());
 
         mockMvc.perform(
@@ -110,9 +110,26 @@ class StatisticsControllerTest {
                 );
 
         verify(statisticsService)
-                .getPlatformStatistics();
+                .getPlatformStatistics(7);
     }
 
+    @Test
+    void adminEndpointShouldForwardRequestedPeriod()
+            throws Exception {
+
+        when(statisticsService
+                .getPlatformStatistics(30))
+                .thenReturn(createResponse());
+
+        mockMvc.perform(
+                        get("/api/admin/statistics")
+                                .param("days", "30")
+                )
+                .andExpect(status().isOk());
+
+        verify(statisticsService)
+                .getPlatformStatistics(30);
+    }
     private OrganizationStatisticsResponse
     createResponse() {
         return OrganizationStatisticsResponse.builder()

@@ -32,6 +32,7 @@ import java.util.Map;
 public class StatisticsService {
 
     private static final int LOW_STOCK_LIMIT = 5;
+    private static final int DEFAULT_REVENUE_DAYS = 7;
 
     private static final List<OrderStatus>
             FINISHED_ORDER_STATUSES =
@@ -75,6 +76,18 @@ public class StatisticsService {
     getOrganizationStatistics(
             Long organizationId
     ) {
+        return getOrganizationStatistics(
+                organizationId,
+                DEFAULT_REVENUE_DAYS
+        );
+    }
+
+    public OrganizationStatisticsResponse
+    getOrganizationStatistics(
+            Long organizationId,
+            int days
+    ) {
+        validateRevenueDays(days);
         organizationAccessService
                 .requireCanAccessOrganization(
                         organizationId
@@ -138,14 +151,15 @@ public class StatisticsService {
                         .findDailyRevenueByOrganizationIdAndStatusAndPaidAtBetween(
                                 organizationId,
                                 PaymentStatus.SUCCESS,
-                                startOfToday.minusDays(6),
+                                startOfToday.minusDays(days - 1L),
                                 startOfTomorrow
                         );
 
         List<DailyRevenueResponse> dailyRevenue =
                 buildDailyRevenue(
                         dailyRevenueRows,
-                        startOfToday.toLocalDate()
+                        startOfToday.toLocalDate(),
+                        days
                 );
         return OrganizationStatisticsResponse.builder()
                 .totalProducts(
@@ -226,6 +240,16 @@ public class StatisticsService {
 
     public OrganizationStatisticsResponse
     getPlatformStatistics() {
+        return getPlatformStatistics(
+                DEFAULT_REVENUE_DAYS
+        );
+    }
+
+    public OrganizationStatisticsResponse
+    getPlatformStatistics(
+            int days
+    ) {
+        validateRevenueDays(days);
 
         LocalDateTime startOfToday =
                 startOfTodayUtc();
@@ -270,14 +294,15 @@ public class StatisticsService {
                 paymentRepository
                         .findDailyRevenueByStatusAndPaidAtBetween(
                                 PaymentStatus.SUCCESS,
-                                startOfToday.minusDays(6),
+                                startOfToday.minusDays(days - 1L),
                                 startOfTomorrow
                         );
 
         List<DailyRevenueResponse> dailyRevenue =
                 buildDailyRevenue(
                         dailyRevenueRows,
-                        startOfToday.toLocalDate()
+                        startOfToday.toLocalDate(),
+                        days
                 );
         return OrganizationStatisticsResponse.builder()
                 .totalProducts(
@@ -341,9 +366,22 @@ public class StatisticsService {
                 .build();
     }
 
+    private void validateRevenueDays(
+            int days
+    ) {
+        if (days != 7
+                && days != 30
+                && days != 90) {
+            throw new IllegalArgumentException(
+                    "Statistics days must be 7, 30, or 90"
+            );
+        }
+    }
+
     private List<DailyRevenueResponse> buildDailyRevenue(
             List<Object[]> rows,
-            LocalDate today
+            LocalDate today,
+            int days
     ) {
         Map<LocalDate, BigDecimal> revenueByDate =
                 new HashMap<>();
@@ -384,7 +422,7 @@ public class StatisticsService {
         List<DailyRevenueResponse> result =
                 new ArrayList<>();
 
-        for (int offset = 6;
+        for (int offset = days - 1;
              offset >= 0;
              offset--) {
             LocalDate date =

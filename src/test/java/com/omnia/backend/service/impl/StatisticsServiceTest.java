@@ -335,4 +335,41 @@ class StatisticsServiceTest {
                 response.getTotalRevenue()
         );
     }
+
+    @Test
+    void requestedPeriodShouldControlDailyRevenueSize() {
+        OrganizationStatisticsResponse response =
+                statisticsService
+                        .getPlatformStatistics(30);
+
+        assertEquals(
+                30,
+                response.getDailyRevenue().size()
+        );
+    }
+
+    @Test
+    void unsupportedStatisticsPeriodShouldBeRejected() {
+        IllegalArgumentException exception =
+                assertThrows(
+                        IllegalArgumentException.class,
+                        () -> statisticsService
+                                .getPlatformStatistics(14)
+                );
+
+        assertEquals(
+                "Statistics days must be 7, 30, or 90",
+                exception.getMessage()
+        );
+
+        verifyNoInteractions(
+                productRepository,
+                orderRepository,
+                paymentRepository,
+                organizationRepository,
+                orderItemRepository,
+                reviewRepository,
+                organizationAccessService
+        );
+    }
 }

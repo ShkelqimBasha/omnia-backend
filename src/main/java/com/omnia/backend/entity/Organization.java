@@ -59,6 +59,10 @@ public class Organization {
     )
     private LocalDateTime updatedAt;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "logo_uploaded_file_id")
+    private UploadedFile logoFile;
+
     public boolean isActive() {
         return OrganizationStatus.ACTIVE.equals(status);
     }

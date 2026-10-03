@@ -27,6 +27,9 @@ public class ProductMapper {
         return ProductResponse.builder()
                 .id(product.getId())
                 .name(product.getName())
+                .imageUrl(primaryImageUrl(product))
+                .organizationLogoUrl(organization == null || organization.getLogoFile() == null
+                        ? null : "/api/files/" + organization.getLogoFile().getId())
                 .description(product.getDescription())
                 .price(product.getPrice())
                 .discountPrice(
@@ -59,5 +62,17 @@ public class ProductMapper {
                         product.getStatus().name()
                 )
                 .build();
+    }
+    private String primaryImageUrl(Product product) {
+        if (product.getImages() == null) return null;
+        return product.getImages().stream()
+                .filter(image -> image.getUploadedFile() != null || image.isLegacyUrlBacked())
+                .sorted(java.util.Comparator
+                        .comparing((com.omnia.backend.entity.ProductImage image) ->
+                                !Boolean.TRUE.equals(image.getIsPrimary()))
+                        .thenComparing(com.omnia.backend.entity.ProductImage::getId,
+                                java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
+                .map(image -> ProductImageMapper.toResponse(image).getImageUrl())
+                .findFirst().orElse(null);
     }
 }

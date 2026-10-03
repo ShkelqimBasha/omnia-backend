@@ -15,6 +15,10 @@ public class ProductResponse {
 
     private String name;
 
+    private String imageUrl;
+
+    private String organizationLogoUrl;
+
     private String description;
 
     private BigDecimal price;

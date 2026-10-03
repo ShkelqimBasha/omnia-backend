@@ -51,6 +51,11 @@ public class Product {
     )
     private String name;
 
+    @OneToMany(mappedBy = "product", fetch = FetchType.LAZY)
+    @org.hibernate.annotations.BatchSize(size = 50)
+    @Builder.Default
+    private java.util.List<ProductImage> images = new java.util.ArrayList<>();
+
     @Column(columnDefinition = "TEXT")
     private String description;
 

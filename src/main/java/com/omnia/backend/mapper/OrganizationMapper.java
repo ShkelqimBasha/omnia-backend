@@ -19,6 +19,8 @@ public class OrganizationMapper {
 
         return OrganizationResponse.builder()
                 .id(organization.getId())
+                .logoUrl(organization.getLogoFile() == null ? null
+                        : "/api/files/" + organization.getLogoFile().getId())
                 .name(organization.getName())
                 .slug(organization.getSlug())
                 .description(
@@ -51,6 +53,8 @@ public class OrganizationMapper {
 
         return OrganizationCatalogResponse.builder()
                 .id(organization.getId())
+                .logoUrl(organization.getLogoFile() == null ? null
+                        : "/api/files/" + organization.getLogoFile().getId())
                 .name(organization.getName())
                 .slug(organization.getSlug())
                 .description(

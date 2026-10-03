@@ -13,6 +13,8 @@ public class OrganizationResponse {
 
     private Long id;
 
+    private String logoUrl;
+
     private String name;
 
     private String slug;

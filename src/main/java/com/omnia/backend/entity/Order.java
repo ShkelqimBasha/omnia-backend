@@ -53,6 +53,22 @@ public class Order {
     @Column(name = "shipping_address", length = 500)
     private String shippingAddress;
 
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(name = "delivery_method", nullable = false, length = 20)
+    private com.omnia.backend.enums.DeliveryMethod deliveryMethod = com.omnia.backend.enums.DeliveryMethod.STANDARD;
+
+    @Column(name = "shipping_latitude", precision = 10, scale = 7)
+    private BigDecimal shippingLatitude;
+
+    @Column(name = "shipping_longitude", precision = 10, scale = 7)
+    private BigDecimal shippingLongitude;
+
+    @Builder.Default
+    @Column(name = "express_surcharge", nullable = false, precision = 10, scale = 2)
+    private BigDecimal expressSurcharge = BigDecimal.ZERO;
+
+
     @Column(
             name = "total_amount",
             nullable = false,

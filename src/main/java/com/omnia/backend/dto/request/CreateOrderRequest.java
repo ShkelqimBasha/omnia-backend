@@ -18,6 +18,26 @@ public class CreateOrderRequest {
 
     private Long addressId;
 
+    private com.omnia.backend.enums.DeliveryMethod deliveryMethod;
+
+    @jakarta.validation.constraints.DecimalMin("-90")
+    @jakarta.validation.constraints.DecimalMax("90")
+    private java.math.BigDecimal shippingLatitude;
+
+    @jakarta.validation.constraints.DecimalMin("-180")
+    @jakarta.validation.constraints.DecimalMax("180")
+    private java.math.BigDecimal shippingLongitude;
+
+    @jakarta.validation.constraints.DecimalMin("0")
+    @jakarta.validation.constraints.Digits(integer = 5, fraction = 2)
+    private java.math.BigDecimal expectedExpressSurcharge;
+
+    @jakarta.validation.constraints.AssertTrue(message = "Both delivery coordinates are required together")
+    public boolean isShippingLocationComplete() {
+        return (shippingLatitude == null) == (shippingLongitude == null);
+    }
+
+
     @NotBlank
     @Size(max = 150)
     private String shippingName;

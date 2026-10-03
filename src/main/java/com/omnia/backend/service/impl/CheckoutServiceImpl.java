@@ -38,6 +38,9 @@ public class CheckoutServiceImpl
             STANDARD_SHIPPING_FEE =
             new BigDecimal("3.50");
 
+    @org.springframework.beans.factory.annotation.Value("${omnia.delivery.express-surcharge:5.00}")
+    private BigDecimal expressSurcharge = DeliveryPricing.DEFAULT_EXPRESS_SURCHARGE;
+
     private static final BigDecimal ONE_CENT =
             new BigDecimal("0.01");
 
@@ -110,6 +113,17 @@ public class CheckoutServiceImpl
             CreateOrderRequest request
     ) {
         User user = getCurrentUser();
+        com.omnia.backend.enums.DeliveryMethod deliveryMethod = request.getDeliveryMethod() == null
+                ? com.omnia.backend.enums.DeliveryMethod.STANDARD : request.getDeliveryMethod();
+        if (!request.isShippingLocationComplete())
+            throw new IllegalArgumentException("Both delivery coordinates are required together");
+        validateCoordinates(request.getShippingLatitude(), request.getShippingLongitude());
+        BigDecimal surcharge = deliveryMethod == com.omnia.backend.enums.DeliveryMethod.EXPRESS_24H
+                ? DeliveryPricing.validateSurcharge(expressSurcharge) : BigDecimal.ZERO.setScale(2);
+        if (deliveryMethod == com.omnia.backend.enums.DeliveryMethod.EXPRESS_24H
+                && (request.getExpectedExpressSurcharge() == null
+                || surcharge.compareTo(request.getExpectedExpressSurcharge()) != 0))
+            throw new IllegalArgumentException("Express delivery price changed. Refresh delivery options and try again.");
 
         String couponCode =
                 normalizeCouponCode(
@@ -289,6 +303,15 @@ public class CheckoutServiceImpl
                     );
         }
 
+        if (surcharge.signum() > 0) {
+            List<BigDecimal> allocated = DeliveryPricing.allocate(surcharge, vendorDrafts.size());
+            for (int index = 0; index < vendorDrafts.size(); index++) {
+                VendorOrderDraft draft = vendorDrafts.get(index);
+                draft.expressSurcharge = allocated.get(index);
+                draft.shippingFee = draft.shippingFee.add(draft.expressSurcharge);
+            }
+        }
+
         distributeDiscount(
                 couponDrafts,
                 checkoutDiscount
@@ -393,6 +416,10 @@ public class CheckoutServiceImpl
                             request.getShippingAddress()
                                     .trim()
                     )
+                    .deliveryMethod(deliveryMethod)
+                    .shippingLatitude(request.getShippingLatitude())
+                    .shippingLongitude(request.getShippingLongitude())
+                    .expressSurcharge(draft.expressSurcharge)
                     .subtotalAmount(
                             draft.subtotal
                     )
@@ -523,6 +550,12 @@ public class CheckoutServiceImpl
                 )
                 .orders(orderResponses)
                 .build();
+    }
+
+    private static void validateCoordinates(BigDecimal latitude, BigDecimal longitude) {
+        if (latitude != null && (latitude.abs().compareTo(new BigDecimal("90")) > 0
+                || longitude.abs().compareTo(new BigDecimal("180")) > 0))
+            throw new IllegalArgumentException("Invalid delivery location");
     }
 
     private Map<Long, Integer>
@@ -957,6 +990,8 @@ public class CheckoutServiceImpl
 
         private BigDecimal shippingFee =
                 BigDecimal.ZERO.setScale(2);
+
+        private BigDecimal expressSurcharge = BigDecimal.ZERO.setScale(2);
 
         private BigDecimal discount =
                 BigDecimal.ZERO.setScale(2);

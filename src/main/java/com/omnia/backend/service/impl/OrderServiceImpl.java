@@ -91,6 +91,9 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @Transactional
     public OrderResponse createOrder(CreateOrderRequest request) {
+        if (request.getDeliveryMethod() == com.omnia.backend.enums.DeliveryMethod.EXPRESS_24H
+                || request.getShippingLatitude() != null || request.getShippingLongitude() != null)
+            throw new IllegalArgumentException("Use checkout for express delivery or mapped addresses");
 
         User user = getCurrentUser();
 

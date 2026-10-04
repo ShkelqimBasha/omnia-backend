@@ -76,6 +76,8 @@ public class OrderMapper {
                                 : organization.getId()
                 )
                 .organizationName(organizationName)
+                .organizationLogoUrl(organization == null || organization.getLogoFile() == null ? null
+                        : "/api/files/" + organization.getLogoFile().getId())
                 .addressId(order.getAddressId())
                 .subtotalAmount(order.getSubtotalAmount())
                 .shippingFee(order.getShippingFee())

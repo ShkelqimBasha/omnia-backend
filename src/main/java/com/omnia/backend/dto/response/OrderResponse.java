@@ -30,6 +30,8 @@ public class OrderResponse {
 
     private String organizationName;
 
+    private String organizationLogoUrl;
+
     private Long addressId;
 
     private String shippingName;

@@ -18,6 +18,8 @@ public interface OrderService {
 
     OrderResponse cancelMyOrder(Long id);
 
+    List<OrderStatusHistoryResponse> getMyOrderStatusHistory(Long id);
+
     List<OrderResponse> getOrdersForOrganization(
             Long organizationId
     );

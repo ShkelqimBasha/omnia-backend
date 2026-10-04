@@ -554,6 +554,22 @@ public class OrderServiceImpl implements OrderService {
                 .toList();
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<OrderStatusHistoryResponse> getMyOrderStatusHistory(Long id) {
+        User user = getCurrentUser();
+        Order order = orderRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
+        if (!order.getUser().getId().equals(user.getId()))
+            throw new org.springframework.security.access.AccessDeniedException("You are not allowed to access this order");
+        // Customer tracking does not expose staff names or user identifiers.
+        return orderStatusHistoryRepository.findAllForOrder(id).stream()
+                .map(history -> OrderStatusHistoryResponse.builder()
+                        .id(history.getId()).orderId(id).fromStatus(history.getFromStatus())
+                        .toStatus(history.getToStatus()).changedAt(history.getChangedAt()).build())
+                .toList();
+    }
+
     private String getChangedByDisplayName(
             User user
     ) {

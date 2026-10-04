@@ -40,6 +40,12 @@ public class OrderController {
     ) {
         return ResponseEntity.ok(orderService.getOrderById(id));
     }
+    @GetMapping("/{id}/status-history")
+    public ResponseEntity<List<com.omnia.backend.dto.response.OrderStatusHistoryResponse>> getMyOrderStatusHistory(
+            @PathVariable Long id) {
+        return ResponseEntity.ok(orderService.getMyOrderStatusHistory(id));
+    }
+
     @PatchMapping("/{id}/cancel")
     public ResponseEntity<OrderResponse> cancelMyOrder(
             @PathVariable Long id

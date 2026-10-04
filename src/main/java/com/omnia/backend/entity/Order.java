@@ -53,6 +53,9 @@ public class Order {
     @Column(name = "shipping_address", length = 500)
     private String shippingAddress;
 
+    @Column(name = "order_notes", length = 500)
+    private String orderNotes;
+
     @Builder.Default
     @Enumerated(EnumType.STRING)
     @Column(name = "delivery_method", nullable = false, length = 20)

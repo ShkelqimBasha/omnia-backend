@@ -1,0 +1,1 @@
+ALTER TABLE orders ADD COLUMN order_notes VARCHAR(500) NULL;

@@ -127,6 +127,7 @@ public class OrderServiceImpl implements OrderService {
                 )
                 .shippingPhone(request.getShippingPhone().trim())
                 .shippingAddress(request.getShippingAddress().trim())
+                .orderNotes(request.getOrderNotes() == null ? null : request.getOrderNotes().trim())
                 .totalAmount(BigDecimal.ZERO)
                 .subtotalAmount(BigDecimal.ZERO)
                 .shippingFee(BigDecimal.ZERO)

@@ -416,6 +416,7 @@ public class CheckoutServiceImpl
                             request.getShippingAddress()
                                     .trim()
                     )
+                    .orderNotes(request.getOrderNotes() == null ? null : request.getOrderNotes().trim())
                     .deliveryMethod(deliveryMethod)
                     .shippingLatitude(request.getShippingLatitude())
                     .shippingLongitude(request.getShippingLongitude())

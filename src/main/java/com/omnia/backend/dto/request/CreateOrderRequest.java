@@ -18,6 +18,9 @@ public class CreateOrderRequest {
 
     private Long addressId;
 
+    @Size(max = 500)
+    private String orderNotes;
+
     private com.omnia.backend.enums.DeliveryMethod deliveryMethod;
 
     @jakarta.validation.constraints.DecimalMin("-90")

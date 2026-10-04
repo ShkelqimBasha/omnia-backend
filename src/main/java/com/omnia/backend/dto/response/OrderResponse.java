@@ -39,6 +39,7 @@ public class OrderResponse {
     private String shippingPhone;
 
     private String shippingAddress;
+    private String orderNotes;
     private com.omnia.backend.enums.DeliveryMethod deliveryMethod;
     private BigDecimal shippingLatitude;
     private BigDecimal shippingLongitude;

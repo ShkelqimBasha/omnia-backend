@@ -85,6 +85,7 @@ public class OrderMapper {
                 .shippingEmail(order.getShippingEmail())
                 .shippingPhone(order.getShippingPhone())
                 .shippingAddress(order.getShippingAddress())
+                .orderNotes(order.getOrderNotes())
                 .deliveryMethod(order.getDeliveryMethod())
                 .shippingLatitude(order.getShippingLatitude())
                 .shippingLongitude(order.getShippingLongitude())

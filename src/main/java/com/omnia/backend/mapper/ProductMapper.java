@@ -63,8 +63,8 @@ public class ProductMapper {
                 )
                 .build();
     }
-    private String primaryImageUrl(Product product) {
-        if (product.getImages() == null) return null;
+    public static String primaryImageUrl(Product product) {
+        if (product == null || product.getImages() == null) return null;
         return product.getImages().stream()
                 .filter(image -> image.getUploadedFile() != null || image.isLegacyUrlBacked())
                 .sorted(java.util.Comparator

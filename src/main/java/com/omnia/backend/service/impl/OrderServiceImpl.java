@@ -180,7 +180,7 @@ public class OrderServiceImpl implements OrderService {
                     .order(savedOrder)
                     .productId(product.getId())
                     .productName(product.getName())
-                    .productImage(null)
+                    .productImage(com.omnia.backend.mapper.ProductMapper.primaryImageUrl(product))
                     .variantInfo(null)
                     .unitPrice(unitPrice)
                     .quantity(itemRequest.getQuantity())
@@ -922,11 +922,22 @@ public class OrderServiceImpl implements OrderService {
                         )
                         .orElse(null);
 
-        return OrderMapper.toResponse(
-                order,
-                items,
-                payment
-        );
+        OrderResponse response = OrderMapper.toResponse(order, items, payment);
+        java.util.Map<Long, String> photoUrls = new java.util.HashMap<>();
+        if (response.getItems() != null) {
+            for (com.omnia.backend.dto.response.OrderItemResponse item : response.getItems()) {
+                if (item.getProductId() == null ||
+                        (item.getProductImage() != null && !item.getProductImage().isBlank())) continue;
+                Long productId = item.getProductId();
+                if (!photoUrls.containsKey(productId)) {
+                    photoUrls.put(productId, productRepository.findById(productId)
+                            .map(com.omnia.backend.mapper.ProductMapper::primaryImageUrl)
+                            .orElse(null));
+                }
+                item.setProductImage(photoUrls.get(productId));
+            }
+        }
+        return response;
     }
 
     private void markCashOnDeliveryAsPaid(

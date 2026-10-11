@@ -597,7 +597,7 @@ public class CheckoutServiceImpl
                             .productName(
                                     product.getName()
                             )
-                            .productImage(null)
+                            .productImage(com.omnia.backend.mapper.ProductMapper.primaryImageUrl(product))
                             .variantInfo(null)
                             .unitPrice(
                                     prepared.unitPrice()

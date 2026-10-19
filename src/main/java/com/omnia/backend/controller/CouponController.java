@@ -74,4 +74,16 @@ public class CouponController {
                 .noContent()
                 .build();
     }
+    @PutMapping("/{id}")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ResponseEntity<CouponResponse> updateCoupon(
+            @PathVariable Long id, @Valid @RequestBody CouponRequest request) {
+        return ResponseEntity.ok(couponService.updateCoupon(id, request));
+    }
+
+    @PostMapping("/{id}/activate")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ResponseEntity<CouponResponse> activateCoupon(@PathVariable Long id) {
+        return ResponseEntity.ok(couponService.activateCoupon(id));
+    }
 }

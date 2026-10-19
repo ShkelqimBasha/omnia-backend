@@ -34,4 +34,11 @@ public interface CouponService {
             Long organizationId,
             Long couponId
     );
+    CouponResponse updateCoupon(Long id, CouponRequest request);
+
+    CouponResponse updateCouponForOrganization(Long organizationId, Long couponId, CouponRequest request);
+
+    CouponResponse activateCoupon(Long id);
+
+    CouponResponse activateCouponForOrganization(Long organizationId, Long couponId);
 }

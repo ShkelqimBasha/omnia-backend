@@ -181,6 +181,80 @@ public class CouponServiceImpl implements CouponService {
         deactivateCoupon(coupon);
     }
 
+    @Override
+    @Transactional
+    public CouponResponse updateCoupon(Long id, CouponRequest request) {
+        return updateCouponInternal(requireCoupon(id), request);
+    }
+
+    @Override
+    @Transactional
+    public CouponResponse updateCouponForOrganization(Long organizationId, Long couponId, CouponRequest request) {
+        organizationAccessService.requireCanManageCoupons(organizationId);
+        return updateCouponInternal(requireScopedCoupon(organizationId, couponId), request);
+    }
+
+    @Override
+    @Transactional
+    public CouponResponse activateCoupon(Long id) {
+        return activateCouponInternal(requireCoupon(id));
+    }
+
+    @Override
+    @Transactional
+    public CouponResponse activateCouponForOrganization(Long organizationId, Long couponId) {
+        organizationAccessService.requireCanManageCoupons(organizationId);
+        return activateCouponInternal(requireScopedCoupon(organizationId, couponId));
+    }
+
+    private Coupon requireCoupon(Long id) {
+        if (id == null || id <= 0L) throw new IllegalArgumentException("Coupon id must be positive");
+        return couponRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Coupon not found"));
+    }
+
+    private Coupon requireScopedCoupon(Long organizationId, Long couponId) {
+        return couponRepository.findByIdAndOrganizationId(couponId, organizationId)
+                .orElseThrow(() -> new ResourceNotFoundException("Coupon not found"));
+    }
+
+    private CouponResponse activateCouponInternal(Coupon coupon) {
+        if (coupon.getOrganization() != null && !coupon.getOrganization().isActive()) {
+            throw new IllegalArgumentException("Organization is not active");
+        }
+        if (coupon.getEndDate() != null && !coupon.getEndDate().isAfter(LocalDateTime.now())) {
+            throw new IllegalArgumentException("Extend the coupon end date before activation");
+        }
+        coupon.setStatus(CouponStatus.ACTIVE);
+        return CouponMapper.toResponse(couponRepository.save(coupon));
+    }
+
+    private CouponResponse updateCouponInternal(Coupon coupon, CouponRequest request) {
+        if (request == null) throw new IllegalArgumentException("Coupon request is required");
+        String code = normalizeCode(request.getCode());
+        BigDecimal value = request.getDiscountType() == DiscountType.FREE_SHIPPING
+                && request.getDiscountValue() == null ? BigDecimal.ZERO : request.getDiscountValue();
+        BigDecimal minimum = request.getMinimumOrderAmount() == null
+                ? BigDecimal.ZERO : request.getMinimumOrderAmount();
+        validateCouponRules(request.getDiscountType(), value, minimum, request.getStartDate(),
+                request.getEndDate(), request.getUsageLimit(), request.getPerUserLimit());
+        couponRepository.findByCodeIgnoreCase(code).ifPresent(existing -> {
+            if (!existing.getId().equals(coupon.getId())) {
+                throw new ResourceAlreadyExistsException("Coupon already exists");
+            }
+        });
+        // Preserve the coupon identity, company, status and recorded redemptions.
+        coupon.setCode(code);
+        coupon.setDiscountType(request.getDiscountType());
+        coupon.setDiscountValue(value);
+        coupon.setMinimumOrderAmount(minimum);
+        coupon.setStartDate(request.getStartDate());
+        coupon.setEndDate(request.getEndDate());
+        coupon.setUsageLimit(request.getUsageLimit());
+        coupon.setPerUserLimit(request.getPerUserLimit());
+        return CouponMapper.toResponse(couponRepository.save(coupon));
+    }
+
     private CouponResponse createCouponInternal(
             CouponRequest request,
             Organization organization
@@ -292,9 +366,9 @@ public class CouponServiceImpl implements CouponService {
                         : code.trim()
                         .toUpperCase(Locale.ROOT);
 
-        if (normalizedCode.isEmpty()) {
+        if (normalizedCode.isEmpty() || normalizedCode.length() > 50) {
             throw new IllegalArgumentException(
-                    "Coupon code is required"
+                    "Coupon code is required and must not exceed 50 characters"
             );
         }
 

@@ -81,4 +81,18 @@ public class OrganizationCouponController {
 
         return ResponseEntity.noContent().build();
     }
+    @PutMapping("/{couponId}")
+    public ResponseEntity<CouponResponse> updateCoupon(
+            @PathVariable @Positive Long organizationId,
+            @PathVariable @Positive Long couponId,
+            @Valid @RequestBody CouponRequest request) {
+        return ResponseEntity.ok(couponService.updateCouponForOrganization(organizationId, couponId, request));
+    }
+
+    @PostMapping("/{couponId}/activate")
+    public ResponseEntity<CouponResponse> activateCoupon(
+            @PathVariable @Positive Long organizationId,
+            @PathVariable @Positive Long couponId) {
+        return ResponseEntity.ok(couponService.activateCouponForOrganization(organizationId, couponId));
+    }
 }

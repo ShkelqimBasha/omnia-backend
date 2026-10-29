@@ -69,6 +69,7 @@ public class ReviewServiceImpl implements ReviewService {
 
         return reviewRepository.findByProductId(productId)
                 .stream()
+                .filter(review -> !review.isHidden())
                 .map(ReviewMapper::toResponse)
                 .toList();
     }
@@ -144,6 +145,57 @@ public class ReviewServiceImpl implements ReviewService {
                 );
 
         reviewRepository.delete(review);
+    }
+
+    @Override
+    @Transactional
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ReviewResponse setReviewVisibility(Long reviewId, boolean hidden) {
+        requireSuperAdmin();
+        Review review = findForModeration(reviewId);
+        review.setHidden(hidden);
+        return ReviewMapper.toResponse(reviewRepository.save(review));
+    }
+
+    @Override
+    @Transactional
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ReviewResponse replyToReview(Long reviewId, String reply) {
+        User admin = requireSuperAdmin();
+        if (reply == null || reply.isBlank() || reply.trim().length() > 2000) {
+            throw new IllegalArgumentException("Reply must contain between 1 and 2000 characters");
+        }
+        Review review = findForModeration(reviewId);
+        review.setAdminReply(reply.trim());
+        review.setRepliedBy(admin.getUsername());
+        review.setRepliedAt(java.time.LocalDateTime.now());
+        return ReviewMapper.toResponse(reviewRepository.save(review));
+    }
+
+    @Override
+    @Transactional
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ReviewResponse removeReviewReply(Long reviewId) {
+        requireSuperAdmin();
+        Review review = findForModeration(reviewId);
+        review.setAdminReply(null);
+        review.setRepliedBy(null);
+        review.setRepliedAt(null);
+        return ReviewMapper.toResponse(reviewRepository.save(review));
+    }
+
+    private Review findForModeration(Long id) {
+        return reviewRepository.findForModeration(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Review not found"));
+    }
+
+    private User requireSuperAdmin() {
+        var authentication = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated()
+                || authentication.getAuthorities().stream().noneMatch(a -> "ROLE_SUPER_ADMIN".equals(a.getAuthority()))) {
+            throw new org.springframework.security.access.AccessDeniedException("Super administrator access required");
+        }
+        return getCurrentUser();
     }
 
     private User getCurrentUser() {

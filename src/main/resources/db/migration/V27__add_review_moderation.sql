@@ -1,0 +1,5 @@
+ALTER TABLE reviews
+    ADD COLUMN hidden BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN admin_reply TEXT NULL,
+    ADD COLUMN replied_by VARCHAR(100) NULL,
+    ADD COLUMN replied_at DATETIME(6) NULL;

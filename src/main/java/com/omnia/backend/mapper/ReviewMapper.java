@@ -16,6 +16,11 @@ public class ReviewMapper {
                 .rating(review.getRating())
                 .comment(review.getComment())
                 .createdAt(review.getCreatedAt())
+                .hidden(review.isHidden())
+                .adminReply(review.getAdminReply())
+                .repliedBy(review.getRepliedBy())
+                .repliedAt(review.getRepliedAt())
+                .productImageUrl(ProductMapper.primaryImageUrl(review.getProduct()))
                 .build();
     }
 

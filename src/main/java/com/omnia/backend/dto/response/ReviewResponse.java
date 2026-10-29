@@ -26,4 +26,9 @@
         private String comment;
 
         private LocalDateTime createdAt;
+        private boolean hidden;
+        private String adminReply;
+        private String repliedBy;
+        private LocalDateTime repliedAt;
+        private String productImageUrl;
     }

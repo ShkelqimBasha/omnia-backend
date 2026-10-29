@@ -88,6 +88,28 @@ public class ReviewController {
         );
     }
 
+    @PatchMapping("/admin/{reviewId}/visibility")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ResponseEntity<ReviewResponse> setVisibility(
+            @PathVariable Long reviewId,
+            @Valid @RequestBody com.omnia.backend.dto.request.ReviewVisibilityRequest request) {
+        return ResponseEntity.ok(reviewService.setReviewVisibility(reviewId, request.getHidden()));
+    }
+
+    @PutMapping("/admin/{reviewId}/reply")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ResponseEntity<ReviewResponse> reply(
+            @PathVariable Long reviewId,
+            @Valid @RequestBody com.omnia.backend.dto.request.ReviewReplyRequest request) {
+        return ResponseEntity.ok(reviewService.replyToReview(reviewId, request.getReply()));
+    }
+
+    @DeleteMapping("/admin/{reviewId}/reply")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ResponseEntity<ReviewResponse> removeReply(@PathVariable Long reviewId) {
+        return ResponseEntity.ok(reviewService.removeReviewReply(reviewId));
+    }
+
     @DeleteMapping("/admin/{reviewId}")
     @PreAuthorize("hasRole('SUPER_ADMIN')")
     public ResponseEntity<Void> deleteReviewForAdmin(

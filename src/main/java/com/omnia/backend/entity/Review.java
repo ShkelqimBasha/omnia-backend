@@ -34,6 +34,18 @@ public class Review {
     @Column(columnDefinition = "TEXT")
     private String comment;
 
+    @Builder.Default
+    @Column(nullable = false)
+    private boolean hidden = false;
+
+    @Column(columnDefinition = "TEXT")
+    private String adminReply;
+
+    @Column(length = 100)
+    private String repliedBy;
+
+    private LocalDateTime repliedAt;
+
     @Column(name = "created_at", insertable = false, updatable = false)
     private LocalDateTime createdAt;
 }

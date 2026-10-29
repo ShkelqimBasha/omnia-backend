@@ -28,4 +28,7 @@ public interface ReviewService {
     List<ReviewResponse> getAllReviewsForAdmin();
 
     void deleteReviewForAdmin(Long reviewId);
+    ReviewResponse setReviewVisibility(Long reviewId, boolean hidden);
+    ReviewResponse replyToReview(Long reviewId, String reply);
+    ReviewResponse removeReviewReply(Long reviewId);
 }

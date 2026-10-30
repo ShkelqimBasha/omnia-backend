@@ -10,6 +10,12 @@ import java.util.Optional;
 public interface OrganizationRepository
         extends JpaRepository<Organization, Long> {
 
+    boolean existsByNameIgnoreCaseAndIdNot(String name,Long id);
+    boolean existsBySlugIgnoreCaseAndIdNot(String slug,Long id);
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("select o from Organization o where o.id = :id")
+    Optional<Organization> findForEditor(@org.springframework.data.repository.query.Param("id") Long id);
+
     Optional<Organization> findBySlugIgnoreCase(
             String slug
     );

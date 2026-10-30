@@ -17,7 +17,7 @@ import java.util.*;
 public class CompanyEditorController {
     private final CompanyEditorService service;private final FileStorageService storage;
     public CompanyEditorController(CompanyEditorService service,FileStorageService storage){this.service=service;this.storage=storage;}
-    @GetMapping("/editor/capabilities") public Map<String,Integer> capabilities(){return Map.of("version",1);}
+    @GetMapping("/editor/capabilities") public Map<String,Integer> capabilities(){return Map.of("version",2);}
     @GetMapping("/editor/administrators") public List<CompanyEditorResponse.Administrator> administrators(@RequestParam(defaultValue="")String query){return service.candidates(query);}
     @GetMapping("/{id}/editor") public CompanyEditorResponse get(@PathVariable @Positive Long id){return service.get(id);}
     @PostMapping("/editor") public ResponseEntity<CompanyEditorResponse> create(@Valid @RequestBody CompanyEditorRequest request){return ResponseEntity.status(201).body(service.save(null,request));}

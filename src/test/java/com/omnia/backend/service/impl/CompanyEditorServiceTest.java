@@ -58,4 +58,11 @@ class CompanyEditorServiceTest {
     @Test void rejectsOtherUploadOwner(){UploadedFile logo=UploadedFile.builder().id(8L).size(123L).contentType("image/jpeg").uploadedBy(selected).build();when(files.findById(8L)).thenReturn(Optional.of(logo));request.setLogoFileId(8L);assertThrows(AccessDeniedException.class,()->service.save(9L,request));}
     @Test void clearsLogoWhenExplicitlyRemoved(){company.setLogoFile(UploadedFile.builder().id(8L).build());request.setLogoFileId(null);assertNull(service.save(9L,request).logoFileId());}
     @Test void editingDoesNotDemoteOrDeleteOtherOwners(){service.save(9L,request);verify(members,never()).delete(any());verify(members,never()).findAllByOrganizationIdOrderByIdAsc(any());}
+
+    @Test void savesCompanyCoordinates(){request.setLatitude(41.3275);request.setLongitude(19.8187);var result=service.save(9L,request);assertEquals(41.3275,result.latitude());assertEquals(19.8187,result.longitude());}
+    @Test void legacyRequestKeepsSavedLocation(){company.setLatitude(41.0);company.setLongitude(19.0);service.save(9L,request);assertEquals(41.0,company.getLatitude());assertEquals(19.0,company.getLongitude());}
+    @Test void explicitNullPairRemovesLocation(){company.setLatitude(41.0);company.setLongitude(19.0);request.setLatitude(null);request.setLongitude(null);service.save(9L,request);assertNull(company.getLatitude());assertNull(company.getLongitude());}
+    @Test void partialLocationIsRejectedBeforeWriting(){request.setLatitude(41.0);assertThrows(IllegalArgumentException.class,()->service.save(9L,request));verify(organizations,never()).saveAndFlush(any());}
+    @Test void invalidLocationRejectedBeforeWriting(){request.setLatitude(Double.NaN);request.setLongitude(19.0);assertThrows(IllegalArgumentException.class,()->service.save(9L,request));verify(organizations,never()).saveAndFlush(any());}
+    @Test void omittedLongitudeCannotBeUsedToClearBoth(){request.setLatitude(null);assertThrows(IllegalArgumentException.class,()->service.save(9L,request));}
 }

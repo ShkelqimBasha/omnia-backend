@@ -72,6 +72,8 @@ public class Organization {
     @ManyToOne(fetch=FetchType.LAZY)
     @JoinColumn(name="primary_administrator_id")
     private User primaryAdministrator;
+    @Column private Double latitude;
+    @Column private Double longitude;
     @Column(name="editor_name_key",length=150,unique=true)
     private String editorNameKey;
     @PreUpdate

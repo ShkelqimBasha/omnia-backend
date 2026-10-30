@@ -45,6 +45,11 @@ public class CompanyEditorService {
     }
     @Transactional public CompanyEditorResponse save(Long id,CompanyEditorRequest request){
         User actor=administrator();boolean creating=id==null;
+        boolean locationProvided=request.isLatitudeProvided()||request.isLongitudeProvided()
+            ||request.getLatitude()!=null||request.getLongitude()!=null;
+        if(request.isLatitudeProvided()!=request.isLongitudeProvided()
+            ||!CompanyLocationRules.validPair(request.getLatitude(),request.getLongitude()))
+            throw new IllegalArgumentException("Latitude and longitude must be provided together and within valid ranges");
         Organization company=creating?new Organization():organizations.findForEditor(id)
             .orElseThrow(()->new ResourceNotFoundException("Organization not found"));
         if(!creating&&(request.getRevision()==null||!request.getRevision().equals(company.getEditorRevision())))
@@ -74,6 +79,7 @@ public class CompanyEditorService {
         }else if(logoId==null){company.setLogoFile(null);}
         company.setName(name);company.setEditorNameKey(name.toLowerCase(Locale.ROOT));company.setSlug(slug);company.setDescription(nullable(request.getDescription()));
         company.setBusinessEmail(nullable(request.getBusinessEmail()));company.setPhone(nullable(request.getPhone()));company.setAddress(nullable(request.getAddress()));
+        if(locationProvided){company.setLatitude(request.getLatitude());company.setLongitude(request.getLongitude());}
         company.setStatus(OrganizationStatus.valueOf(request.getStatus()));company.setPrimaryAdministrator(selected);
         if(creating){company.setCreatedBy(actor);company.setEditorRevision(0L);}
         try {
@@ -88,7 +94,7 @@ public class CompanyEditorService {
     private Organization find(long id){if(id<=0)throw new IllegalArgumentException("Invalid company id");return organizations.findById(id).orElseThrow(()->new ResourceNotFoundException("Organization not found"));}
     private CompanyEditorResponse response(Organization c){
         User admin=c.getPrimaryAdministrator();if(admin!=null)admin=users.findById(admin.getId()).orElse(null);return new CompanyEditorResponse(c.getId(),c.getName(),c.getSlug(),c.getDescription(),
-            c.getBusinessEmail(),c.getPhone(),c.getAddress(),c.getStatus().name(),c.getLogoFile()==null?null:"/api/files/"+c.getLogoFile().getId(),
+            c.getBusinessEmail(),c.getPhone(),c.getAddress(),c.getLatitude(),c.getLongitude(),c.getStatus().name(),c.getLogoFile()==null?null:"/api/files/"+c.getLogoFile().getId(),
             c.getLogoFile()==null?null:c.getLogoFile().getId(),admin==null?null:candidate(admin),c.getEditorRevision()==null?0:c.getEditorRevision());
     }
     private CompanyEditorResponse.Administrator candidate(User u){String name=(clean(u.getFirstName())+" "+clean(u.getLastName())).trim();

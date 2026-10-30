@@ -13,4 +13,11 @@ public class CompanyEditorRequest {
     @NotNull @Positive private Long administratorUserId;
     @Positive private Long logoFileId;
     @PositiveOrZero private Long revision;
+    @DecimalMin("-90") @DecimalMax("90") private Double latitude;
+    @DecimalMin("-180") @DecimalMax("180") private Double longitude;
+    @com.fasterxml.jackson.annotation.JsonIgnore private boolean latitudeProvided;
+    @com.fasterxml.jackson.annotation.JsonIgnore private boolean longitudeProvided;
+    public void setLatitude(Double value){latitude=value;latitudeProvided=true;}
+    public void setLongitude(Double value){longitude=value;longitudeProvided=true;}
+
 }

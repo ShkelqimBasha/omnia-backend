@@ -40,6 +40,9 @@ import java.util.Set;
 @Service
 public class AdminUserServiceImpl
         implements AdminUserService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private NotificationWriter notificationWriter;
+
 
     private static final int MAX_PAGE_SIZE = 100;
 
@@ -177,6 +180,7 @@ public class AdminUserServiceImpl
         User savedUser =
                 userRepository.saveAndFlush(user);
 
+        if (notificationWriter != null) notificationWriter.user(savedUser);
         AdminUserResponse response =
                 userMapper.toResponse(
                         savedUser,

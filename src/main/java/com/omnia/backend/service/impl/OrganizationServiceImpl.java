@@ -25,6 +25,9 @@ import java.util.Locale;
 @Service
 public class OrganizationServiceImpl
         implements OrganizationService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private NotificationWriter notificationWriter;
+
 
     private final OrganizationRepository
             organizationRepository;
@@ -82,6 +85,7 @@ public class OrganizationServiceImpl
                         organization
                 );
 
+        if (notificationWriter != null) notificationWriter.company(savedOrganization);
         return organizationMapper.toResponse(
                 savedOrganization
         );

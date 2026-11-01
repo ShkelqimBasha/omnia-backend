@@ -29,6 +29,9 @@ import java.util.*;
 @Service
 public class CheckoutServiceImpl
         implements CheckoutService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private NotificationWriter notificationWriter;
+
 
     private static final BigDecimal
             FREE_SHIPPING_THRESHOLD =
@@ -482,6 +485,8 @@ public class CheckoutServiceImpl
                             .build();
 
             paymentRepository.save(payment);
+
+            if (notificationWriter != null) notificationWriter.order(savedOrder);
 
             eventPublisher.publishEvent(
                     new OrderStatusChangedEvent(

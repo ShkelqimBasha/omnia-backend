@@ -1,0 +1,20 @@
+CREATE TABLE notification_inbox (
+ id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ recipient_id BIGINT NOT NULL,
+ event_key VARCHAR(180) NOT NULL,
+ kind VARCHAR(40) NOT NULL,
+ category VARCHAR(12) NOT NULL,
+ target_type VARCHAR(12) NOT NULL,
+ target_id BIGINT NOT NULL,
+ organization_id BIGINT NULL,
+ label VARCHAR(200) NOT NULL,
+ status VARCHAR(30) NULL,
+ amount DECIMAL(12,2) NULL,
+ quantity INT NULL,
+ created_at DATETIME(6) NOT NULL,
+ read_at DATETIME(6) NULL,
+ CONSTRAINT fk_notification_recipient FOREIGN KEY (recipient_id) REFERENCES users(id) ON DELETE CASCADE,
+ CONSTRAINT uk_notification_event UNIQUE(recipient_id,event_key),
+ INDEX idx_notification_recipient_read(recipient_id,read_at,id),
+ INDEX idx_notification_recipient_category(recipient_id,category,id)
+);

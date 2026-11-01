@@ -27,6 +27,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AuthServiceImpl implements AuthService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private NotificationWriter notificationWriter;
+
 
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
@@ -103,6 +106,7 @@ public class AuthServiceImpl implements AuthService {
 
         User savedUser = userRepository.save(user);
 
+        if (notificationWriter != null) notificationWriter.user(savedUser);
         emailVerificationService.createVerificationToken(savedUser);
 
         /*

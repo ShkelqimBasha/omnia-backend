@@ -46,6 +46,9 @@ import java.util.List;
 
 @Service
 public class OrderServiceImpl implements OrderService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private NotificationWriter notificationWriter;
+
 
     private final OrderRepository orderRepository;
     private final OrderStatusHistoryRepository
@@ -844,6 +847,8 @@ public class OrderServiceImpl implements OrderService {
         if (order == null) {
             return;
         }
+
+        if (notificationWriter != null) notificationWriter.order(order);
 
         String recipientEmail =
                 order.getShippingEmail();

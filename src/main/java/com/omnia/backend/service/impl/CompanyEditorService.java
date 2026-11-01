@@ -19,6 +19,9 @@ import java.util.*;
 
 @Service
 public class CompanyEditorService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private NotificationWriter notificationWriter;
+
     private final OrganizationRepository organizations;
     private final OrganizationMemberRepository members;
     private final UserRepository users;
@@ -88,6 +91,7 @@ public class CompanyEditorService {
             // Grant the chosen administrator company ownership. Existing owners retain their roles.
             membership.setMembershipRole(OrganizationMemberRole.OWNER);membership.setStatus(OrganizationMemberStatus.ACTIVE);
             members.saveAndFlush(membership);
+            if(creating && notificationWriter!=null)notificationWriter.company(company);
             return response(company);
         }catch(DataIntegrityViolationException conflict){throw new ResourceAlreadyExistsException("Company name, slug or administrator conflicts with existing data");}
     }

@@ -30,6 +30,9 @@ import java.util.Objects;
 @Service
 public class ProductServiceImpl
         implements ProductService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private NotificationWriter notificationWriter;
+
 
     private static final int MAX_PAGE_SIZE = 100;
 
@@ -131,6 +134,7 @@ public class ProductServiceImpl
         Product savedProduct =
                 productRepository.save(product);
 
+        if (notificationWriter != null) notificationWriter.low(savedProduct, "create");
         return productMapper.toResponse(savedProduct);
     }
 
@@ -273,6 +277,7 @@ public class ProductServiceImpl
         product.setDiscountPrice(
                 request.getDiscountPrice()
         );
+        Integer notificationPreviousStock = product.getStock();
         product.setStock(request.getStock());
         product.setCategory(targetCategory);
         product.setOrganization(targetOrganization);
@@ -280,6 +285,8 @@ public class ProductServiceImpl
         Product updatedProduct =
                 productRepository.save(product);
 
+        if (notificationWriter != null && !Objects.equals(notificationPreviousStock, updatedProduct.getStock()))
+            notificationWriter.low(updatedProduct, java.util.UUID.randomUUID().toString());
         return productMapper.toResponse(
                 updatedProduct
         );

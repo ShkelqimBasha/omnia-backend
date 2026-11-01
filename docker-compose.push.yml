@@ -1,0 +1,15 @@
+# Use together with docker-compose.yml after placing the private key on the server.
+# This file contains no credentials. The bind mount is read-only and must already exist.
+services:
+  backend:
+    environment:
+      OMNIA_PUSH_ENABLED: "true"
+      OMNIA_PUSH_PROJECT_ID: "omnia-996c0"
+      GOOGLE_APPLICATION_CREDENTIALS: "/run/omnia/firebase-service-account.json"
+    volumes:
+      - type: bind
+        source: /etc/omnia/firebase-service-account.json
+        target: /run/omnia/firebase-service-account.json
+        read_only: true
+        bind:
+          create_host_path: false

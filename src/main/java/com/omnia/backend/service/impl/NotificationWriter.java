@@ -19,7 +19,9 @@ public class NotificationWriter {
  private void write(String key,String kind,String category,String type,long id,Long org,String label,String status,java.math.BigDecimal amount,Integer quantity,Long customer){
   // Flush pending JPA changes before JDBC reads/FKs. The same transaction rolls back both stores.
   em.flush();
-  for(long user:recipients(org,customer))jdbc.update("INSERT INTO notification_inbox (recipient_id,event_key,kind,category,target_type,target_id,organization_id,label,status,amount,quantity,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE id=id",user,key,kind,category,type,id,org,label==null?"":label.substring(0,Math.min(200,label.length())),status,amount,quantity);
+  for(long user:recipients(org,customer)){jdbc.update("INSERT INTO notification_inbox (recipient_id,event_key,kind,category,target_type,target_id,organization_id,label,status,amount,quantity,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE id=id",user,key,kind,category,type,id,org,label==null?"":label.substring(0,Math.min(200,label.length())),status,amount,quantity);
+   jdbc.update("INSERT INTO push_outbox(notification_id,available_at) SELECT id,UTC_TIMESTAMP(6) FROM notification_inbox WHERE recipient_id=? AND event_key=? ON DUPLICATE KEY UPDATE notification_id=notification_id",user,key);
+  }
  }
  public void order(Order o){
   if(o==null||o.getId()==null)return;Long org=o.getOrganization()==null?null:o.getOrganization().getId();

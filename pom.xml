@@ -58,6 +58,8 @@
 
 	<dependencies>
 
+		<dependency><groupId>com.google.firebase</groupId><artifactId>firebase-admin</artifactId><version>9.11.0</version><exclusions><exclusion><groupId>com.fasterxml.jackson.dataformat</groupId><artifactId>jackson-dataformat-xml</artifactId></exclusion></exclusions></dependency>
+
 		<!-- Spring Boot Web -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>

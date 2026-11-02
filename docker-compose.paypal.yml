@@ -1,0 +1,8 @@
+services:
+  backend:
+    environment:
+      OMNIA_PAYPAL_ENABLED: "true"
+      OMNIA_PAYPAL_CREDENTIALS_FILE: /run/secrets/paypal-sandbox.json
+      OMNIA_PAYPAL_PUBLIC_BASE: https://api.myomniaapp.com
+    volumes:
+      - /etc/omnia/paypal-sandbox.json:/run/secrets/paypal-sandbox.json:ro

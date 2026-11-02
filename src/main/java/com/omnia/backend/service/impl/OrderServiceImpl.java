@@ -59,6 +59,9 @@ public class OrderServiceImpl implements OrderService {
     private final OrderItemRepository orderItemRepository;
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private PayPalOrderGuard payPalOrderGuard;
+
     private final PaymentRepository paymentRepository;
     private final OrganizationAccessService organizationAccessService;
     private final ApplicationEventPublisher eventPublisher;
@@ -327,6 +330,8 @@ public class OrderServiceImpl implements OrderService {
                     "You are not allowed to cancel this order"
             );
         }
+
+        if (payPalOrderGuard != null) payPalOrderGuard.check(order, true);
 
         OrderStatus currentStatus =
                 order.getStatus();
@@ -627,6 +632,8 @@ public class OrderServiceImpl implements OrderService {
                                 "Order not found"
                         )
                 );
+
+        if (payPalOrderGuard != null) payPalOrderGuard.check(order, newStatus == OrderStatus.CANCELLED);
 
         OrderStatus currentStatus =
                 order.getStatus();

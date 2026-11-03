@@ -32,7 +32,7 @@ class PayPalCheckoutIntegrationTest extends AbstractIntegrationTest {
     @Autowired JdbcTemplate jdbc;@Autowired EntityManager em;@Autowired PlatformTransactionManager manager;
     @Autowired PayPalOrderGuard guard;
     private PayPalCheckoutService service;private PayPalGateway gateway;private CurrentUserService current;
-    private CheckoutService checkout;private User user;private CheckoutGroup group;private Order order;private String key;
+    private OrderService orderService;private CheckoutService checkout;private User user;private CheckoutGroup group;private Order order;private String key;
     private final ObjectMapper json=new ObjectMapper();private String attempt;
     @BeforeEach void setup()throws Exception{
         gateway=mock(PayPalGateway.class);current=mock(CurrentUserService.class);checkout=mock(CheckoutService.class);
@@ -46,7 +46,7 @@ class PayPalCheckoutIntegrationTest extends AbstractIntegrationTest {
         em.persist(Payment.builder().order(order).method(PaymentMethod.CASH_ON_DELIVERY).status(PaymentStatus.PENDING).build());em.flush();
         when(current.requireCurrentUser()).thenReturn(user);
         when(checkout.checkout(any())).thenReturn(CheckoutResponse.builder().checkoutReference(group.getCheckoutReference()).totalAmount(new BigDecimal("12.30")).build());
-        service=new PayPalCheckoutService(jdbc,current,checkout,mock(OrderService.class),gateway,json,em,manager);key=UUID.randomUUID().toString();
+        orderService=mock(OrderService.class);service=new PayPalCheckoutService(jdbc,current,checkout,orderService,gateway,json,em,manager);key=UUID.randomUUID().toString();
         when(gateway.create(anyString(),any())).thenAnswer(inv->{attempt=inv.getArgument(0);return json.readTree("{\"id\":\"PROVIDER123\",\"links\":[{\"rel\":\"approve\",\"href\":\"https://www.sandbox.paypal.com/checkoutnow?token=PROVIDER123\"}]}");});
         when(gateway.get("PROVIDER123")).thenAnswer(inv->evidence("CREATED",null));
     }
@@ -108,5 +108,45 @@ class PayPalCheckoutIntegrationTest extends AbstractIntegrationTest {
         service.create(key,request());when(gateway.verifyWebhook(anyMap(),any())).thenReturn(false);
         assertThrows(AccessDeniedException.class,()->service.webhook(Map.of(),json.createObjectNode()));
         verify(gateway,never()).capture(anyString(),anyString());
+    }
+
+    @Test void exhaustedCaptureStopsRetriesAndAllowsCancellationAfterFreshProof()throws Exception{
+        var first=service.create(key,request());
+        when(gateway.get("PROVIDER123")).thenReturn(evidence("APPROVED",null));
+        when(gateway.capture("PROVIDER123",first.id())).thenThrow(
+                new PayPalGateway.Rejected("MAX_NUMBER_OF_PAYMENT_ATTEMPTS_EXCEEDED","debug123"));
+        assertEquals("EXHAUSTED",service.sync(first.id(),true).state());
+        assertEquals("EXHAUSTED",service.sync(first.id(),true).state());
+        assertEquals("ABANDONED",service.abandon(first.id()).state());
+        verify(orderService).cancelMyOrder(order.getId());
+        verify(gateway,times(1)).capture("PROVIDER123",first.id());
+        assertEquals("PENDING",jdbc.queryForObject("SELECT status FROM payments WHERE order_id=?",String.class,order.getId()));
+    }
+    @Test void complianceBlocksFurtherCaptureEvenWhenFollowupGetFails()throws Exception{
+        var first=service.create(key,request());
+        when(gateway.get("PROVIDER123")).thenReturn(evidence("APPROVED",null))
+                .thenThrow(new IllegalStateException("timeout")).thenReturn(evidence("APPROVED",null));
+        when(gateway.capture("PROVIDER123",first.id())).thenThrow(
+                new PayPalGateway.Rejected("COMPLIANCE_VIOLATION","debug123"));
+        assertEquals("BLOCKED",service.sync(first.id(),true).state());
+        assertEquals("BLOCKED",service.sync(first.id(),true).state());
+        verify(gateway,times(1)).capture("PROVIDER123",first.id());
+    }
+    @Test void completedEvidenceWinsOverExhaustedRefusal()throws Exception{
+        var first=service.create(key,request());
+        when(gateway.get("PROVIDER123")).thenReturn(evidence("APPROVED",null),evidence("COMPLETED","COMPLETED"));
+        when(gateway.capture("PROVIDER123",first.id())).thenThrow(
+                new PayPalGateway.Rejected("MAX_NUMBER_OF_PAYMENT_ATTEMPTS_EXCEEDED","debug123"));
+        assertEquals("PAID",service.sync(first.id(),true).state());
+        assertEquals("SUCCESS",jdbc.queryForObject("SELECT status FROM payments WHERE order_id=?",String.class,order.getId()));
+    }
+    @Test void pendingCaptureCannotBeAbandonedAfterExhaustion()throws Exception{
+        var first=service.create(key,request());
+        when(gateway.get("PROVIDER123")).thenReturn(evidence("APPROVED",null));
+        when(gateway.capture("PROVIDER123",first.id())).thenThrow(
+                new PayPalGateway.Rejected("MAX_NUMBER_OF_PAYMENT_ATTEMPTS_EXCEEDED","debug123"));
+        assertEquals("EXHAUSTED",service.sync(first.id(),true).state());
+        when(gateway.get("PROVIDER123")).thenReturn(evidence("APPROVED","PENDING"));
+        assertThrows(IllegalArgumentException.class,()->service.abandon(first.id()));
     }
 }

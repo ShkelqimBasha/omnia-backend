@@ -93,14 +93,39 @@ public class PayPalGateway {
         } catch (IllegalStateException ex) { throw ex; }
         catch (Exception ex) { throw new IllegalStateException("PayPal unavailable; retry this payment"); }
     }
+    public static final class Rejected extends IllegalStateException {
+        public final String issue;
+        public final String debugId;
+        public Rejected(String issue,String debugId) {
+            super("PayPal rejected capture: "+safe(issue)+"; debug_id="+safe(debugId));
+            this.issue=safe(issue);this.debugId=safe(debugId);
+        }
+        private static String safe(String value) {
+            return value!=null && value.matches("[A-Za-z0-9_]{1,80}")?value:"UNKNOWN";
+        }
+        public boolean stopCapture() {
+            return Set.of("COMPLIANCE_VIOLATION","MAX_NUMBER_OF_PAYMENT_ATTEMPTS_EXCEEDED").contains(issue);
+        }
+    }
     private JsonNode exchange(HttpRequest.Builder b) {
         try {
             HttpResponse<String> r=http.send(b.timeout(Duration.ofSeconds(18)).header("Accept","application/json").build(),HttpResponse.BodyHandlers.ofString());
-            if(r.statusCode()<200 || r.statusCode()>=300 || r.body().length()>262144)
-                throw new IllegalStateException("PayPal unavailable; retry this payment");
-            return json.readTree(r.body());
+            if(r.body().length()>262144)throw new IllegalStateException("PayPal response too large");
+            JsonNode response=json.readTree(r.body());
+            if(r.statusCode()<200 || r.statusCode()>=300) {
+                if(r.statusCode()==422) {
+                    for(JsonNode detail:response.path("details")) {
+                        String issue=detail.path("issue").asText();
+                        if(Set.of("COMPLIANCE_VIOLATION","MAX_NUMBER_OF_PAYMENT_ATTEMPTS_EXCEEDED").contains(issue))
+                            throw new Rejected(issue,response.path("debug_id").asText());
+                    }
+                }
+                throw new IllegalStateException("PayPal unavailable; check payment status");
+            }
+            return response;
         } catch(InterruptedException ex) { Thread.currentThread().interrupt();throw new IllegalStateException("PayPal request interrupted"); }
-        catch(Exception ex) { throw new IllegalStateException("PayPal unavailable; retry this payment"); }
+        catch(IllegalStateException ex) { throw ex; }
+        catch(Exception ex) { throw new IllegalStateException("PayPal unavailable; check payment status"); }
     }
     private static void validId(String id) { if(id==null || !id.matches("[A-Z0-9]{5,64}")) throw new IllegalArgumentException("Invalid PayPal ID"); }
 }

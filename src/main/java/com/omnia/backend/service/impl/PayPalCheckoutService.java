@@ -22,6 +22,7 @@ import java.util.*;
 
 @Service
 public class PayPalCheckoutService {
+    private static final org.slf4j.Logger log=org.slf4j.LoggerFactory.getLogger(PayPalCheckoutService.class);
     private final JdbcTemplate jdbc;
     private final CurrentUserService current;
     private final CheckoutService checkout;
@@ -91,7 +92,9 @@ public class PayPalCheckoutService {
             if("ABANDONED".equals(r.state))return view(r);
             if(r.provider!=null) {
                 var proof=PayPalEvidence.verify(gateway.get(r.provider),r.provider,r.id,gateway.merchant(),r.amount);
-                if(!Set.of("APPROVAL","FAILED").contains(proof.state()))throw new IllegalArgumentException("Payment approved or processing; check its status before cancellation");
+                boolean refused=Set.of("EXHAUSTED","BLOCKED").contains(r.state) && "APPROVED".equals(proof.state())
+                        && proof.captureId()==null;
+                if(!refused && !Set.of("APPROVAL","FAILED").contains(proof.state()))throw new IllegalArgumentException("Payment approved or processing; check its status before cancellation");
             } else if(!"CREATING".equals(r.state))throw new IllegalArgumentException("Payment needs review");
             jdbc.update("UPDATE paypal_checkouts SET state='ABANDONED' WHERE id=?",id);
             // The attempt lock prevents late approval/webhooks from capturing after this point.
@@ -147,14 +150,28 @@ public class PayPalCheckoutService {
         }
         JsonNode details=gateway.get(r.provider);
         var proof=PayPalEvidence.verify(details,r.provider,r.id,gateway.merchant(),r.amount);
-        if(capture && "APPROVED".equals(proof.state())) {
+        boolean blocked=Set.of("BLOCKED","EXHAUSTED").contains(r.state);
+        String refusalState=null;
+        if(capture && !blocked && "APPROVED".equals(proof.state())) {
             // Serialize with all status changes; never capture a cancelled/changed local order.
             lockOrders(r);
             try { gateway.capture(r.provider,r.id); }
+            catch(PayPalGateway.Rejected rejected) {
+                if(!rejected.stopCapture())throw rejected;
+                refusalState="MAX_NUMBER_OF_PAYMENT_ATTEMPTS_EXCEEDED".equals(rejected.issue)?"EXHAUSTED":"BLOCKED";
+                // Persist before the follow-up GET: a failed GET must not enable another capture.
+                jdbc.update("UPDATE paypal_checkouts SET state=? WHERE id=?",refusalState,r.id);
+                log.warn("PayPal capture stopped checkout={} issue={} debug_id={}",r.id,rejected.issue,rejected.debugId);
+            }
             catch(IllegalStateException uncertain) {
                 // Includes timeout / ORDER_ALREADY_CAPTURED. Read provider truth before deciding anything.
             }
-            proof=PayPalEvidence.verify(gateway.get(r.provider),r.provider,r.id,gateway.merchant(),r.amount);
+            try {
+                proof=PayPalEvidence.verify(gateway.get(r.provider),r.provider,r.id,gateway.merchant(),r.amount);
+            } catch(RuntimeException unavailable) {
+                if(refusalState!=null)return view(locked(r.id));
+                throw unavailable;
+            }
         }
         if("PAID".equals(proof.state())) {
             lockOrders(r);
@@ -168,7 +185,11 @@ public class PayPalCheckoutService {
             // Never downgrade settled money because of a delayed event or an inconsistent response.
             return view(r);
         }
-        jdbc.update("UPDATE paypal_checkouts SET state=? WHERE id=?",proof.state(),r.id);
+        String next=proof.state();
+        // A GET saying APPROVED cannot erase a capture refusal. Settlement evidence still wins.
+        if(Set.of("APPROVED","APPROVAL","PENDING").contains(next) && (blocked || refusalState!=null))
+            next=refusalState!=null?refusalState:r.state;
+        jdbc.update("UPDATE paypal_checkouts SET state=? WHERE id=?",next,r.id);
         return view(locked(r.id));
     }
     private void lockOrders(Row r) {

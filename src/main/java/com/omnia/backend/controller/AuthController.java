@@ -73,11 +73,42 @@ public class AuthController {
     }
 
     @GetMapping("/verify-email")
-    public ResponseEntity<Void> verifyEmail(
-            @RequestParam String token
+    public ResponseEntity<?> verifyEmail(
+            @RequestParam String token,
+            @RequestHeader org.springframework.http.HttpHeaders headers
     ) {
+        boolean browser = headers.getAccept().stream().anyMatch(type ->
+                type.getQualityValue() > 0
+                && "text".equals(type.getType()) && "html".equals(type.getSubtype()));
         emailVerificationService.verifyEmail(token);
-        return ResponseEntity.noContent().build();
+        if (!browser) {
+            return ResponseEntity.noContent().build();
+        }
+        return ResponseEntity.ok()
+                .contentType(org.springframework.http.MediaType.parseMediaType("text/html;charset=UTF-8"))
+                .header("Cache-Control", "no-store")
+                .header("Referrer-Policy", "no-referrer")
+                .body("""
+                        <!doctype html>
+                        <html lang="sq">
+                        <head>
+                          <meta charset="utf-8">
+                          <meta name="viewport" content="width=device-width, initial-scale=1">
+                          <title>Email-i u verifikua | Omnia</title>
+                          <style>
+                            body{margin:0;background:#0b1423;color:#f3f6fb;font:1rem system-ui,sans-serif}
+                            main{max-width:28rem;margin:12vh auto;padding:1.5rem}
+                            a{display:inline-block;padding:.8rem 1.2rem;border-radius:.65rem;background:#6746d8;color:white}
+                          </style>
+                        </head>
+                        <body><main>
+                          <h1>Email-i u verifikua</h1>
+                          <p>Tani mund të hysh në llogarinë tënde.</p>
+                          <a href="omnia://email-verified">Hap Omnia</a>
+                          <p>Nëse aplikacioni nuk hapet, hape Omnia nga telefoni dhe zgjidh Hyr.</p>
+                        </main></body>
+                        </html>
+                        """);
     }
 
     @PostMapping("/resend-verification")

@@ -45,7 +45,7 @@ public class GoogleAuthService34 {
                     .lastName("").username(label+"_"+UUID.randomUUID().toString().substring(0,8))
                     .email(identity.email()).emailVerified(true).status(UserStatus.ACTIVE)
                     .role(roles.findByName("USER").orElseThrow(() -> new IllegalStateException("Default role missing")))
-                    .passwordHash(passwords.encode(UUID.randomUUID()+":"+UUID.randomUUID()))
+                    .passwordHash(passwords.encode(UUID.randomUUID().toString().replace("-", "")+UUID.randomUUID().toString().replace("-", "")))
                     .googleUid34(identity.uid()).build();
             user = users.saveAndFlush(user);
         }

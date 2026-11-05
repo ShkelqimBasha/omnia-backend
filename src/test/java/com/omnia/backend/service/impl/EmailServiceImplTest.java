@@ -77,7 +77,7 @@ class EmailServiceImplTest {
         );
 
         assertEquals(
-                "Verify your Omnia account",
+                "Verifiko email-in tënd në Omnia",
                 message.getSubject()
         );
 
@@ -85,7 +85,7 @@ class EmailServiceImplTest {
 
         assertTrue(
                 message.getText()
-                        .contains("Hello Shkelqim Basha")
+                        .contains("Përshëndetje Shkelqim Basha")
         );
 
         assertTrue(
@@ -97,12 +97,12 @@ class EmailServiceImplTest {
 
         assertTrue(
                 message.getText()
-                        .contains("This link expires in 24 hours")
+                        .contains("Linku skadon pas 24 orësh")
         );
 
         assertTrue(
                 message.getText()
-                        .contains("Omnia Team")
+                        .contains("Ekipi Omnia")
         );
     }
 
@@ -134,7 +134,7 @@ class EmailServiceImplTest {
         );
 
         assertEquals(
-                "Reset your Omnia password",
+                "Rivendos fjalëkalimin në Omnia",
                 message.getSubject()
         );
 
@@ -142,7 +142,7 @@ class EmailServiceImplTest {
 
         assertTrue(
                 message.getText()
-                        .contains("Hello Shkelqim Basha")
+                        .contains("Përshëndetje Shkelqim Basha")
         );
 
         assertTrue(
@@ -154,7 +154,7 @@ class EmailServiceImplTest {
 
         assertTrue(
                 message.getText()
-                        .contains("Your password reset token is:")
+                        .contains("Kodi për rivendosje manuale:")
         );
 
         assertTrue(
@@ -164,7 +164,7 @@ class EmailServiceImplTest {
 
         assertTrue(
                 message.getText()
-                        .contains("This link expires in 30 minutes")
+                        .contains("Linku skadon pas 30 minutash")
         );
     }
 
@@ -225,7 +225,7 @@ class EmailServiceImplTest {
         assertTrue(
                 messageCaptor.getValue()
                         .getText()
-                        .contains("Hello John Doe")
+                        .contains("Përshëndetje John Doe")
         );
     }
 
@@ -246,7 +246,7 @@ class EmailServiceImplTest {
         assertTrue(
                 messageCaptor.getValue()
                         .getText()
-                        .contains("Hello John Doe")
+                        .contains("Përshëndetje John Doe")
         );
     }
 

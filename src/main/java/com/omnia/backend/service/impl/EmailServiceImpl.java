@@ -40,16 +40,16 @@ public class EmailServiceImpl implements EmailService {
                         + "/api/auth/verify-email?token="
                         + token;
 
-        String subject = "Verify your Omnia account";
+        String subject = "Verifiko email-in tënd në Omnia";
 
         String body =
-                "Hello " + recipientName + ",\n\n"
-                        + "Thank you for registering with Omnia.\n\n"
-                        + "Please verify your email address by opening the link below:\n\n"
+                "Përshëndetje " + recipientName + ",\n\n"
+                        + "Faleminderit që u regjistrove në Omnia.\n\n"
+                        + "Për të konfirmuar adresën tënde të email-it, hap linkun më poshtë:\n\n"
                         + verificationLink
-                        + "\n\nThis link expires in 24 hours.\n\n"
-                        + "If you did not create this account, you can ignore this email.\n\n"
-                        + "Omnia Team";
+                        + "\n\nLinku skadon pas 24 orësh.\n\n"
+                        + "Nëse nuk e krijove ti këtë llogari, mund ta shpërfillësh këtë email.\n\n"
+                        + "Ekipi Omnia";
 
         sendSimpleEmail(
                 recipientEmail,
@@ -70,18 +70,18 @@ public class EmailServiceImpl implements EmailService {
                         + "?token="
                         + token;
 
-        String subject = "Reset your Omnia password";
+        String subject = "Rivendos fjalëkalimin në Omnia";
 
         String body =
-                "Hello " + recipientName + ",\n\n"
-                        + "We received a request to reset your Omnia password.\n\n"
-                        + "Use the following link to continue:\n\n"
+                "Përshëndetje " + recipientName + ",\n\n"
+                        + "Kemi marrë një kërkesë për të rivendosur fjalëkalimin tënd në Omnia.\n\n"
+                        + "Për të zgjedhur një fjalëkalim të ri, hap linkun më poshtë:\n\n"
                         + passwordResetLink
-                        + "\n\nYour password reset token is:\n"
+                        + "\n\nKodi për rivendosje manuale:\n"
                         + token
-                        + "\n\nThis link expires in 30 minutes and can be used only once.\n\n"
-                        + "If you did not request a password reset, ignore this email.\n\n"
-                        + "Omnia Team";
+                        + "\n\nLinku skadon pas 30 minutash dhe mund të përdoret vetëm një herë.\n\n"
+                        + "Nëse nuk e kërkove ti ndryshimin e fjalëkalimit, shpërfille këtë email.\n\n"
+                        + "Ekipi Omnia";
 
         sendSimpleEmail(
                 recipientEmail,

@@ -18,6 +18,8 @@ public interface UserRepository
 
     Optional<User> findByEmail(String email);
 
+    Optional<User> findByGoogleUid34(String googleUid34);
+
     Optional<User> findByUsername(String username);
 
     boolean existsByEmail(String email);

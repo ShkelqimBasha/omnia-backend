@@ -1,0 +1,7 @@
+services:
+  backend:
+    environment:
+      OMNIA_GOOGLE_ENABLED: "true"
+      OMNIA_GOOGLE_PROJECT_ID: "omnia-996c0"
+# Use together with docker-compose.yml, docker-compose.push.yml and docker-compose.paypal.yml.
+# Reuses existing Google application credentials from the push overlay; contains no secrets.

@@ -23,6 +23,9 @@ public class User {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "google_uid34", unique = true, length = 128)
+    private String googleUid34;
+
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(
             name = "role_id",

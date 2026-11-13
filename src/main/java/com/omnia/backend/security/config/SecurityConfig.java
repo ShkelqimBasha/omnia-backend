@@ -100,6 +100,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST, "/api/paypal/webhook").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/paypal/return").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/promotions/paypal/return").permitAll()
                         .requestMatchers(
                                 "/api/auth/register",
                                 "/api/auth/login",

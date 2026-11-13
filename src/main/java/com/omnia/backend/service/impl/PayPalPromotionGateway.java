@@ -33,6 +33,9 @@ public final class PayPalPromotionGateway {
     private final boolean live;
     private final String credentialsFile;
 
+    @Value("${omnia.promotions.paypal.return-url:https://api.myomniaapp.com/api/promotions/paypal/return}")
+    private String returnUrl = "https://api.myomniaapp.com/api/promotions/paypal/return";
+
     public PayPalPromotionGateway(
             ObjectMapper json,
             @Value("${omnia.promotions.paypal.enabled:false}") boolean enabled,
@@ -64,8 +67,8 @@ public final class PayPalPromotionGateway {
                         "brand_name", "Omnia",
                         "shipping_preference", "NO_SHIPPING",
                         "user_action", "PAY_NOW",
-                        "return_url", "https://api.myomniaapp.com/api/promotions/paypal/return",
-                        "cancel_url", "https://api.myomniaapp.com/api/promotions/paypal/return?cancelled=true"))));
+                        "return_url", returnUrl,
+                        "cancel_url", returnUrl + "?cancelled=true"))));
         JsonNode response = request(credentials, "/v2/checkout/orders", body, ref);
         return new Approval(validId(response.path("id").asText()), approvalUrl(response, live),
                 credentials.merchantId());

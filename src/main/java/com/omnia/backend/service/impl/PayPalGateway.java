@@ -53,13 +53,13 @@ public class PayPalGateway {
         return token;
     }
     public JsonNode create(String id, BigDecimal total) {
-        String root=publicBase+"/api/paypal/return";
+        String root=publicBase+"/api/paypal/return?checkout="+id;
         Map<String,Object> body=Map.of("intent","CAPTURE","purchase_units",List.of(Map.of(
                 "reference_id",id,"custom_id",id,"payee",Map.of("merchant_id",merchant()),
                 "amount",Map.of("currency_code","EUR","value",total.toPlainString()))),
                 "payment_source",Map.of("paypal",Map.of("experience_context",Map.of(
                         "brand_name","Omnia Sandbox","shipping_preference","NO_SHIPPING","user_action","PAY_NOW",
-                        "return_url",root,"cancel_url",root+"?cancelled=true"))));
+                        "return_url",root,"cancel_url",root+"&cancelled=true"))));
         return request("POST","/v2/checkout/orders",body,"create-"+id);
     }
     public JsonNode get(String id) { validId(id); return request("GET","/v2/checkout/orders/"+id,null,null); }

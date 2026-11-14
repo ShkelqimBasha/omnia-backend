@@ -57,7 +57,7 @@ class PayPalGatewayCoverage35Test {
         var payload=json.readTree(body(create));var unit=payload.path("purchase_units").get(0);
         assertEquals("38.50",unit.at("/amount/value").asText());assertEquals("EUR",unit.at("/amount/currency_code").asText());
         assertEquals("TESTMERCHANT1",unit.at("/payee/merchant_id").asText());assertEquals("local-reference",unit.path("custom_id").asText());
-        assertEquals("https://api.example.com/api/paypal/return",payload.at("/payment_source/paypal/experience_context/return_url").asText());
+        assertEquals("https://api.example.com/api/paypal/return?checkout=local-reference",payload.at("/payment_source/paypal/experience_context/return_url").asText());
     }
     @Test void getAndCaptureReuseTokenAndCaptureRetainsIdempotencyKey() throws Exception {
         responses(tokenResponse(),response(200,"{}"),response(201,"{\"status\":\"COMPLETED\"}"));

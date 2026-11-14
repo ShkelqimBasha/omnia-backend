@@ -61,7 +61,7 @@ public class PayPalCheckoutService {
                 return r.id;
             }
             // One unresolved checkout per buyer prevents duplicate reservations across devices.
-            Integer pending=jdbc.queryForObject("SELECT COUNT(*) FROM paypal_checkouts WHERE user_id=? AND state NOT IN ('PAID','REFUNDED','ABANDONED')",Integer.class,owner);
+            Integer pending=jdbc.queryForObject("SELECT COUNT(*) FROM paypal_checkouts WHERE user_id=? AND state NOT IN ('PAID','REFUNDED','ABANDONED','RECOVERY_REQUIRED')",Integer.class,owner);
             if(pending!=null && pending>0) throw new IllegalArgumentException("Resume or cancel your existing PayPal checkout first");
             var result=checkout.checkout(request);em.flush();
             long group=jdbc.queryForObject("SELECT id FROM checkout_groups WHERE checkout_reference=? AND user_id=?",Long.class,result.getCheckoutReference(),owner);
@@ -77,10 +77,10 @@ public class PayPalCheckoutService {
     }
     public View sync(String id,boolean capture) { uuid(id);return syncOwned(id,capture,owner()); }
     private View syncOwned(String id,boolean capture,long owner) {
-        return tx.execute(status->{Row r=locked(id);if(r.owner!=owner)throw new AccessDeniedException("Payment not found");return reconcile(r,capture);});
+        return tx.execute(status->{Row r=locked(id);if(r.owner!=owner)throw new AccessDeniedException("Payment not found");if("RECOVERY_REQUIRED".equals(r.state))return view(r);return reconcile(r,capture);});
     }
     public View latest() {
-        long owner=owner();return tx.execute(s->{var rows=jdbc.query("SELECT * FROM paypal_checkouts WHERE user_id=? AND state NOT IN ('PAID','REFUNDED','ABANDONED') ORDER BY created_at DESC LIMIT 1",this::row,owner);return rows.isEmpty()?null:view(rows.get(0));});
+        long owner=owner();return tx.execute(s->{var rows=jdbc.query("SELECT * FROM paypal_checkouts WHERE user_id=? AND state NOT IN ('PAID','REFUNDED','ABANDONED','RECOVERY_REQUIRED') ORDER BY created_at DESC LIMIT 1",this::row,owner);return rows.isEmpty()?null:view(rows.get(0));});
     }
     public View forOrder(long orderId) {
         long owner=owner();return tx.execute(s->{var rows=jdbc.query("SELECT p.* FROM paypal_checkouts p JOIN orders o ON o.checkout_group_id=p.checkout_group_id WHERE o.id=? AND p.user_id=?",this::row,orderId,owner);
@@ -89,7 +89,7 @@ public class PayPalCheckoutService {
     public View abandon(String id) {
         uuid(id);long owner=owner();return tx.execute(s->{
             Row r=locked(id);if(r.owner!=owner)throw new AccessDeniedException("Payment not found");
-            if("ABANDONED".equals(r.state))return view(r);
+            if("RECOVERY_REQUIRED".equals(r.state))throw new IllegalArgumentException("Payment needs manual review"); if("ABANDONED".equals(r.state))return view(r);
             if(r.provider!=null) {
                 var proof=PayPalEvidence.verify(gateway.get(r.provider),r.provider,r.id,gateway.merchant(),r.amount);
                 boolean refused=Set.of("EXHAUSTED","BLOCKED").contains(r.state) && "APPROVED".equals(proof.state())
@@ -150,7 +150,7 @@ public class PayPalCheckoutService {
         }
         JsonNode details=gateway.get(r.provider);
         var proof=PayPalEvidence.verify(details,r.provider,r.id,gateway.merchant(),r.amount);
-        boolean blocked=Set.of("BLOCKED","EXHAUSTED").contains(r.state);
+        boolean recoveryRequired="RECOVERY_REQUIRED".equals(r.state); boolean blocked=recoveryRequired || Set.of("BLOCKED","EXHAUSTED").contains(r.state);
         String refusalState=null;
         if(capture && !blocked && "APPROVED".equals(proof.state())) {
             // Serialize with all status changes; never capture a cancelled/changed local order.
@@ -185,7 +185,7 @@ public class PayPalCheckoutService {
             // Never downgrade settled money because of a delayed event or an inconsistent response.
             return view(r);
         }
-        String next=proof.state();
+        if(recoveryRequired && !Set.of("PAID","REFUNDED").contains(proof.state()))return view(r); String next=proof.state();
         // A GET saying APPROVED cannot erase a capture refusal. Settlement evidence still wins.
         if(Set.of("APPROVED","APPROVAL","PENDING").contains(next) && (blocked || refusalState!=null))
             next=refusalState!=null?refusalState:r.state;

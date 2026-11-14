@@ -27,5 +27,5 @@ public class PayPalCheckoutController {
         service.webhook(lower,event);return Map.of("received",true);
     }
     // A browser redirect is never proof of payment. The authenticated app checks/captures with the server.
-    @GetMapping(value="/return",produces=MediaType.TEXT_HTML_VALUE) public String browserReturn(){return "<!doctype html><html><meta name='viewport' content='width=device-width'><title>Omnia Sandbox</title><body><h2>Omnia — PayPal Sandbox</h2><p>Return to Omnia and tap Check payment. / Kthehu në Omnia dhe shtyp Kontrollo pagesën.</p></body></html>";}
+    @GetMapping(value="/return",produces=MediaType.TEXT_HTML_VALUE) public String browserReturn(){return "<!doctype html><html><meta name='viewport' content='width=device-width'><title>Omnia Sandbox</title><body><h2>Omnia — PayPal Sandbox</h2><p>Return to Omnia and tap Check payment. / Kthehu në Omnia dhe shtyp Kontrollo pagesën.</p><p><a href='omnia://orders'>Hap Omnia</a></p><p><a href='omnia://orders'>Hap Omnia</a></p></body></html>";}
 }

@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.*;
 import com.omnia.backend.dto.request.CreateOrderRequest;
 import com.omnia.backend.security.service.CurrentUserService;
 import com.omnia.backend.service.interfaces.CheckoutService;
-import com.omnia.backend.service.interfaces.OrderService;
 import com.omnia.backend.enums.UserStatus;
 import jakarta.persistence.EntityManager;
 import org.springframework.stereotype.Service;
@@ -26,20 +25,23 @@ public class PayPalCheckoutService {
     private final JdbcTemplate jdbc;
     private final CurrentUserService current;
     private final CheckoutService checkout;
-    private final OrderService orders;
+    private final PayPalRecoveryTransitions transitions;
     private final PayPalGateway gateway;
     private final ObjectMapper json;
     private final EntityManager em;
     private final TransactionTemplate tx;
+    private final PayPalRecoveryLedger ledger;
+    /** The only local states from which our backend may ask PayPal to capture. */
+    static final Set<String> CAPTURABLE=Set.of("CREATING","APPROVAL","APPROVED","PENDING","FAILED");
     public record View(String id,String state,String currency,BigDecimal amount,String approvalUrl,
                        String checkoutReference,List<Long> orderIds,boolean sandbox,String requestKey) {}
     private record Row(String id,long owner,String hash,long group,BigDecimal amount,String provider,
                        String approval,String state,Instant created) {}
     public PayPalCheckoutService(JdbcTemplate jdbc,CurrentUserService current,CheckoutService checkout,
-                                 OrderService orders,PayPalGateway gateway,ObjectMapper json,EntityManager em,
-                                 PlatformTransactionManager manager) {
-        this.jdbc=jdbc;this.current=current;this.checkout=checkout;this.orders=orders;
-        this.gateway=gateway;this.json=json;this.em=em;this.tx=new TransactionTemplate(manager);
+                                 PayPalRecoveryTransitions transitions,PayPalGateway gateway,ObjectMapper json,EntityManager em,
+                                 PlatformTransactionManager manager,PayPalRecoveryLedger ledger) {
+        this.jdbc=jdbc;this.current=current;this.checkout=checkout;this.transitions=transitions;
+        this.gateway=gateway;this.json=json;this.em=em;this.tx=new TransactionTemplate(manager);this.ledger=ledger;
     }
     private long owner() {
         var user=current.requireCurrentUser();
@@ -90,15 +92,22 @@ public class PayPalCheckoutService {
         uuid(id);long owner=owner();return tx.execute(s->{
             Row r=locked(id);if(r.owner!=owner)throw new AccessDeniedException("Payment not found");
             if("RECOVERY_REQUIRED".equals(r.state))throw new IllegalArgumentException("Payment needs manual review"); if("ABANDONED".equals(r.state))return view(r);
+            PayPalRecoveryEvidence.Snapshot evidence;
             if(r.provider!=null) {
-                var proof=PayPalEvidence.verify(gateway.get(r.provider),r.provider,r.id,gateway.merchant(),r.amount);
+                JsonNode details=gateway.get(r.provider);
+                String merchant=gateway.merchant();
+                var proof=PayPalEvidence.verify(details,r.provider,r.id,merchant,r.amount);
                 boolean refused=Set.of("EXHAUSTED","BLOCKED").contains(r.state) && "APPROVED".equals(proof.state())
                         && proof.captureId()==null;
                 if(!refused && !Set.of("APPROVAL","FAILED").contains(proof.state()))throw new IllegalArgumentException("Payment approved or processing; check its status before cancellation");
+                evidence=PayPalRecoveryEvidence.from(details,r.provider,r.id,merchant,r.amount);
             } else if(!"CREATING".equals(r.state))throw new IllegalArgumentException("Payment needs review");
-            jdbc.update("UPDATE paypal_checkouts SET state='ABANDONED' WHERE id=?",id);
-            // The attempt lock prevents late approval/webhooks from capturing after this point.
-            for(long orderId:orderIds(r.group))orders.cancelMyOrder(orderId);
+            else evidence=PayPalRecoveryEvidence.notCreated();
+            // One statement set cancels every order of the group, restores stock once (products locked in ID
+            // order), fails the PayPal payments, marks the checkout ABANDONED and audits it. ABANDONED is
+            // outside CAPTURABLE, so no later check, capture or webhook can capture this checkout.
+            transitions.cancelGroup(r.id,r.group,r.state,"ABANDONED","FAILED",evidence,owner,
+                    "Buyer cancelled unpaid PayPal orders","BUYER_ABANDONED");
             return view(locked(id));
         });
     }
@@ -116,26 +125,85 @@ public class PayPalCheckoutService {
         String type=event.path("event_type").asText();
         String provider=type.startsWith("CHECKOUT.ORDER.")?event.path("resource").path("id").asText():
                 event.path("resource").path("supplementary_data").path("related_ids").path("order_id").asText();
+        String eventId=event.path("id").asText("");
+        String delivery=eventId.matches("[A-Za-z0-9-]{1,64}")?eventId:null;
         var ids=jdbc.queryForList("SELECT id FROM paypal_checkouts WHERE paypal_order_id=?",String.class,provider);
         for(String id:ids)tx.execute(s->{
             Row r=locked(id);
-            if("PAYMENT.CAPTURE.REVERSED".equals(type)) {
-                JsonNode resource=event.path("resource");
-                String capture=resource.path("id").asText();
-                JsonNode amount=resource.path("amount");
-                if(!"EUR".equals(amount.path("currency_code").asText()) || new BigDecimal(amount.path("value").asText()).compareTo(r.amount)!=0)
-                    throw new IllegalArgumentException("Reversal amount mismatch");
-                Integer count=jdbc.queryForObject("SELECT COUNT(*) FROM payments p JOIN orders o ON o.id=p.order_id WHERE o.checkout_group_id=? AND p.method='PAYPAL' AND p.transaction_id=?",Integer.class,r.group,capture);
-                if(count==null || count!=orderIds(r.group).size())throw new IllegalArgumentException("Reversal capture mismatch");
-                lockOrders(r);
-                jdbc.update("UPDATE payments p JOIN orders o ON o.id=p.order_id SET p.status='FAILED' WHERE o.checkout_group_id=? AND p.method='PAYPAL'",r.group);
-                jdbc.update("UPDATE paypal_checkouts SET state='REVIEW' WHERE id=?",r.id);
-            } else reconcile(r,true);
+            // The same PayPal delivery again (same event ID): nothing to do.
+            if(delivery!=null && ledger.webhookSeen(delivery,r.id))return null;
+            String outcome=handleWebhook(r,type,event);
+            if(delivery!=null)ledger.webhookRecord(delivery,r.id,type,outcome);
             return null;
         });
     }
+    private String handleWebhook(Row r,String type,JsonNode event) {
+        // Under recovery, an admin decides from evidence; webhooks only record what PayPal verifies.
+        if("RECOVERY_REQUIRED".equals(r.state)) return recoveryEvidence(r);
+        // Closed checkouts never capture again; verified money after closing opens a review case.
+        if(Set.of("ABANDONED","REFUNDED").contains(r.state)) return closedCheckoutEvidence(r);
+        if("PAYMENT.CAPTURE.REVERSED".equals(type)) return reversal(r,event);
+        reconcile(r,true);
+        return "RECONCILED";
+    }
+    /** Provider truth for a webhook. Missing evidence is never read as "unpaid": PayPal redelivers. */
+    private PayPalRecoveryEvidence.Snapshot verifiedEvidence(Row r) {
+        var evidence=PayPalRecoveryEvidence.fetch(gateway,r.provider,r.id,r.amount);
+        if(!evidence.available() && !"MISMATCH".equals(evidence.availability()))
+            throw new IllegalStateException("PayPal evidence unavailable; retry");
+        return evidence;
+    }
+    private List<String> recordedCaptures(Row r) {
+        return jdbc.queryForList("SELECT DISTINCT p.transaction_id FROM payments p JOIN orders o ON o.id=p.order_id WHERE o.checkout_group_id=? AND p.method='PAYPAL' AND p.transaction_id IS NOT NULL",String.class,r.group);
+    }
+    private String reviewCase(Row r,String kind,String captureKey,PayPalRecoveryEvidence.Snapshot evidence,String details) {
+        if(!ledger.openCase(r.id,kind,captureKey,evidence,details)) return "DUPLICATE_"+kind;
+        ledger.event(r.id,kind,null,r.state,r.state,"Recorded from a verified PayPal webhook",evidence,details);
+        ledger.alertSuperAdmins(r.id,kind,captureKey,r.amount);
+        return kind;
+    }
+    private String recoveryEvidence(Row r) {
+        var evidence=verifiedEvidence(r);
+        if("MISMATCH".equals(evidence.availability()))return reviewCase(r,"EVIDENCE_MISMATCH","",evidence,"Provider order does not match this checkout");
+        if(evidence.captureId()==null && Set.of("APPROVAL","APPROVED").contains(evidence.outcome())) return "RECOVERY_UNCHANGED";
+        String key=evidence.outcome()+":"+(evidence.captureId()==null?"":evidence.captureId());
+        return reviewCase(r,"RECOVERY_EVIDENCE",key,evidence,"Verified PayPal evidence for a checkout under recovery");
+    }
+    private String closedCheckoutEvidence(Row r) {
+        var evidence=verifiedEvidence(r);
+        if("MISMATCH".equals(evidence.availability()))return reviewCase(r,"EVIDENCE_MISMATCH","",evidence,"Provider order does not match this checkout");
+        // No money moved (no capture, or the capture was declined/failed).
+        if(evidence.captureId()==null || "FAILED".equals(evidence.outcome())) return "NO_CAPTURE";
+        // The refund we already recorded, reported again: an idempotent no-op.
+        if("REFUNDED".equals(r.state) && "REFUNDED".equals(evidence.outcome()) && recordedCaptures(r).contains(evidence.captureId()))
+            return "DUPLICATE_REFUND";
+        String kind="ABANDONED".equals(r.state)?"LATE_CAPTURE":"CAPTURE_CONFLICT";
+        return reviewCase(r,kind,evidence.captureId(),evidence,"Verified capture "+evidence.captureStatus()+" for a "+r.state+" checkout");
+    }
+    private String reversal(Row r,JsonNode event) {
+        JsonNode resource=event.path("resource");
+        String capture=resource.path("id").asText("");
+        String captureKey=capture.matches("[A-Z0-9]{5,64}")?capture:"";
+        JsonNode amount=resource.path("amount");
+        boolean amountMatches;
+        try { amountMatches="EUR".equals(amount.path("currency_code").asText()) && new BigDecimal(amount.path("value").asText()).compareTo(r.amount)==0; }
+        catch(NumberFormatException invalid) { amountMatches=false; }
+        Integer count=jdbc.queryForObject("SELECT COUNT(*) FROM payments p JOIN orders o ON o.id=p.order_id WHERE o.checkout_group_id=? AND p.method='PAYPAL' AND p.transaction_id=?",Integer.class,r.group,capture);
+        if(!amountMatches || captureKey.isEmpty() || count==null || count!=orderIds(r.group).size())
+            return reviewCase(r,"REVERSAL_CONFLICT",captureKey,verifiedEvidence(r),"Reversal does not match the recorded capture");
+        Integer open=jdbc.queryForObject("SELECT COUNT(*) FROM payments p JOIN orders o ON o.id=p.order_id WHERE o.checkout_group_id=? AND p.method='PAYPAL' AND p.status<>'FAILED'",Integer.class,r.group);
+        if("REVIEW".equals(r.state) && open!=null && open==0) return "DUPLICATE_REVERSAL";
+        lockOrders(r);
+        jdbc.update("UPDATE payments p JOIN orders o ON o.id=p.order_id SET p.status='FAILED' WHERE o.checkout_group_id=? AND p.method='PAYPAL'",r.group);
+        jdbc.update("UPDATE paypal_checkouts SET state='REVIEW' WHERE id=?",r.id);
+        if(ledger.openCase(r.id,"REVERSAL",captureKey,null,"Capture reversed after settlement")) {
+            ledger.event(r.id,"REVERSAL",null,r.state,"REVIEW","Recorded from a verified PayPal webhook",null,"capture="+captureKey);
+            ledger.alertSuperAdmins(r.id,"REVERSAL",captureKey,r.amount);
+        }
+        return "REVERSED";
+    }
     private View reconcile(Row r,boolean capture) {
-        if(Set.of("ABANDONED","REFUNDED","REVIEW").contains(r.state)) return view(r);
+        if(Set.of("ABANDONED","REFUNDED","REVIEW","RECOVERY_REQUIRED").contains(r.state)) return view(r);
         gateway.requireReady();
         if(r.provider==null) {
             // PayPal's default idempotency retention is six hours. Never risk recreating an uncertain charge after it.
@@ -150,11 +218,13 @@ public class PayPalCheckoutService {
         }
         JsonNode details=gateway.get(r.provider);
         var proof=PayPalEvidence.verify(details,r.provider,r.id,gateway.merchant(),r.amount);
-        boolean recoveryRequired="RECOVERY_REQUIRED".equals(r.state); boolean blocked=recoveryRequired || Set.of("BLOCKED","EXHAUSTED").contains(r.state);
+        boolean blocked=Set.of("BLOCKED","EXHAUSTED").contains(r.state);
         String refusalState=null;
         if(capture && !blocked && "APPROVED".equals(proof.state())) {
             // Serialize with all status changes; never capture a cancelled/changed local order.
             lockOrders(r);
+            // Defence in depth: abandoned, refunded, settled or reviewed checkouts are never captured.
+            if(!CAPTURABLE.contains(r.state)) throw new IllegalStateException("Checkout is not capturable");
             try { gateway.capture(r.provider,r.id); }
             catch(PayPalGateway.Rejected rejected) {
                 if(!rejected.stopCapture())throw rejected;
@@ -185,7 +255,7 @@ public class PayPalCheckoutService {
             // Never downgrade settled money because of a delayed event or an inconsistent response.
             return view(r);
         }
-        if(recoveryRequired && !Set.of("PAID","REFUNDED").contains(proof.state()))return view(r); String next=proof.state();
+        String next=proof.state();
         // A GET saying APPROVED cannot erase a capture refusal. Settlement evidence still wins.
         if(Set.of("APPROVED","APPROVAL","PENDING").contains(next) && (blocked || refusalState!=null))
             next=refusalState!=null?refusalState:r.state;

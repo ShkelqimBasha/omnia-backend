@@ -30,7 +30,7 @@ import static org.mockito.Mockito.*;
 @Transactional
 class PayPalCheckoutIntegrationTest extends AbstractIntegrationTest {
     @Autowired JdbcTemplate jdbc;@Autowired EntityManager em;@Autowired PlatformTransactionManager manager;
-    @Autowired PayPalOrderGuard guard;
+    @Autowired PayPalOrderGuard guard;@Autowired PayPalRecoveryLedger ledger;@Autowired PayPalRecoveryTransitions transitions;
     private PayPalCheckoutService service;private PayPalGateway gateway;private CurrentUserService current;
     private OrderService orderService;private CheckoutService checkout;private User user;private CheckoutGroup group;private Order order;private String key;
     private final ObjectMapper json=new ObjectMapper();private String attempt;
@@ -46,7 +46,7 @@ class PayPalCheckoutIntegrationTest extends AbstractIntegrationTest {
         em.persist(Payment.builder().order(order).method(PaymentMethod.CASH_ON_DELIVERY).status(PaymentStatus.PENDING).build());em.flush();
         when(current.requireCurrentUser()).thenReturn(user);
         when(checkout.checkout(any())).thenReturn(CheckoutResponse.builder().checkoutReference(group.getCheckoutReference()).totalAmount(new BigDecimal("12.30")).build());
-        orderService=mock(OrderService.class);service=new PayPalCheckoutService(jdbc,current,checkout,orderService,gateway,json,em,manager);key=UUID.randomUUID().toString();
+        orderService=mock(OrderService.class);service=new PayPalCheckoutService(jdbc,current,checkout,transitions,gateway,json,em,manager,ledger);key=UUID.randomUUID().toString();
         when(gateway.create(anyString(),any())).thenAnswer(inv->{attempt=inv.getArgument(0);return json.readTree("{\"id\":\"PROVIDER123\",\"links\":[{\"rel\":\"approve\",\"href\":\"https://www.sandbox.paypal.com/checkoutnow?token=PROVIDER123\"}]}");});
         when(gateway.get("PROVIDER123")).thenAnswer(inv->evidence("CREATED",null));
     }
@@ -118,9 +118,14 @@ class PayPalCheckoutIntegrationTest extends AbstractIntegrationTest {
         assertEquals("EXHAUSTED",service.sync(first.id(),true).state());
         assertEquals("EXHAUSTED",service.sync(first.id(),true).state());
         assertEquals("ABANDONED",service.abandon(first.id()).state());
-        verify(orderService).cancelMyOrder(order.getId());
+        // The whole group is cancelled in the same transaction, the PayPal payment fails, and it is audited.
+        assertEquals("CANCELLED",jdbc.queryForObject("SELECT status FROM orders WHERE id=?",String.class,order.getId()));
         verify(gateway,times(1)).capture("PROVIDER123",first.id());
-        assertEquals("PENDING",jdbc.queryForObject("SELECT status FROM payments WHERE order_id=?",String.class,order.getId()));
+        assertEquals("FAILED",jdbc.queryForObject("SELECT status FROM payments WHERE order_id=?",String.class,order.getId()));
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM paypal_recovery_events WHERE checkout_id=? AND event_type='BUYER_ABANDONED' AND actor_user_id=?",Integer.class,first.id(),user.getId()));
+        // Abandoned is final: a later check or capture never asks PayPal to capture again.
+        assertEquals("ABANDONED",service.sync(first.id(),true).state());
+        verify(gateway,times(1)).capture("PROVIDER123",first.id());
     }
     @Test void complianceBlocksFurtherCaptureEvenWhenFollowupGetFails()throws Exception{
         var first=service.create(key,request());

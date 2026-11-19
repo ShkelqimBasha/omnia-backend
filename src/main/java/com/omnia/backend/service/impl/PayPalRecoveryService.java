@@ -126,6 +126,10 @@ public class PayPalRecoveryService {
         String hash = sha256(action.name() + "\n" + request.expectedState() + "\n" + request.evidenceFingerprint() + "\n" + reason);
 
         return tx.execute(status -> {
+            // Global lock order: users(owner) → paypal_checkouts → orders (by primary key) → users → products.
+            // The buyer's checkout creation and cancel-by-key hold their users row first; taking it here,
+            // before the checkout row, keeps a resolution from closing a cycle with them.
+            transitions.lockCheckoutOwner(checkoutId);
             Row row = find(checkoutId, true);
             // Keys are scoped to (checkout, operation). A replay returns the original answer.
             Optional<ResolveResult> replay = replay(row.id(), RESOLVE, key, hash, actor, ResolveResult.class);
@@ -139,7 +143,7 @@ public class PayPalRecoveryService {
             Snapshot evidence = PayPalRecoveryEvidence.fetch(gateway, row.provider(), row.createAttempted(), row.id(), row.amount());
             if (!evidence.fingerprint().equals(request.evidenceFingerprint()))
                 throw new ConflictException("PayPal evidence changed; review it again");
-            List<PayPalRecoveryTransitions.GroupOrder> orders = transitions.lockGroup(row.group());
+            List<PayPalRecoveryTransitions.GroupOrder> orders = transitions.lockGroup(row.id(), row.group());
             if (!permitted(evidence, orders, row.amount()).contains(action))
                 throw new ConflictException("The current evidence does not permit " + action);
 

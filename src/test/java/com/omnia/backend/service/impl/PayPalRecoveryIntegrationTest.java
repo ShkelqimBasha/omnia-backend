@@ -636,7 +636,7 @@ class PayPalRecoveryIntegrationTest extends AbstractIntegrationTest {
                 transitions.settlePaid(checkoutId, groupId, TOTAL, "RECOVERY_REQUIRED", approved, null, "x", "X")),
                 "PAID needs verified capture evidence");
         assertThrows(com.omnia.backend.common.exception.ConflictException.class, () -> tx.executeWithoutResult(s ->
-                transitions.lockGroup(-1L)));
+                transitions.lockGroup(checkoutId, -1L)));
         jdbc.update("UPDATE orders SET status='SHIPPED' WHERE id=?", firstOrder);
         assertThrows(com.omnia.backend.common.exception.ConflictException.class, () -> tx.executeWithoutResult(s -> transitions.cancelGroup(
                 checkoutId, groupId, "RECOVERY_REQUIRED", "ABANDONED", "FAILED", approved, null, "x", "X")));
@@ -658,6 +658,188 @@ class PayPalRecoveryIntegrationTest extends AbstractIntegrationTest {
         webhook("WH-OK-1", "PAYMENT.CAPTURE.COMPLETED");
         assertEquals(1, count("SELECT COUNT(*) FROM paypal_review_cases WHERE checkout_id=? AND kind='RECOVERY_EVIDENCE'", checkoutId));
         assertEquals("RECOVERY_REQUIRED", state(), "webhooks never resolve a checkout under recovery");
+    }
+
+    // ---- Lock order against checkout creation and cancel-by-key (InnoDB deadlocks A and B) ----
+    //
+    // A raw JDBC session plays the competing transaction, statement by statement, in the order the
+    // production code takes its locks. The recovery or abandon runs through the real code on a worker
+    // thread. Each step waits until performance_schema shows the worker blocked on a given table, so
+    // the interleaving is exact rather than timing based. Before the fix these interleavings ended in
+    // ERROR 1213 (deadlock): either the raw session or the worker was rolled back.
+
+    @Autowired javax.sql.DataSource dataSource;
+    @Autowired org.springframework.core.env.Environment environment;
+
+    /** Root can read performance_schema lock tables; Testcontainers gives root the same password. */
+    private java.sql.Connection rootConnection() throws java.sql.SQLException {
+        return java.sql.DriverManager.getConnection(environment.getProperty("spring.datasource.url"), "root",
+                environment.getProperty("spring.datasource.password"));
+    }
+
+    /** Blocks until some transaction waits for a lock on {@code table}; fails after 20 seconds. */
+    private void awaitLockWaitOn(String table) throws Exception {
+        try (java.sql.Connection root = rootConnection();
+             java.sql.PreparedStatement query = root.prepareStatement(
+                     "SELECT COUNT(*) FROM performance_schema.data_lock_waits w JOIN performance_schema.data_locks l ON l.engine_lock_id=w.requesting_engine_lock_id WHERE l.object_schema=? AND l.object_name=?")) {
+            query.setString(1, root.getCatalog());
+            query.setString(2, table);
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+            while (System.nanoTime() < deadline) {
+                try (java.sql.ResultSet rows = query.executeQuery()) {
+                    rows.next();
+                    if (rows.getLong(1) > 0) return;
+                }
+                Thread.sleep(25);
+            }
+        }
+        fail("No transaction ever waited for a lock on " + table);
+    }
+
+    private void sql(java.sql.Connection c, String statement, Object... args) throws java.sql.SQLException {
+        try (java.sql.PreparedStatement s = c.prepareStatement(statement)) {
+            for (int i = 0; i < args.length; i++) s.setObject(i + 1, args[i]);
+            s.execute();
+        }
+    }
+
+    /** The competing transaction: autocommit off, short lock wait so a regression fails fast. */
+    private java.sql.Connection competingTransaction() throws java.sql.SQLException {
+        java.sql.Connection c = dataSource.getConnection();
+        c.setAutoCommit(false);
+        sql(c, "SET SESSION innodb_lock_wait_timeout=20");
+        return c;
+    }
+
+    private Future<Integer> resolveAbandonInBackground(ExecutorService pool) throws Exception {
+        String fingerprint = detail().path("evidenceFingerprint").asText();
+        return pool.submit(() -> resolve(superAdmin, UUID.randomUUID().toString(), "ABANDON", "RECOVERY_REQUIRED",
+                fingerprint, "Lock order regression check").getResponse().getStatus());
+    }
+
+    private Future<String> buyerAbandonInBackground(ExecutorService pool) {
+        jdbc.update("UPDATE paypal_checkouts SET state='APPROVAL' WHERE id=?", checkoutId);
+        evidence("CREATED", null, null);
+        return pool.submit(() -> asBuyer(() -> checkoutService.abandon(checkoutId).state()));
+    }
+
+    private void assertCancelledExactlyOnce() {
+        assertEquals(List.of("CANCELLED", "CANCELLED"), orderStatuses());
+        assertEquals(8, stock(productA), "5 + 2 + 1 restored once");
+        assertEquals(8, stock(productB), "7 + 1 restored once");
+        assertEquals(2, paymentsWithStatus("FAILED"));
+        assertEquals("ABANDONED", state());
+    }
+
+    /** Deadlock A: the checkout inserts its order into the gap above our group while holding a product we need. */
+    private void newestGroupCancellationDoesNotBlockACheckoutInsert(Future<?> worker) throws Exception {
+        assertEquals(groupId, count("SELECT MAX(checkout_group_id) FROM orders"), "the recovered group is the newest");
+        try (java.sql.Connection checkout = competingTransaction()) {
+            sql(checkout, "SELECT id FROM products WHERE id=? FOR UPDATE", productA);    // CheckoutServiceImpl: products first
+            awaitLockWaitOn("products");                                                   // the cancellation now waits for productA
+            sql(checkout, "INSERT INTO checkout_groups(checkout_reference,user_id,order_count,total_amount) VALUES(UUID(),?,1,10.00)", buyerId);
+            sql(checkout, "INSERT INTO orders(user_id,checkout_group_id,total_amount,status) VALUES(?,LAST_INSERT_ID(),10.00,'PENDING')", buyerId);
+            checkout.rollback();
+        }
+    }
+
+    @Test void recoveryOfTheNewestGroupDoesNotDeadlockWithAConcurrentCheckout() throws Exception {
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<Integer> resolved = resolveAbandonInBackground(pool);
+            newestGroupCancellationDoesNotBlockACheckoutInsert(resolved);
+            assertEquals(200, resolved.get(60, TimeUnit.SECONDS));
+        } finally {
+            pool.shutdownNow();
+        }
+        assertCancelledExactlyOnce();
+        assertEquals(1, count("SELECT COUNT(*) FROM paypal_recovery_events WHERE checkout_id=? AND event_type='RESOLVED_ABANDONED'", checkoutId));
+    }
+
+    @Test void buyerAbandonOfTheNewestGroupDoesNotDeadlockWithAConcurrentCheckout() throws Exception {
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<String> abandoned = buyerAbandonInBackground(pool);
+            newestGroupCancellationDoesNotBlockACheckoutInsert(abandoned);
+            assertEquals("ABANDONED", abandoned.get(60, TimeUnit.SECONDS));
+        } finally {
+            pool.shutdownNow();
+        }
+        assertCancelledExactlyOnce();
+        assertEquals(1, count("SELECT COUNT(*) FROM paypal_recovery_events WHERE checkout_id=? AND event_type='BUYER_ABANDONED'", checkoutId));
+    }
+
+    /** Deadlock B: the buyer's own PayPal checkout holds their users row, then needs a product. */
+    @Test void recoveryDoesNotDeadlockWithTheSameBuyerCreatingAPayPalCheckout() throws Exception {
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try (java.sql.Connection create = competingTransaction()) {
+            sql(create, "SELECT id FROM users WHERE id=? FOR UPDATE", buyerId);          // PayPalCheckoutService.create
+            Future<Integer> resolved = resolveAbandonInBackground(pool);
+            awaitLockWaitOn("users");                                                     // the resolution waits for the buyer row
+            sql(create, "SELECT id FROM products WHERE id=? FOR UPDATE", productA);       // CheckoutServiceImpl: products next
+            create.rollback();
+            assertEquals(200, resolved.get(60, TimeUnit.SECONDS));
+        } finally {
+            pool.shutdownNow();
+        }
+        assertCancelledExactlyOnce();
+    }
+
+    /** Deadlock B, cancel-by-key variant: the buyer's users row, then this checkout row. */
+    @Test void recoveryDoesNotDeadlockWithTheSameBuyerCancellingByRequestKey() throws Exception {
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try (java.sql.Connection cancel = competingTransaction()) {
+            sql(cancel, "SELECT id FROM users WHERE id=? FOR UPDATE", buyerId);          // PayPalCheckoutService.cancelRequest
+            Future<Integer> resolved = resolveAbandonInBackground(pool);
+            awaitLockWaitOn("users");
+            sql(cancel, "SELECT id FROM paypal_checkouts WHERE id=? FOR UPDATE", checkoutId);  // abandon(): locked(id)
+            cancel.rollback();
+            assertEquals(200, resolved.get(60, TimeUnit.SECONDS));
+        } finally {
+            pool.shutdownNow();
+        }
+        assertCancelledExactlyOnce();
+    }
+
+    @Test void racingConfirmPaidSettlesExactlyOnce() throws Exception {
+        evidence("COMPLETED", "COMPLETED", "CAPTURE1");
+        String fingerprint = detail().path("evidenceFingerprint").asText();
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        List<Future<Integer>> results = new ArrayList<>();
+        try (java.sql.Connection gate = competingTransaction()) {
+            // Hold the checkout row so both resolutions queue on it, then release them together.
+            sql(gate, "SELECT id FROM paypal_checkouts WHERE id=? FOR UPDATE", checkoutId);
+            for (String who : List.of(superAdmin, secondSuperAdmin))
+                results.add(pool.submit(() -> resolve(who, UUID.randomUUID().toString(), "CONFIRM_PAID", "RECOVERY_REQUIRED",
+                        fingerprint, "Racing settlement by " + who).getResponse().getStatus()));
+            try (java.sql.Connection root = rootConnection();
+                 java.sql.PreparedStatement waiting = root.prepareStatement(
+                         // One row per (waiter, blocker) pair; the second waiter also waits behind the first.
+                         "SELECT COUNT(DISTINCT w.requesting_engine_transaction_id) FROM performance_schema.data_lock_waits w JOIN performance_schema.data_locks l ON l.engine_lock_id=w.requesting_engine_lock_id WHERE l.object_name='paypal_checkouts'")) {
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+                long queued = 0;
+                while (queued < 2 && System.nanoTime() < deadline) {
+                    try (java.sql.ResultSet rows = waiting.executeQuery()) { rows.next(); queued = rows.getLong(1); }
+                    if (queued < 2) Thread.sleep(25);
+                }
+                assertEquals(2, queued, "both resolutions queue on the checkout row");
+            }
+            gate.rollback();
+            List<Integer> statuses = new ArrayList<>();
+            for (Future<Integer> f : results) statuses.add(f.get(60, TimeUnit.SECONDS));
+            Collections.sort(statuses);
+            assertEquals(List.of(200, 409), statuses);
+        } finally {
+            pool.shutdownNow();
+        }
+        assertEquals("PAID", state());
+        for (Map<String, Object> payment : groupPayments()) {
+            assertEquals("SUCCESS", payment.get("status"));
+            assertEquals("CAPTURE1", payment.get("transaction_id"));
+        }
+        assertEquals(1, count("SELECT COUNT(*) FROM paypal_recovery_events WHERE checkout_id=? AND event_type='RESOLVED_PAID'", checkoutId));
+        assertEquals(5, stock(productA));
+        assertEquals(7, stock(productB));
     }
 
     // ---- CONFIRM_PAID settles only the expected PayPal payment rows, or nothing at all ----

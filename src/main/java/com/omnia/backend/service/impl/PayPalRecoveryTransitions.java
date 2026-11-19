@@ -44,13 +44,61 @@ public class PayPalRecoveryTransitions {
 
     public record GroupOrder(long id, String status, BigDecimal total) {}
 
-    /** The group's orders, row-locked in ID order. */
-    public List<GroupOrder> lockGroup(long group) {
+    /**
+     * The checkout's orders, row-locked by primary key in ID order.
+     *
+     * <p>A locking read through the non-unique {@code idx_orders_checkout_group_id} takes next-key
+     * locks, including the gap above the newest group, so a concurrent checkout inserting its orders
+     * there waits on us while holding the product locks we need next (a deadlock reproduced in
+     * {@code PayPalLockOrderConcurrencyTest}). The IDs are therefore read without locks (orders never
+     * change group after checkout) and locked by primary key, which takes record locks only. The
+     * locked rows are re-checked for group membership and ownership before anything is written.
+     */
+    public List<GroupOrder> lockGroup(String checkoutId, long group) {
         em.flush();
-        List<GroupOrder> orders = jdbc.query("SELECT id,status,total_amount FROM orders WHERE checkout_group_id=? ORDER BY id FOR UPDATE",
-                (row, n) -> new GroupOrder(row.getLong(1), row.getString(2), row.getBigDecimal(3)), group);
-        if (orders.isEmpty()) throw new ConflictException("Checkout orders missing; manual review required");
+        List<Long> owners = jdbc.queryForList("SELECT user_id FROM paypal_checkouts WHERE id=? AND checkout_group_id=?",
+                Long.class, checkoutId, group);
+        if (owners.size() != 1) throw new ConflictException("Checkout group mismatch; manual review required");
+        List<Long> ids = jdbc.queryForList("SELECT id FROM orders WHERE checkout_group_id=? ORDER BY id", Long.class, group);
+        if (ids.isEmpty()) throw new ConflictException("Checkout orders missing; manual review required");
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT id,status,total_amount,checkout_group_id,user_id FROM orders WHERE id IN (" + marks(ids.size()) + ") ORDER BY id FOR UPDATE",
+                ids.toArray());
+        List<GroupOrder> orders = new ArrayList<>();
+        for (Map<String, Object> row : rows) {
+            Object rowGroup = row.get("checkout_group_id");
+            Object rowOwner = row.get("user_id");
+            if (rowGroup == null || ((Number) rowGroup).longValue() != group
+                    || rowOwner == null || ((Number) rowOwner).longValue() != owners.get(0))
+                throw new ConflictException("Checkout orders changed; manual review required");
+            orders.add(new GroupOrder(((Number) row.get("id")).longValue(), (String) row.get("status"),
+                    (java.math.BigDecimal) row.get("total_amount")));
+        }
+        if (orders.size() != ids.size()) throw new ConflictException("Checkout orders changed; manual review required");
         return orders;
+    }
+
+    /**
+     * Shared lock on the checkout owner's users row. PayPal checkout creation and cancellation by
+     * request key take this row FOR UPDATE before products and before the checkout row, so anything
+     * that later references the owner through a foreign key must take it first, before the checkout
+     * row, to keep one global order: users(owner) → paypal_checkouts → orders → users → products.
+     */
+    public void lockCheckoutOwner(String checkoutId) {
+        List<Long> owners = jdbc.queryForList("SELECT user_id FROM paypal_checkouts WHERE id=?", Long.class, checkoutId);
+        if (!owners.isEmpty()) lockUsers(owners);
+    }
+
+    /** Shared locks on users rows, in ID order. Unknown IDs are ignored. */
+    public void lockUsers(Collection<Long> userIds) {
+        List<Long> ids = new TreeSet<>(userIds.stream().filter(Objects::nonNull).toList()).stream().toList();
+        if (ids.isEmpty()) return;
+        jdbc.queryForList("SELECT id FROM users WHERE id IN (" + marks(ids.size()) + ") ORDER BY id FOR SHARE",
+                Long.class, ids.toArray());
+    }
+
+    private static String marks(int count) {
+        return String.join(",", Collections.nCopies(count, "?"));
     }
 
     public static boolean shippedOrDelivered(List<GroupOrder> orders) {
@@ -69,7 +117,7 @@ public class PayPalRecoveryTransitions {
     /** Record verified settlement: every PayPal payment of the group becomes SUCCESS with the capture. */
     public long settlePaid(String checkoutId, long group, BigDecimal amount, String fromState,
                            PayPalRecoveryEvidence.Snapshot evidence, Long actor, String reason, String eventType) {
-        List<GroupOrder> orders = lockGroup(group);
+        List<GroupOrder> orders = lockGroup(checkoutId, group);
         if (anyCancelled(orders) || !totalsMatch(orders, amount))
             throw new ConflictException("Checkout changed; manual review required");
         if (evidence == null || evidence.captureId() == null || !"PAID".equals(evidence.outcome()))
@@ -78,7 +126,7 @@ public class PayPalRecoveryTransitions {
         java.sql.Timestamp paidAt = java.sql.Timestamp.from(java.time.Instant.parse(evidence.captureTime()));
         List<Long> pending = expectedPayPalPayments(orders, evidence.captureId());
         if (!pending.isEmpty()) {
-            String marks = pending.stream().map(id -> "?").collect(Collectors.joining(","));
+            String marks = marks(pending.size());
             List<Object> args = new ArrayList<>(List.of(evidence.captureId(), paidAt));
             args.addAll(pending);
             int updated = jdbc.update("UPDATE payments SET status='SUCCESS',transaction_id=?,paid_at=COALESCE(paid_at,?) WHERE id IN (" + marks + ") AND status='PENDING' AND method='PAYPAL'",
@@ -100,7 +148,7 @@ public class PayPalRecoveryTransitions {
      * Returns the IDs of the PENDING rows to settle.
      */
     private List<Long> expectedPayPalPayments(List<GroupOrder> orders, String captureId) {
-        String marks = orders.stream().map(o -> "?").collect(Collectors.joining(","));
+        String marks = marks(orders.size());
         // Unique-index lookups by order_id, in order-ID order: record locks only, after the order rows.
         List<Map<String, Object>> rows = jdbc.queryForList(
                 "SELECT id,order_id,method,status,transaction_id FROM payments WHERE order_id IN (" + marks + ") ORDER BY order_id FOR UPDATE",
@@ -134,19 +182,27 @@ public class PayPalRecoveryTransitions {
                             PayPalRecoveryEvidence.Snapshot evidence, Long actor, String reason, String eventType) {
         if (!Set.of("ABANDONED", "REFUNDED").contains(toState) || !Set.of("FAILED", "REFUNDED").contains(paymentStatus))
             throw new IllegalArgumentException("Unsupported cancellation target");
-        List<GroupOrder> orders = lockGroup(group);
+        List<GroupOrder> orders = lockGroup(checkoutId, group);
         if (shippedOrDelivered(orders))
             throw new ConflictException("Shipped or delivered orders need manual handling");
         if (anyCancelled(orders))
             throw new ConflictException("Checkout already partly cancelled; manual review required");
 
+        List<Long> orderIds = orders.stream().map(GroupOrder::id).toList();
+        // Every users row the inserts below reference by foreign key (status history and audit actor,
+        // notification recipients) gets a shared lock now, before any product lock. Otherwise the
+        // implicit FK lock is requested while holding products, and PayPal checkout creation, which
+        // holds its buyer's users row and then waits for products, closes a cycle (reproduced in
+        // PayPalLockOrderConcurrencyTest).
+        lockUsers(referencedUsers(checkoutId, orderIds, actor));
+
         // Aggregate per product, then lock products in ID order: one stock increment per product.
         List<Map<String, Object>> lines = jdbc.queryForList(
-                "SELECT oi.product_id AS product_id, SUM(oi.quantity) AS quantity FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE o.checkout_group_id=? AND oi.product_id IS NOT NULL GROUP BY oi.product_id ORDER BY oi.product_id",
-                group);
+                "SELECT product_id, SUM(quantity) AS quantity FROM order_items WHERE order_id IN (" + marks(orderIds.size()) + ") AND product_id IS NOT NULL GROUP BY product_id ORDER BY product_id",
+                orderIds.toArray());
         List<Long> productIds = lines.stream().map(l -> ((Number) l.get("product_id")).longValue()).toList();
         if (!productIds.isEmpty()) {
-            String marks = productIds.stream().map(id -> "?").collect(Collectors.joining(","));
+            String marks = marks(productIds.size());
             jdbc.queryForList("SELECT id FROM products WHERE id IN (" + marks + ") ORDER BY id FOR UPDATE",
                     Long.class, productIds.toArray());
         }
@@ -159,15 +215,19 @@ public class PayPalRecoveryTransitions {
             restored.add(product + "+" + quantity);
         }
 
-        int cancelled = jdbc.update("UPDATE orders SET status='CANCELLED' WHERE checkout_group_id=? AND status NOT IN ('CANCELLED','SHIPPED','DELIVERED')", group);
+        // Driven by the locked primary keys, so no group-index gap lock is taken here either.
+        int cancelled = jdbc.update("UPDATE orders SET status='CANCELLED' WHERE id IN (" + marks(orderIds.size()) + ") AND status NOT IN ('CANCELLED','SHIPPED','DELIVERED')",
+                orderIds.toArray());
         if (cancelled != orders.size()) throw new ConflictException("Checkout orders changed; manual review required");
         for (GroupOrder order : orders) {
             jdbc.update("INSERT INTO order_status_history(order_id,from_status,to_status,changed_by_user_id) VALUES(?,?,'CANCELLED',?)",
                     order.id(), order.status(), actor);
         }
         String capture = evidence == null ? null : evidence.captureId();
-        jdbc.update("UPDATE payments p JOIN orders o ON o.id=p.order_id SET p.status=?,p.transaction_id=COALESCE(p.transaction_id,?) WHERE o.checkout_group_id=? AND p.method='PAYPAL'",
-                paymentStatus, "REFUNDED".equals(paymentStatus) ? capture : null, group);
+        List<Object> paymentArgs = new ArrayList<>(Arrays.asList(paymentStatus, "REFUNDED".equals(paymentStatus) ? capture : null));
+        paymentArgs.addAll(orderIds);
+        jdbc.update("UPDATE payments SET status=?,transaction_id=COALESCE(transaction_id,?) WHERE order_id IN (" + marks(orderIds.size()) + ") AND method='PAYPAL'",
+                paymentArgs.toArray());
         jdbc.update("UPDATE paypal_checkouts SET state=? WHERE id=?", toState, checkoutId);
         long event = ledger.event(checkoutId, eventType, actor, fromState, toState, reason, evidence,
                 "orders=" + ids(orders) + "; stock=" + restored);
@@ -175,10 +235,22 @@ public class PayPalRecoveryTransitions {
         return event;
     }
 
+    /** The checkout owner, the actor and every recipient NotificationWriter will write for these orders. */
+    private Set<Long> referencedUsers(String checkoutId, List<Long> orderIds, Long actor) {
+        Long owner = jdbc.queryForObject("SELECT user_id FROM paypal_checkouts WHERE id=?", Long.class, checkoutId);
+        Set<Long> users = new TreeSet<>();
+        users.add(owner);
+        if (actor != null) users.add(actor);
+        List<Long> organizations = jdbc.query("SELECT DISTINCT organization_id FROM orders WHERE id IN (" + marks(orderIds.size()) + ")",
+                (row, n) -> row.getObject(1) == null ? null : row.getLong(1), orderIds.toArray());
+        for (Long organization : organizations) users.addAll(notifications.orderRecipients(organization, owner));
+        return users;
+    }
+
     /** Shipped or delivered orders: keep everything, preserve the evidence and alert SUPER_ADMIN. */
     public long flagManual(String checkoutId, long group, String state, BigDecimal amount,
                            PayPalRecoveryEvidence.Snapshot evidence, Long actor, String reason) {
-        List<GroupOrder> orders = lockGroup(group);
+        List<GroupOrder> orders = lockGroup(checkoutId, group);
         String captureKey = evidence == null || evidence.captureId() == null ? "" : evidence.captureId();
         if (ledger.openCase(checkoutId, "SHIPPED_ORDERS", captureKey, evidence, "orders=" + statuses(orders)))
             ledger.alertSuperAdmins(checkoutId, "SHIPPED_ORDERS", captureKey, amount);

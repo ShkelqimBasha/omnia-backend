@@ -23,6 +23,8 @@ public class NotificationWriter {
    jdbc.update("INSERT INTO push_outbox(notification_id,available_at) SELECT id,UTC_TIMESTAMP(6) FROM notification_inbox WHERE recipient_id=? AND event_key=? ON DUPLICATE KEY UPDATE notification_id=notification_id",user,key);
   }
  }
+ /** The users an order notification for this company and customer is written for (the FK parents of those inserts). */
+ public Set<Long> orderRecipients(Long org,Long customer){return recipients(org,customer);}
  public void order(Order o){
   if(o==null||o.getId()==null)return;Long org=o.getOrganization()==null?null:o.getOrganization().getId();
   String status=o.getStatus().name();write("order:"+o.getId()+":"+status,status.equals("PENDING")?"ORDER_CREATED":"ORDER_STATUS","USER","ORDER",o.getId(),org,o.getOrganizationName(),status,o.getTotalAmount(),null,o.getUser().getId());

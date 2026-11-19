@@ -95,6 +95,8 @@ public class PayPalCheckoutService {
     }
     public View abandon(String id) {
         uuid(id);long owner=owner();return tx.execute(s->{
+            // Same global order as creation and recovery: the buyer's users row before the checkout row.
+            transitions.lockUsers(List.of(owner));
             Row r=locked(id);if(r.owner!=owner)throw new AccessDeniedException("Payment not found");
             if("RECOVERY_REQUIRED".equals(r.state))throw new IllegalArgumentException("Payment needs manual review"); if("ABANDONED".equals(r.state))return view(r);
             PayPalRecoveryEvidence.Snapshot evidence;
@@ -201,8 +203,8 @@ public class PayPalCheckoutService {
             return reviewCase(r,"REVERSAL_CONFLICT",captureKey,verifiedEvidence(r),"Reversal does not match the recorded capture");
         Integer open=jdbc.queryForObject("SELECT COUNT(*) FROM payments p JOIN orders o ON o.id=p.order_id WHERE o.checkout_group_id=? AND p.method='PAYPAL' AND p.status<>'FAILED'",Integer.class,r.group);
         if("REVIEW".equals(r.state) && open!=null && open==0) return "DUPLICATE_REVERSAL";
-        lockOrders(r);
-        jdbc.update("UPDATE payments p JOIN orders o ON o.id=p.order_id SET p.status='FAILED' WHERE o.checkout_group_id=? AND p.method='PAYPAL'",r.group);
+        List<Long> locked=lockOrders(r);
+        jdbc.update("UPDATE payments SET status='FAILED' WHERE order_id IN ("+marks(locked)+") AND method='PAYPAL'",locked.toArray());
         jdbc.update("UPDATE paypal_checkouts SET state='REVIEW' WHERE id=?",r.id);
         if(ledger.openCase(r.id,"REVERSAL",captureKey,null,"Capture reversed after settlement")) {
             ledger.event(r.id,"REVERSAL",null,r.state,"REVIEW","Recorded from a verified PayPal webhook",null,"capture="+captureKey);
@@ -255,13 +257,15 @@ public class PayPalCheckoutService {
             }
         }
         if("PAID".equals(proof.state())) {
-            lockOrders(r);
+            List<Long> locked=lockOrders(r);
             // Record capture once; later identical evidence is harmless.
-            jdbc.update("UPDATE payments p JOIN orders o ON o.id=p.order_id SET p.status='SUCCESS',p.transaction_id=?,p.paid_at=COALESCE(p.paid_at,?) WHERE o.checkout_group_id=? AND p.method='PAYPAL' AND p.status='PENDING'",proof.captureId(),java.sql.Timestamp.from(proof.paidAt()),r.group);
+            List<Object> args=new ArrayList<>(List.of(proof.captureId(),java.sql.Timestamp.from(proof.paidAt())));args.addAll(locked);
+            jdbc.update("UPDATE payments SET status='SUCCESS',transaction_id=?,paid_at=COALESCE(paid_at,?) WHERE order_id IN ("+marks(locked)+") AND method='PAYPAL' AND status='PENDING'",args.toArray());
         } else if(Set.of("REFUNDED","REVIEW").contains(proof.state())) {
-            lockOrders(r);
+            List<Long> locked=lockOrders(r);
             // Partial refunds require review and are excluded from paid reports until reconciled manually.
-            jdbc.update("UPDATE payments p JOIN orders o ON o.id=p.order_id SET p.status=? WHERE o.checkout_group_id=? AND p.method='PAYPAL'", "REFUNDED".equals(proof.state())?"REFUNDED":"PENDING",r.group);
+            List<Object> args=new ArrayList<>(List.of("REFUNDED".equals(proof.state())?"REFUNDED":"PENDING"));args.addAll(locked);
+            jdbc.update("UPDATE payments SET status=? WHERE order_id IN ("+marks(locked)+") AND method='PAYPAL'",args.toArray());
         } else if("PAID".equals(r.state)) {
             // Never downgrade settled money because of a delayed event or an inconsistent response.
             return view(r);
@@ -284,13 +288,19 @@ public class PayPalCheckoutService {
                 "PayPal creation could not be confirmed within PayPal's idempotency window",PayPalRecoveryEvidence.creationUncertain(),null);
         return view(locked(r.id));
     }
-    private void lockOrders(Row r) {
-        var ids=jdbc.queryForList("SELECT id FROM orders WHERE checkout_group_id=? ORDER BY id FOR UPDATE",Long.class,r.group);
-        if(ids.isEmpty())throw new IllegalStateException("Checkout orders missing");
-        BigDecimal sum=jdbc.queryForObject("SELECT SUM(total_amount) FROM orders WHERE checkout_group_id=? AND status<>'CANCELLED'",BigDecimal.class,r.group);
-        Long cancelled=jdbc.queryForObject("SELECT COUNT(*) FROM orders WHERE checkout_group_id=? AND status='CANCELLED'",Long.class,r.group);
-        if(cancelled==null || cancelled!=0 || sum==null || sum.compareTo(r.amount)!=0)throw new IllegalStateException("Checkout changed; manual review required");
+    /**
+     * Locks the group's orders by primary key (record locks only; see PayPalRecoveryTransitions.lockGroup)
+     * and returns their IDs. Any change to the group refuses capture or settlement.
+     */
+    private List<Long> lockOrders(Row r) {
+        List<PayPalRecoveryTransitions.GroupOrder> orders;
+        try { orders=transitions.lockGroup(r.id,r.group); }
+        catch(com.omnia.backend.common.exception.ConflictException changed) { throw new IllegalStateException("Checkout changed; manual review required"); }
+        if(PayPalRecoveryTransitions.anyCancelled(orders) || !PayPalRecoveryTransitions.totalsMatch(orders,r.amount))
+            throw new IllegalStateException("Checkout changed; manual review required");
+        return orders.stream().map(PayPalRecoveryTransitions.GroupOrder::id).toList();
     }
+    private static String marks(List<?> values) {return String.join(",",Collections.nCopies(values.size(),"?"));}
     private List<Long> orderIds(long group) {return jdbc.queryForList("SELECT id FROM orders WHERE checkout_group_id=? ORDER BY id",Long.class,group);}
     private View view(Row r) {
         String ref=jdbc.queryForObject("SELECT checkout_reference FROM checkout_groups WHERE id=?",String.class,r.group);

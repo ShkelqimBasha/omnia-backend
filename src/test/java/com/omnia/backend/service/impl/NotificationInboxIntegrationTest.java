@@ -66,5 +66,32 @@ class NotificationInboxIntegrationTest extends AbstractIntegrationTest {
  @Test void blockedActorIsRejectedBeforeReadingNotificationData(){writer.order(order);buyer.setStatus(UserStatus.BANNED);em.flush();as(buyer);assertThrows(AccessDeniedException.class,()->inbox.list("all",0));}
  @Test void lowStockThresholdIncludesZeroButNotHealthyInventory(){writer.low(product,"edit:4");product.setStock(0);writer.low(product,"edit:5");product.setStock(5);writer.low(product,"edit:6");as(manager);assertEquals(2,inbox.list("all",0).items().size());}
  @Test void inboxRowsRollBackWithTheBusinessTransaction(){writer.order(order);as(buyer);long recipient=buyer.getId();assertEquals(1,inbox.list("all",0).items().size());TestTransaction.flagForRollback();TestTransaction.end();assertEquals(0L,jdbc.queryForObject("SELECT COUNT(*) FROM notification_inbox WHERE recipient_id=?",Long.class,recipient));}
+ @Test void openingProductUserAndCompanyTargetsReturnsOnlyExplicitSafeFields(){
+  writer.low(product,"edit:7");writer.user(other);writer.company(org);
+  as(manager);var productDetail=inbox.open(find("PRODUCT"));
+  @SuppressWarnings("unchecked") Map<String,Object> shown=(Map<String,Object>)productDetail.get("product");
+  assertEquals(Set.of("id","name","description","price","discount","categoryName","categoryId","brand","status","image","stock"),shown.keySet());
+  assertEquals("Actual product",shown.get("name"));assertEquals("",shown.get("description"));assertEquals("",shown.get("brand"));assertEquals("",shown.get("image"));assertEquals(2,shown.get("stock"));
+  as(admin);var userDetail=inbox.open(find("USER"));
+  assertEquals(Set.of("notification","name","username","email","status"),userDetail.keySet());
+  assertEquals(other.getFirstName()+" ",userDetail.get("name"));assertEquals("ACTIVE",userDetail.get("status"));
+  var companyDetail=inbox.open(find("COMPANY"));
+  assertEquals(Set.of("notification","name","slug","description","status"),companyDetail.keySet());
+  assertEquals(org.getName(),companyDetail.get("name"));assertEquals("",companyDetail.get("description"));
+  // Opening marks only the opened rows read; the admin's own low-stock row stays unread.
+  assertEquals(1,inbox.list("unread",0).unread());
+ }
+ @Test void orderWithoutCompanyOpensWithEmptyOrganizationAndItsLineItems(){
+  Order own=Order.builder().user(buyer).totalAmount(new BigDecimal("20.00")).status(OrderStatus.PENDING).build();em.persist(own);em.flush();
+  writer.order(own);as(buyer);var detail=inbox.open(find("ORDER"));
+  assertEquals("#"+own.getId(),detail.get("name"));assertEquals("",detail.get("organization"));assertEquals("PENDING",detail.get("status"));assertEquals(List.of(),detail.get("items"));
+ }
+ @Test void writerIgnoresUnsavedOrdersAndProductsWithoutALowStockSignal(){
+  writer.order(null);writer.order(Order.builder().user(buyer).status(OrderStatus.PENDING).build());
+  writer.low(null,"edit:8");writer.low(Product.builder().id(product.getId()).name("Unknown stock").build(),"edit:9");
+  writer.low(Product.builder().id(product.getId()).name("Oversold").stock(-1).build(),"edit:10");
+  assertEquals(0L,jdbc.queryForObject("SELECT COUNT(*) FROM notification_inbox WHERE target_id IN (?,?) AND event_key LIKE 'stock:%'",Long.class,product.getId(),order.getId()));
+  as(buyer);assertTrue(inbox.list("all",0).items().isEmpty());
+ }
  @Test void downgradedAdministratorCannotReadFormerAuditNotifications(){writer.user(other);as(admin);long id=find("USER");admin.setRole(role("USER"));em.flush();as(admin);assertTrue(inbox.list("system",0).items().isEmpty());assertThrows(ResourceNotFoundException.class,()->inbox.open(id));}
 }

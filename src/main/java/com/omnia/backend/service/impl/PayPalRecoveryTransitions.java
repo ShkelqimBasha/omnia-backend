@@ -76,11 +76,53 @@ public class PayPalRecoveryTransitions {
             throw new ConflictException("Verified capture evidence is required");
         // PayPalEvidence only reports PAID with a parseable capture create_time.
         java.sql.Timestamp paidAt = java.sql.Timestamp.from(java.time.Instant.parse(evidence.captureTime()));
-        jdbc.update("UPDATE payments p JOIN orders o ON o.id=p.order_id SET p.status='SUCCESS',p.transaction_id=?,p.paid_at=COALESCE(p.paid_at,?) WHERE o.checkout_group_id=? AND p.method='PAYPAL' AND p.status='PENDING'",
-                evidence.captureId(), paidAt, group);
+        List<Long> pending = expectedPayPalPayments(orders, evidence.captureId());
+        if (!pending.isEmpty()) {
+            String marks = pending.stream().map(id -> "?").collect(Collectors.joining(","));
+            List<Object> args = new ArrayList<>(List.of(evidence.captureId(), paidAt));
+            args.addAll(pending);
+            int updated = jdbc.update("UPDATE payments SET status='SUCCESS',transaction_id=?,paid_at=COALESCE(paid_at,?) WHERE id IN (" + marks + ") AND status='PENDING' AND method='PAYPAL'",
+                    args.toArray());
+            // Defence in depth: the rows are locked, so a mismatch means the data changed underneath us.
+            if (updated != pending.size())
+                throw new ConflictException("PayPal payment records changed; manual review required");
+        }
         jdbc.update("UPDATE paypal_checkouts SET state='PAID' WHERE id=?", checkoutId);
         return ledger.event(checkoutId, eventType, actor, fromState, "PAID", reason, evidence,
                 "orders=" + ids(orders));
+    }
+
+    /**
+     * Locks and validates the group's payment rows before anything is written. Every order must have
+     * exactly one PAYPAL payment (payments.order_id is unique) that is either PENDING or already
+     * SUCCESS with this same capture. Missing, extra, non-PayPal, FAILED, REFUNDED or differently
+     * captured rows refuse the settlement; the caller's transaction then rolls back as a whole.
+     * Returns the IDs of the PENDING rows to settle.
+     */
+    private List<Long> expectedPayPalPayments(List<GroupOrder> orders, String captureId) {
+        String marks = orders.stream().map(o -> "?").collect(Collectors.joining(","));
+        // Unique-index lookups by order_id, in order-ID order: record locks only, after the order rows.
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT id,order_id,method,status,transaction_id FROM payments WHERE order_id IN (" + marks + ") ORDER BY order_id FOR UPDATE",
+                orders.stream().map(GroupOrder::id).toArray());
+        Map<Long, Map<String, Object>> byOrder = new HashMap<>();
+        for (Map<String, Object> row : rows) byOrder.put(((Number) row.get("order_id")).longValue(), row);
+        List<Long> pending = new ArrayList<>();
+        for (GroupOrder order : orders) {
+            Map<String, Object> payment = byOrder.get(order.id());
+            if (payment == null)
+                throw new ConflictException("Order " + order.id() + " has no payment record; manual review required");
+            if (!"PAYPAL".equals(payment.get("method")))
+                throw new ConflictException("Order " + order.id() + " is not a PayPal payment; manual review required");
+            String status = String.valueOf(payment.get("status"));
+            if ("PENDING".equals(status)) {
+                pending.add(((Number) payment.get("id")).longValue());
+            } else if (!"SUCCESS".equals(status) || !captureId.equals(payment.get("transaction_id"))) {
+                throw new ConflictException("Order " + order.id() + " payment is " + status
+                        + " and does not match the verified capture; manual review required");
+            }
+        }
+        return pending;
     }
 
     /**

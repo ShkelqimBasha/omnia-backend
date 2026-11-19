@@ -660,6 +660,72 @@ class PayPalRecoveryIntegrationTest extends AbstractIntegrationTest {
         assertEquals("RECOVERY_REQUIRED", state(), "webhooks never resolve a checkout under recovery");
     }
 
+    // ---- CONFIRM_PAID settles only the expected PayPal payment rows, or nothing at all ----
+
+    private long paymentId(long order) {
+        return jdbc.queryForObject("SELECT id FROM payments WHERE order_id=?", Long.class, order);
+    }
+
+    private List<Map<String, Object>> groupPayments() {
+        return jdbc.queryForList("SELECT p.order_id,p.method,p.status,p.transaction_id,p.paid_at FROM payments p JOIN orders o ON o.id=p.order_id WHERE o.checkout_group_id=? ORDER BY p.order_id", groupId);
+    }
+
+    private MvcResult confirmPaid() throws Exception {
+        JsonNode detail = detail();
+        assertEquals("[\"CONFIRM_PAID\"]", detail.path("allowedActions").toString(), detail.toString());
+        return resolve(superAdmin, UUID.randomUUID().toString(), "CONFIRM_PAID", "RECOVERY_REQUIRED",
+                detail.path("evidenceFingerprint").asText(), "Capture verified, fulfil the orders");
+    }
+
+    @Test void confirmPaidRefusesMissingOrInconsistentPaymentRowsAndChangesNothing() throws Exception {
+        evidence("COMPLETED", "COMPLETED", "CAPTURE1");
+        long secondPayment = paymentId(secondOrder);
+        Map<String, Runnable> breakages = new LinkedHashMap<>();
+        breakages.put("missing", () -> jdbc.update("DELETE FROM payments WHERE id=?", secondPayment));
+        breakages.put("failed", () -> jdbc.update("UPDATE payments SET status='FAILED' WHERE id=?", secondPayment));
+        breakages.put("refunded", () -> jdbc.update("UPDATE payments SET status='REFUNDED',transaction_id='CAPTURE1' WHERE id=?", secondPayment));
+        breakages.put("other capture", () -> jdbc.update("UPDATE payments SET status='SUCCESS',transaction_id='OTHERCAPTURE9' WHERE id=?", secondPayment));
+        breakages.put("not PayPal", () -> jdbc.update("UPDATE payments SET method='CASH_ON_DELIVERY' WHERE id=?", secondPayment));
+        breakages.put("no status", () -> jdbc.update("UPDATE payments SET status=NULL WHERE id=?", secondPayment));
+
+        for (Map.Entry<String, Runnable> breakage : breakages.entrySet()) {
+            breakage.getValue().run();
+            List<Map<String, Object>> before = groupPayments();
+
+            MvcResult refused = confirmPaid();
+
+            assertEquals(409, refused.getResponse().getStatus(), breakage.getKey() + ": " + refused.getResponse().getContentAsString());
+            // Atomic: the valid row was not settled either, and nothing else moved.
+            assertEquals(before, groupPayments(), breakage.getKey());
+            assertEquals("PENDING", jdbc.queryForObject("SELECT status FROM payments WHERE order_id=?", String.class, firstOrder), breakage.getKey());
+            assertEquals("RECOVERY_REQUIRED", state(), breakage.getKey());
+            assertEquals(List.of("PENDING", "PENDING"), orderStatuses(), breakage.getKey());
+            assertEquals(0, count("SELECT COUNT(*) FROM paypal_recovery_events WHERE checkout_id=? AND event_type LIKE 'RESOLVED%'", checkoutId), breakage.getKey());
+            assertEquals(0, count("SELECT COUNT(*) FROM paypal_recovery_requests WHERE checkout_id=?", checkoutId), breakage.getKey());
+
+            // Restore the second payment exactly as the fixture created it.
+            jdbc.update("DELETE FROM payments WHERE order_id=?", secondOrder);
+            jdbc.update("INSERT INTO payments(id,order_id,method,status) VALUES(?,?,'PAYPAL','PENDING')", secondPayment, secondOrder);
+        }
+        assertEquals(5, stock(productA));
+        assertEquals(7, stock(productB));
+    }
+
+    @Test void confirmPaidAcceptsAPaymentAlreadySettledWithTheSameCapture() throws Exception {
+        evidence("COMPLETED", "COMPLETED", "CAPTURE1");
+        jdbc.update("UPDATE payments SET status='SUCCESS',transaction_id='CAPTURE1',paid_at='2026-11-02 10:00:00' WHERE order_id=?", secondOrder);
+
+        MvcResult done = confirmPaid();
+
+        assertEquals(200, done.getResponse().getStatus(), done.getResponse().getContentAsString());
+        assertEquals("PAID", state());
+        for (Map<String, Object> payment : groupPayments()) {
+            assertEquals("SUCCESS", payment.get("status"));
+            assertEquals("CAPTURE1", payment.get("transaction_id"));
+            assertNotNull(payment.get("paid_at"));
+        }
+    }
+
     // ---- A missing local PayPal order ID is not proof that PayPal never created one ----
 
     private <T> T asBuyer(java.util.function.Supplier<T> action) {

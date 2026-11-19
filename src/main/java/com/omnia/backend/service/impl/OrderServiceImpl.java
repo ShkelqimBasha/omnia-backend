@@ -354,7 +354,7 @@ public class OrderServiceImpl implements OrderService {
                         order.getId()
                 );
 
-        for (OrderItem item : items) {
+        for (OrderItem item : byProductId(items)) {
 
             Product product =
                     productRepository.findByIdForUpdate(
@@ -990,10 +990,25 @@ public class OrderServiceImpl implements OrderService {
 
     }
 
+    /**
+     * Products are locked in ascending ID order, as checkout and PayPal group cancellation do, so
+     * two transactions touching the same products can never wait on each other in a cycle.
+     */
+    static List<OrderItem> byProductId(
+            List<OrderItem> items
+    ) {
+        List<OrderItem> sorted = new ArrayList<>(items);
+        sorted.sort(java.util.Comparator.comparing(
+                OrderItem::getProductId,
+                java.util.Comparator.nullsLast(Long::compareTo)
+        ));
+        return sorted;
+    }
+
     private void restoreOrderStock(
             List<OrderItem> items
     ) {
-        for (OrderItem item : items) {
+        for (OrderItem item : byProductId(items)) {
 
             Product product =
                     productRepository.findByIdForUpdate(

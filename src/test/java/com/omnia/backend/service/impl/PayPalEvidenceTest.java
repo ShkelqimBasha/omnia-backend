@@ -29,6 +29,31 @@ class PayPalEvidenceTest {
         ObjectNode n=order();((ObjectNode)n.at("/purchase_units/0/payments/captures/0")).put("status","PARTIALLY_REFUNDED");assertEquals("REVIEW",verify(n).state());
         ObjectNode p=order();((ObjectNode)p.at("/purchase_units/0/payments/captures/0")).put("final_capture",false);assertThrows(IllegalArgumentException.class,()->verify(p));
     }
+    @Test void refundedDeclinedAndFailedCapturesNeverSettleAsPaid()throws Exception{
+        for(String[] c:new String[][]{{"REFUNDED","REFUNDED"},{"DECLINED","FAILED"},{"FAILED","FAILED"}}){
+            ObjectNode n=order();((ObjectNode)n.at("/purchase_units/0/payments/captures/0")).put("status",c[0]);
+            PayPalEvidence.Result result=verify(n);
+            assertEquals(c[1],result.state(),c[0]);assertEquals("CAPTURE123",result.captureId());assertNull(result.paidAt());
+        }
+    }
+    @Test void orderStatusWithoutCaptureMapsToApprovalFailureOrPending()throws Exception{
+        for(String[] c:new String[][]{{"CREATED","APPROVAL"},{"PAYER_ACTION_REQUIRED","APPROVAL"},{"VOIDED","FAILED"},{"SAVED","PENDING"}}){
+            ObjectNode n=order();n.put("status",c[0]);((ObjectNode)n.at("/purchase_units/0/payments")).putArray("captures");
+            PayPalEvidence.Result result=verify(n);
+            assertEquals(c[1],result.state(),c[0]);assertNull(result.captureId());
+        }
+    }
+    @Test void rejectsMalformedProviderShapes()throws Exception{
+        ObjectNode none=order();none.remove("purchase_units");assertThrows(IllegalArgumentException.class,()->verify(none));
+        ObjectNode two=order();((com.fasterxml.jackson.databind.node.ArrayNode)two.get("purchase_units")).add(two.at("/purchase_units/0").deepCopy());assertThrows(IllegalArgumentException.class,()->verify(two));
+        ObjectNode split=order();var captures=(com.fasterxml.jackson.databind.node.ArrayNode)split.at("/purchase_units/0/payments/captures");captures.add(captures.get(0).deepCopy());assertThrows(IllegalArgumentException.class,()->verify(split));
+        ObjectNode intent=order();intent.put("intent","AUTHORIZE");assertThrows(IllegalArgumentException.class,()->verify(intent));
+        ObjectNode notDone=order();notDone.put("status","APPROVED");assertThrows(IllegalArgumentException.class,()->verify(notDone));
+        ObjectNode badId=order();((ObjectNode)badId.at("/purchase_units/0/payments/captures/0")).put("id","bad id");assertThrows(IllegalArgumentException.class,()->verify(badId));
+        ObjectNode badTime=order();((ObjectNode)badTime.at("/purchase_units/0/payments/captures/0")).put("create_time","yesterday");assertThrows(IllegalArgumentException.class,()->verify(badTime));
+        ObjectNode badValue=order();((ObjectNode)badValue.at("/purchase_units/0/amount")).put("value","twelve");assertThrows(IllegalArgumentException.class,()->verify(badValue));
+        ObjectNode captureAmount=order();((ObjectNode)captureAmount.at("/purchase_units/0/payments/captures/0/amount")).put("value","12.29");assertThrows(IllegalArgumentException.class,()->verify(captureAmount));
+    }
     @Test void rejectsUntrustedApprovalHosts()throws Exception{
         for(String url:new String[]{"http://www.sandbox.paypal.com/x","https://www.sandbox.paypal.com.evil.test/x","https://www.sandbox.paypal.com@evil.test/x","https://evil.test/x"}){
             var n=json.createObjectNode();n.putArray("links").addObject().put("rel","approve").put("href",url);

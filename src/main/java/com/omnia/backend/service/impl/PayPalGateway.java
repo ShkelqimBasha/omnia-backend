@@ -100,17 +100,37 @@ public class PayPalGateway {
             super("PayPal rejected capture: "+safe(issue)+"; debug_id="+safe(debugId));
             this.issue=safe(issue);this.debugId=safe(debugId);
         }
-        private static String safe(String value) {
+        static String safe(String value) {
             return value!=null && value.matches("[A-Za-z0-9_]{1,80}")?value:"UNKNOWN";
         }
         public boolean stopCapture() {
             return Set.of("COMPLIANCE_VIOLATION","MAX_NUMBER_OF_PAYMENT_ATTEMPTS_EXCEEDED").contains(issue);
         }
     }
+    /**
+     * PayPal could not provide evidence. NOT_FOUND and ACCESS_DENIED are never proof that a
+     * payment did not happen (rotated credentials, another merchant account); callers must treat
+     * every kind as "unknown". The message is the generic one used before.
+     */
+    public static final class Unavailable extends IllegalStateException {
+        public final String kind;
+        public final int status;
+        public final String debugId;
+        public Unavailable(String kind,int status,String debugId) {
+            super("PayPal unavailable; check payment status");
+            this.kind=kind;this.status=status;this.debugId=Rejected.safe(debugId);
+        }
+    }
     private JsonNode exchange(HttpRequest.Builder b) {
         try {
             HttpResponse<String> r=http.send(b.timeout(Duration.ofSeconds(18)).header("Accept","application/json").build(),HttpResponse.BodyHandlers.ofString());
             if(r.body().length()>262144)throw new IllegalStateException("PayPal response too large");
+            int code=r.statusCode();
+            if(code==404 || code==401 || code==403) {
+                String debug=null;
+                try { debug=json.readTree(r.body()).path("debug_id").asText(null); } catch(Exception ignored) {}
+                throw new Unavailable(code==404?"NOT_FOUND":"ACCESS_DENIED",code,debug);
+            }
             JsonNode response=json.readTree(r.body());
             if(r.statusCode()<200 || r.statusCode()>=300) {
                 if(r.statusCode()==422) {

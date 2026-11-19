@@ -35,8 +35,9 @@ public class PayPalCheckoutService {
     static final Set<String> CAPTURABLE=Set.of("CREATING","APPROVAL","APPROVED","PENDING","FAILED");
     public record View(String id,String state,String currency,BigDecimal amount,String approvalUrl,
                        String checkoutReference,List<Long> orderIds,boolean sandbox,String requestKey) {}
+    /** {@code attempted}: when a PayPal create request may first have been sent; null means none ever was. */
     private record Row(String id,long owner,String hash,long group,BigDecimal amount,String provider,
-                       String approval,String state,Instant created) {}
+                       String approval,String state,Instant created,Instant attempted) {}
     public PayPalCheckoutService(JdbcTemplate jdbc,CurrentUserService current,CheckoutService checkout,
                                  PayPalRecoveryTransitions transitions,PayPalGateway gateway,ObjectMapper json,EntityManager em,
                                  PlatformTransactionManager manager,PayPalRecoveryLedger ledger) {
@@ -79,6 +80,10 @@ public class PayPalCheckoutService {
     }
     public View sync(String id,boolean capture) { uuid(id);return syncOwned(id,capture,owner()); }
     private View syncOwned(String id,boolean capture,long owner) {
+        // Commit the attempt marker before reconcile() may send a create request. If PayPal creates the
+        // order but the response or the local commit is lost, the marker survives the rollback, so a
+        // missing PayPal order ID is never mistaken for proof that no PayPal order exists.
+        tx.executeWithoutResult(status->jdbc.update("UPDATE paypal_checkouts SET paypal_create_attempted_at=UTC_TIMESTAMP(6) WHERE id=? AND user_id=? AND paypal_order_id IS NULL AND state='CREATING' AND paypal_create_attempted_at IS NULL AND created_at>=DATE_SUB(CURRENT_TIMESTAMP,INTERVAL 5 HOUR)",id,owner));
         return tx.execute(status->{Row r=locked(id);if(r.owner!=owner)throw new AccessDeniedException("Payment not found");if("RECOVERY_REQUIRED".equals(r.state))return view(r);return reconcile(r,capture);});
     }
     public View latest() {
@@ -102,6 +107,9 @@ public class PayPalCheckoutService {
                 if(!refused && !Set.of("APPROVAL","FAILED").contains(proof.state()))throw new IllegalArgumentException("Payment approved or processing; check its status before cancellation");
                 evidence=PayPalRecoveryEvidence.from(details,r.provider,r.id,merchant,r.amount);
             } else if(!"CREATING".equals(r.state))throw new IllegalArgumentException("Payment needs review");
+            // A create request may have succeeded at PayPal even though its order ID never reached us.
+            // Checking the status retries the same idempotent request and records the real order first.
+            else if(r.attempted!=null)throw new IllegalArgumentException("PayPal may already have this payment; check its status before cancellation");
             else evidence=PayPalRecoveryEvidence.notCreated();
             // One statement set cancels every order of the group, restores stock once (products locked in ID
             // order), fails the PayPal payments, marks the checkout ABANDONED and audits it. ABANDONED is
@@ -148,7 +156,7 @@ public class PayPalCheckoutService {
     }
     /** Provider truth for a webhook. Missing evidence is never read as "unpaid": PayPal redelivers. */
     private PayPalRecoveryEvidence.Snapshot verifiedEvidence(Row r) {
-        var evidence=PayPalRecoveryEvidence.fetch(gateway,r.provider,r.id,r.amount);
+        var evidence=PayPalRecoveryEvidence.fetch(gateway,r.provider,r.attempted!=null,r.id,r.amount);
         if(!evidence.available() && !"MISMATCH".equals(evidence.availability()))
             throw new IllegalStateException("PayPal evidence unavailable; retry");
         return evidence;
@@ -206,9 +214,12 @@ public class PayPalCheckoutService {
         if(Set.of("ABANDONED","REFUNDED","REVIEW","RECOVERY_REQUIRED").contains(r.state)) return view(r);
         gateway.requireReady();
         if(r.provider==null) {
-            // PayPal's default idempotency retention is six hours. Never risk recreating an uncertain charge after it.
-            if(r.created.plus(Duration.ofHours(5)).isBefore(Instant.now()))
-                throw new IllegalArgumentException("Uncertain PayPal creation expired. Cancel these unpaid orders and start again.");
+            // Every create request must follow a committed attempt marker (see syncOwned).
+            if(r.attempted==null)
+                throw new IllegalArgumentException("PayPal checkout expired before it reached PayPal. Cancel these unpaid orders and start again.");
+            // PayPal's default idempotency retention is six hours. Never risk recreating an uncertain charge after it:
+            // the earlier request may have created an order, so hand the checkout to SUPER_ADMIN recovery instead.
+            if(r.created.plus(Duration.ofHours(5)).isBefore(Instant.now())) return uncertainCreation(r);
             JsonNode created=gateway.create(r.id,r.amount);
             String provider=created.path("id").asText();
             if(!provider.matches("[A-Z0-9]{5,64}"))throw new IllegalStateException("Invalid PayPal order response");
@@ -262,6 +273,17 @@ public class PayPalCheckoutService {
         jdbc.update("UPDATE paypal_checkouts SET state=? WHERE id=?",next,r.id);
         return view(locked(r.id));
     }
+    /**
+     * The create request may have succeeded at PayPal, but its order ID is unknown and PayPal no longer
+     * replays the request. Nothing is cancelled and no stock moves: the checkout leaves the buyer's
+     * active list and waits in RECOVERY_REQUIRED, where only verified evidence can resolve it.
+     */
+    private View uncertainCreation(Row r) {
+        int moved=jdbc.update("UPDATE paypal_checkouts SET state='RECOVERY_REQUIRED' WHERE id=? AND state='CREATING' AND paypal_order_id IS NULL",r.id);
+        if(moved==1) ledger.event(r.id,"CREATION_UNCERTAIN",null,r.state,"RECOVERY_REQUIRED",
+                "PayPal creation could not be confirmed within PayPal's idempotency window",PayPalRecoveryEvidence.creationUncertain(),null);
+        return view(locked(r.id));
+    }
     private void lockOrders(Row r) {
         var ids=jdbc.queryForList("SELECT id FROM orders WHERE checkout_group_id=? ORDER BY id FOR UPDATE",Long.class,r.group);
         if(ids.isEmpty())throw new IllegalStateException("Checkout orders missing");
@@ -279,7 +301,8 @@ public class PayPalCheckoutService {
         var rows=jdbc.query("SELECT * FROM paypal_checkouts WHERE id=? FOR UPDATE",this::row,id);
         if(rows.isEmpty())throw new AccessDeniedException("Payment not found");return rows.get(0);
     }
-    private Row row(ResultSet r,int n)throws SQLException {return new Row(r.getString("id"),r.getLong("user_id"),r.getString("request_hash"),r.getLong("checkout_group_id"),r.getBigDecimal("amount"),r.getString("paypal_order_id"),r.getString("approval_url"),r.getString("state"),r.getTimestamp("created_at").toInstant());}
+    private Row row(ResultSet r,int n)throws SQLException {return new Row(r.getString("id"),r.getLong("user_id"),r.getString("request_hash"),r.getLong("checkout_group_id"),r.getBigDecimal("amount"),r.getString("paypal_order_id"),r.getString("approval_url"),r.getString("state"),r.getTimestamp("created_at").toInstant(),
+            Optional.ofNullable(r.getTimestamp("paypal_create_attempted_at")).map(java.sql.Timestamp::toInstant).orElse(null));}
     private String hash(Object body) {
         try {return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(json.writeValueAsString(body).getBytes(StandardCharsets.UTF_8)));}
         catch(Exception ex){throw new IllegalArgumentException("Invalid checkout request");}

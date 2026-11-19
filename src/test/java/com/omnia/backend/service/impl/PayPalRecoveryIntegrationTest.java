@@ -660,4 +660,90 @@ class PayPalRecoveryIntegrationTest extends AbstractIntegrationTest {
         assertEquals("RECOVERY_REQUIRED", state(), "webhooks never resolve a checkout under recovery");
     }
 
+    // ---- A missing local PayPal order ID is not proof that PayPal never created one ----
+
+    private <T> T asBuyer(java.util.function.Supplier<T> action) {
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(
+                new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(buyer, "n/a", List.of()));
+        try {
+            return action.get();
+        } finally {
+            org.springframework.security.core.context.SecurityContextHolder.clearContext();
+        }
+    }
+
+    private String requestKey() {
+        return jdbc.queryForObject("SELECT request_key FROM paypal_checkouts WHERE id=?", String.class, checkoutId);
+    }
+
+    private long paymentsWithStatus(String status) {
+        return count("SELECT COUNT(*) FROM payments p JOIN orders o ON o.id=p.order_id WHERE o.checkout_group_id=? AND p.status=?", groupId, status);
+    }
+
+    @Test void createThatSucceededRemotelyWithoutALocalIdCannotBeAbandonedByAnAdmin() throws Exception {
+        String key = requestKey();
+        jdbc.update("UPDATE paypal_checkouts SET state='CREATING',paypal_order_id=NULL,approval_url=NULL WHERE id=?", checkoutId);
+        // PayPal creates the order for this request ID; the response is lost, so the local transaction rolls back.
+        AtomicInteger remoteCreates = new AtomicInteger();
+        doAnswer(inv -> {
+            remoteCreates.incrementAndGet();
+            throw new IllegalStateException("PayPal create timed out");
+        }).when(gateway).create(eq(checkoutId), any());
+
+        assertThrows(IllegalStateException.class, () -> asBuyer(() -> checkoutService.sync(checkoutId, false)));
+        assertEquals(1, remoteCreates.get());
+        Map<String, Object> row = jdbc.queryForMap(
+                "SELECT state,paypal_order_id,paypal_create_attempted_at FROM paypal_checkouts WHERE id=?", checkoutId);
+        assertEquals("CREATING", row.get("state"));
+        assertNull(row.get("paypal_order_id"), "the PayPal order ID never reached the database");
+        assertNotNull(row.get("paypal_create_attempted_at"), "the attempt marker was committed before PayPal was called");
+
+        // PayPal's idempotency window passes: the request cannot be repeated safely, so the checkout goes to recovery.
+        jdbc.update("UPDATE paypal_checkouts SET created_at=DATE_SUB(created_at,INTERVAL 6 HOUR),updated_at=updated_at WHERE id=?", checkoutId);
+        assertEquals("RECOVERY_REQUIRED", asBuyer(() -> checkoutService.sync(checkoutId, false)).state());
+        assertEquals(1, remoteCreates.get(), "an uncertain create is never sent again after the window");
+        assertEquals(1, count("SELECT COUNT(*) FROM paypal_recovery_events WHERE checkout_id=? AND event_type='CREATION_UNCERTAIN' AND from_state='CREATING' AND to_state='RECOVERY_REQUIRED'", checkoutId));
+
+        JsonNode detail = detail();
+        assertEquals("CREATION_UNCERTAIN", detail.path("evidence").path("availability").asText());
+        assertTrue(detail.path("allowedActions").isEmpty(), detail.toString());
+        MvcResult refused = resolve(superAdmin, UUID.randomUUID().toString(), "ABANDON", "RECOVERY_REQUIRED",
+                detail.path("evidenceFingerprint").asText(), "Missing PayPal order ID, assume never created");
+        assertEquals(409, refused.getResponse().getStatus(), refused.getResponse().getContentAsString());
+
+        // Nothing was cancelled or restocked on the strength of the missing ID, and the recovery data is intact.
+        assertEquals(List.of("PENDING", "PENDING"), orderStatuses());
+        assertEquals(5, stock(productA));
+        assertEquals(7, stock(productB));
+        assertEquals(2, paymentsWithStatus("PENDING"));
+        assertEquals("RECOVERY_REQUIRED", state());
+        assertEquals(key, requestKey());
+        assertNull(jdbc.queryForObject("SELECT paypal_order_id FROM paypal_checkouts WHERE id=?", String.class, checkoutId));
+        assertEquals(0, count("SELECT COUNT(*) FROM paypal_recovery_events WHERE checkout_id=? AND event_type LIKE 'RESOLVED%'", checkoutId));
+        assertThrows(IllegalArgumentException.class, () -> asBuyer(() -> checkoutService.abandon(checkoutId)),
+                "the buyer cannot cancel it either");
+        assertEquals(List.of("PENDING", "PENDING"), orderStatuses());
+    }
+
+    @Test void checkoutThatNeverSentACreateRequestMayStillBeAbandonedByAnAdmin() throws Exception {
+        String key = requestKey();
+        // No PayPal order ID and no attempt marker: no create request ever left this backend.
+        jdbc.update("UPDATE paypal_checkouts SET paypal_order_id=NULL,approval_url=NULL,paypal_create_attempted_at=NULL WHERE id=?", checkoutId);
+
+        JsonNode detail = detail();
+        assertEquals("NOT_CREATED", detail.path("evidence").path("availability").asText());
+        assertEquals(List.of("ABANDON"), json.convertValue(detail.path("allowedActions"), List.class));
+        MvcResult done = resolve(superAdmin, UUID.randomUUID().toString(), "ABANDON", "RECOVERY_REQUIRED",
+                detail.path("evidenceFingerprint").asText(), "Never reached PayPal; release the stock");
+        assertEquals(200, done.getResponse().getStatus(), done.getResponse().getContentAsString());
+
+        assertEquals("ABANDONED", state());
+        assertEquals(List.of("CANCELLED", "CANCELLED"), orderStatuses());
+        assertEquals(8, stock(productA));
+        assertEquals(8, stock(productB));
+        assertEquals(key, requestKey());
+        verify(gateway, never()).create(anyString(), any());
+        verify(gateway, never()).get(anyString());
+    }
+
 }

@@ -17,8 +17,9 @@ import java.util.regex.Pattern;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * V37 against a database that already holds PayPal checkouts: migrate to V36, add a legacy
- * RECOVERY_REQUIRED checkout (state set by hand, no audit) and an ordinary one, then apply V37.
+ * V37 and V38 against a database that already holds PayPal checkouts: migrate to V36, add a legacy
+ * RECOVERY_REQUIRED checkout (state set by hand, no audit), an ordinary one and one whose PayPal
+ * order ID was never stored, then apply V37 and V38 in turn.
  * Runs on its own MySQL container so the shared test database is not touched.
  */
 class PayPalRecoveryMigrationTest {
@@ -42,7 +43,7 @@ class PayPalRecoveryMigrationTest {
         return config.load();
     }
 
-    @Test void v37BackfillsLegacyRecoveryCheckoutsOnly() {
+    @Test void v37BackfillsLegacyRecoveryCheckoutsOnlyAndV38MarksEveryExistingCheckoutAsAttempted() {
         flyway("36").migrate();
         assertEquals("36", flyway("36").info().current().getVersion().getVersion());
 
@@ -50,18 +51,22 @@ class PayPalRecoveryMigrationTest {
         jdbc.update("INSERT INTO users(role_id,username,first_name,email,password_hash) VALUES(?,?,?,?,?)",
                 role, "legacy", "Legacy", "legacy@example.test", "unused");
         long user = jdbc.queryForObject("SELECT id FROM users WHERE username='legacy'", Long.class);
-        String legacy = "11111111-1111-4111-8111-111111111111", ordinary = "22222222-2222-4222-8222-222222222222";
-        for (String id : List.of(legacy, ordinary)) {
+        String legacy = "11111111-1111-4111-8111-111111111111", ordinary = "22222222-2222-4222-8222-222222222222",
+                uncertain = "33333333-3333-4333-8333-333333333333";
+        for (String id : List.of(legacy, ordinary, uncertain)) {
             jdbc.update("INSERT INTO checkout_groups(checkout_reference,user_id) VALUES(?,?)", id, user);
             long group = jdbc.queryForObject("SELECT id FROM checkout_groups WHERE checkout_reference=?", Long.class, id);
+            // The uncertain checkout's create request timed out before its PayPal order ID was stored.
             jdbc.update("INSERT INTO paypal_checkouts(id,user_id,request_key,request_hash,checkout_group_id,amount,paypal_order_id,state) VALUES(?,?,?,?,?,?,?,?)",
-                    id, user, id, "0".repeat(64), group, "31.00", "LEGACY" + id.charAt(0) + "ORDER",
-                    id.equals(legacy) ? "RECOVERY_REQUIRED" : "APPROVAL");
+                    id, user, "r" + id.substring(1), "0".repeat(64), group, "31.00",
+                    id.equals(uncertain) ? null : "LEGACY" + id.charAt(0) + "ORDER",
+                    id.equals(legacy) ? "RECOVERY_REQUIRED" : id.equals(ordinary) ? "APPROVAL" : "CREATING");
         }
+        jdbc.update("UPDATE paypal_checkouts SET created_at='2026-01-02 03:04:05', updated_at='2026-01-03 04:05:06'");
 
-        flyway(null).migrate();
-        assertEquals("37", flyway(null).info().current().getVersion().getVersion());
-        flyway(null).validate();
+        flyway("37").migrate();
+        assertEquals("37", flyway("37").info().current().getVersion().getVersion());
+        flyway("37").validate();
 
         List<Map<String, Object>> events = jdbc.queryForList(
                 "SELECT checkout_id,event_type,actor_user_id,from_state,to_state FROM paypal_recovery_events ORDER BY id");
@@ -82,9 +87,24 @@ class PayPalRecoveryMigrationTest {
         assertThrows(Exception.class, () -> jdbc.update("UPDATE paypal_review_cases SET status='CLOSED'"),
                 "a closed case needs who, when, outcome and reason");
         assertThrows(Exception.class, () -> jdbc.update("UPDATE paypal_review_cases SET status='DONE'"));
+        jdbc.update("DELETE FROM paypal_review_cases");
+
+        List<Map<String, Object>> before = jdbc.queryForList(
+                "SELECT id,user_id,request_key,request_hash,checkout_group_id,amount,paypal_order_id,approval_url,state,created_at,updated_at FROM paypal_checkouts ORDER BY id");
+        flyway(null).migrate();
+        assertEquals("38", flyway(null).info().current().getVersion().getVersion());
+        flyway(null).validate();
+        // Nothing proves an existing checkout never sent a create request, so every row is marked.
+        assertEquals(3, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM paypal_checkouts WHERE paypal_create_attempted_at = created_at", Integer.class));
+        // Request keys, provider IDs, states and timestamps are preserved exactly; history is unchanged.
+        assertEquals(before, jdbc.queryForList(
+                "SELECT id,user_id,request_key,request_hash,checkout_group_id,amount,paypal_order_id,approval_url,state,created_at,updated_at FROM paypal_checkouts ORDER BY id"));
+        assertNull(jdbc.queryForObject("SELECT paypal_order_id FROM paypal_checkouts WHERE id=?", String.class, uncertain));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM paypal_recovery_events", Integer.class));
     }
 
-    @Test void migrationVersionsAreUniqueAndV37IsTheLatest() throws Exception {
+    @Test void migrationVersionsAreUniqueAndV38IsTheLatest() throws Exception {
         Pattern name = Pattern.compile("V(\\d+)__.+\\.sql");
         Map<Integer, List<String>> versions = new TreeMap<>();
         for (Resource resource : new PathMatchingResourcePatternResolver().getResources("classpath*:db/migration/*.sql")) {
@@ -93,7 +113,8 @@ class PayPalRecoveryMigrationTest {
         }
         versions.forEach((version, files) -> assertEquals(1, files.size(), "duplicate version V" + version + ": " + files));
         assertEquals(List.of("V37__add_paypal_recovery.sql"), versions.get(37));
-        assertEquals(37, ((TreeMap<Integer, List<String>>) versions).lastKey());
-        for (int v = 1; v <= 37; v++) assertTrue(versions.containsKey(v), "missing V" + v);
+        assertEquals(List.of("V38__record_paypal_create_attempts.sql"), versions.get(38));
+        assertEquals(38, ((TreeMap<Integer, List<String>>) versions).lastKey());
+        for (int v = 1; v <= 38; v++) assertTrue(versions.containsKey(v), "missing V" + v);
     }
 }

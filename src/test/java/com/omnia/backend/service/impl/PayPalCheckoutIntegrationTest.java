@@ -154,4 +154,41 @@ class PayPalCheckoutIntegrationTest extends AbstractIntegrationTest {
         when(gateway.get("PROVIDER123")).thenReturn(evidence("APPROVED","PENDING"));
         assertThrows(IllegalArgumentException.class,()->service.abandon(first.id()));
     }
+    @Test void createThatSucceedsRemotelyButTimesOutLocallyIsNeverCancelledOnTheMissingId()throws Exception{
+        // PayPal creates PROVIDER123 for this request ID, but the response never reaches us.
+        List<String> requestIds=new ArrayList<>();
+        when(gateway.create(anyString(),any())).thenAnswer(inv->{attempt=inv.getArgument(0);requestIds.add(attempt);throw new IllegalStateException("PayPal create timed out");})
+            .thenAnswer(inv->{requestIds.add(inv.getArgument(0));return json.readTree("{\"id\":\"PROVIDER123\",\"links\":[{\"rel\":\"approve\",\"href\":\"https://www.sandbox.paypal.com/checkoutnow?token=PROVIDER123\"}]}");});
+        assertThrows(IllegalStateException.class,()->service.create(key,request()));
+        String id=jdbc.queryForObject("SELECT id FROM paypal_checkouts WHERE user_id=? AND request_key=?",String.class,user.getId(),key);
+        Map<String,Object> row=jdbc.queryForMap("SELECT paypal_order_id,state,request_key,paypal_create_attempted_at FROM paypal_checkouts WHERE id=?",id);
+        assertNull(row.get("paypal_order_id"));assertEquals("CREATING",row.get("state"));assertEquals(key,row.get("request_key"));
+        assertNotNull(row.get("paypal_create_attempted_at"),"the attempt is recorded before PayPal is called");
+
+        // The buyer cannot cancel on the strength of the missing ID, either directly or by request key.
+        assertThrows(IllegalArgumentException.class,()->service.abandon(id));
+        assertThrows(IllegalArgumentException.class,()->service.cancelRequest(key));
+        assertEquals("PENDING",jdbc.queryForObject("SELECT status FROM orders WHERE id=?",String.class,order.getId()));
+        assertEquals("PENDING",jdbc.queryForObject("SELECT status FROM payments WHERE order_id=?",String.class,order.getId()));
+        assertEquals("CREATING",jdbc.queryForObject("SELECT state FROM paypal_checkouts WHERE id=?",String.class,id));
+        assertEquals(0L,jdbc.queryForObject("SELECT COUNT(*) FROM paypal_cancelled_requests WHERE user_id=? AND request_key=?",Long.class,user.getId(),key));
+
+        // Checking the status repeats the same idempotent PayPal request and records the real order.
+        assertEquals("APPROVAL",service.sync(id,false).state());
+        assertEquals(List.of(id,id),requestIds,"the retry reuses the original PayPal request ID");
+        assertEquals("PROVIDER123",jdbc.queryForObject("SELECT paypal_order_id FROM paypal_checkouts WHERE id=?",String.class,id));
+        assertEquals(key,jdbc.queryForObject("SELECT request_key FROM paypal_checkouts WHERE id=?",String.class,id));
+        // With verified provider evidence (CREATED, nothing captured) cancellation is allowed.
+        assertEquals("ABANDONED",service.abandon(id).state());
+    }
+    @Test void checkoutThatNeverSentACreateRequestCanStillBeCancelled()throws Exception{
+        // Inserted but never synced (for example the server stopped right after the insert committed):
+        // no attempt marker, so no PayPal request was ever sent and nothing can exist at PayPal.
+        String id=UUID.randomUUID().toString();
+        jdbc.update("INSERT INTO paypal_checkouts(id,user_id,request_key,request_hash,checkout_group_id,amount) VALUES(?,?,?,?,?,?)",id,user.getId(),key,"0".repeat(64),group.getId(),new BigDecimal("12.30"));
+        assertNull(jdbc.queryForObject("SELECT paypal_create_attempted_at FROM paypal_checkouts WHERE id=?",java.sql.Timestamp.class,id));
+        assertEquals("ABANDONED",service.abandon(id).state());
+        verify(gateway,never()).create(anyString(),any());
+        assertEquals("CANCELLED",jdbc.queryForObject("SELECT status FROM orders WHERE id=?",String.class,order.getId()));
+    }
 }

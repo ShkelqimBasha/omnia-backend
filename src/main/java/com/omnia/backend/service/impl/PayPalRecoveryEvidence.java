@@ -19,8 +19,17 @@ public final class PayPalRecoveryEvidence {
     public enum Availability {
         /** Provider evidence matched this checkout (merchant, reference, currency, amount). */
         AVAILABLE,
-        /** We never stored a PayPal order ID and never issued an approval link. */
+        /**
+         * Positive evidence that PayPal holds no order for this checkout: no PayPal order ID is stored
+         * and no create request was ever sent (the attempt marker is committed before every request).
+         */
         NOT_CREATED,
+        /**
+         * A create request may have reached PayPal, but no PayPal order ID was stored locally (for
+         * example a timeout or a rolled-back transaction). PayPal may hold an order. Not proof of
+         * non-payment.
+         */
+        CREATION_UNCERTAIN,
         /** PayPal answered 404 with the current credentials. Not proof of non-payment. */
         NOT_FOUND,
         /** PayPal refused our credentials (401/403). Not proof of non-payment. */
@@ -57,7 +66,20 @@ public final class PayPalRecoveryEvidence {
 
     static Snapshot notCreated() {
         return new Snapshot(Availability.NOT_CREATED.name(), null, null, null, null, null, null, null, null,
-                "No PayPal order was recorded and no approval link was issued", null);
+                "No PayPal create request was ever sent for this checkout", null);
+    }
+
+    static Snapshot creationUncertain() {
+        return unknown(Availability.CREATION_UNCERTAIN,
+                "A PayPal create request may have succeeded, but no PayPal order ID was stored");
+    }
+
+    /**
+     * Evidence for a checkout with no stored PayPal order ID. Only a checkout for which no create
+     * request was ever sent is NOT_CREATED; any recorded attempt leaves the outcome unresolved.
+     */
+    static Snapshot withoutProviderId(boolean createAttempted) {
+        return createAttempted ? creationUncertain() : notCreated();
     }
 
     static Snapshot unknown(Availability availability, String detail) {
@@ -69,9 +91,13 @@ public final class PayPalRecoveryEvidence {
         return new Snapshot(availability.name(), null, null, null, null, null, null, null, null, detail, debugId);
     }
 
-    /** Read provider truth; failures become an explicit unknown availability, never an outcome. */
-    public static Snapshot fetch(PayPalGateway gateway, String providerOrderId, String reference, BigDecimal amount) {
-        if (providerOrderId == null || providerOrderId.isBlank()) return notCreated();
+    /**
+     * Read provider truth; failures become an explicit unknown availability, never an outcome.
+     * A missing PayPal order ID is NOT_CREATED only when {@code createAttempted} is false.
+     */
+    public static Snapshot fetch(PayPalGateway gateway, String providerOrderId, boolean createAttempted,
+                                 String reference, BigDecimal amount) {
+        if (providerOrderId == null || providerOrderId.isBlank()) return withoutProviderId(createAttempted);
         try {
             String merchant = gateway.merchant();
             return from(gateway.get(providerOrderId), providerOrderId, reference, merchant, amount);
@@ -117,6 +143,8 @@ public final class PayPalRecoveryEvidence {
                                       boolean totalsMatch) {
         if (shippedOrDelivered) return EnumSet.of(Action.FLAG_MANUAL);
         if (anyCancelled || !totalsMatch) return EnumSet.noneOf(Action.class);
+        // Only positive evidence that no PayPal order can exist permits abandoning without provider data.
+        // CREATION_UNCERTAIN, like every other unknown availability, falls through to "unresolved".
         if (Availability.NOT_CREATED.name().equals(evidence.availability())) return EnumSet.of(Action.ABANDON);
         if (!evidence.available()) return EnumSet.noneOf(Action.class);
         String outcome = evidence.outcome() == null ? "" : evidence.outcome();

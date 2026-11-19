@@ -45,20 +45,20 @@ class PayPalRecoveryEvidenceTest {
         PayPalGateway gateway = mock(PayPalGateway.class);
         when(gateway.merchant()).thenReturn("MERCHANT1");
         doThrow(new PayPalGateway.Unavailable("NOT_FOUND", 404, "dbg404")).when(gateway).get("PROVIDER1");
-        Snapshot notFound = PayPalRecoveryEvidence.fetch(gateway, "PROVIDER1", REF, AMOUNT);
+        Snapshot notFound = PayPalRecoveryEvidence.fetch(gateway, "PROVIDER1", true, REF, AMOUNT);
         assertEquals("NOT_FOUND", notFound.availability());
         assertTrue(allowed(notFound).isEmpty(), "a 404 must never permit abandoning or refunding");
 
         doThrow(new PayPalGateway.Unavailable("ACCESS_DENIED", 403, null)).when(gateway).get("PROVIDER1");
-        assertTrue(allowed(PayPalRecoveryEvidence.fetch(gateway, "PROVIDER1", REF, AMOUNT)).isEmpty());
+        assertTrue(allowed(PayPalRecoveryEvidence.fetch(gateway, "PROVIDER1", true, REF, AMOUNT)).isEmpty());
 
         doThrow(new IllegalStateException("PayPal unavailable; check payment status")).when(gateway).get("PROVIDER1");
-        Snapshot down = PayPalRecoveryEvidence.fetch(gateway, "PROVIDER1", REF, AMOUNT);
+        Snapshot down = PayPalRecoveryEvidence.fetch(gateway, "PROVIDER1", true, REF, AMOUNT);
         assertEquals("UNAVAILABLE", down.availability());
         assertTrue(allowed(down).isEmpty());
 
         doThrow(new IllegalStateException("PayPal Sandbox is not configured")).when(gateway).merchant();
-        assertTrue(allowed(PayPalRecoveryEvidence.fetch(gateway, "PROVIDER1", REF, AMOUNT)).isEmpty());
+        assertTrue(allowed(PayPalRecoveryEvidence.fetch(gateway, "PROVIDER1", true, REF, AMOUNT)).isEmpty());
     }
 
     @Test void onlyVerifiedOutcomesPermitActions() {
@@ -71,6 +71,33 @@ class PayPalRecoveryEvidenceTest {
         assertTrue(allowed(evidence("COMPLETED", "PENDING")).isEmpty(), "pending capture waits");
         assertTrue(allowed(evidence("COMPLETED", "PARTIALLY_REFUNDED")).isEmpty(), "partial refund needs manual review");
         assertEquals(EnumSet.of(Action.ABANDON), allowed(PayPalRecoveryEvidence.notCreated()));
+    }
+
+    @Test void missingProviderIdAfterACreateAttemptIsUnresolvedNotNotCreated() {
+        PayPalGateway gateway = mock(PayPalGateway.class);
+        for (String missing : new String[]{null, "", " "}) {
+            Snapshot uncertain = PayPalRecoveryEvidence.fetch(gateway, missing, true, REF, AMOUNT);
+            assertEquals("CREATION_UNCERTAIN", uncertain.availability(), String.valueOf(missing));
+            assertFalse(uncertain.available());
+            assertNull(uncertain.outcome());
+            assertTrue(allowed(uncertain).isEmpty(), "a missing local ID never permits ABANDON");
+            assertEquals(uncertain.fingerprint(), PayPalRecoveryEvidence.creationUncertain().fingerprint(),
+                    "the fingerprint is stable, so a resolve request can reference it");
+        }
+        assertNotEquals(PayPalRecoveryEvidence.notCreated().fingerprint(),
+                PayPalRecoveryEvidence.creationUncertain().fingerprint());
+        // Shipped orders can still be flagged for manual handling while creation is uncertain.
+        assertEquals(EnumSet.of(Action.FLAG_MANUAL),
+                PayPalRecoveryEvidence.allowed(PayPalRecoveryEvidence.creationUncertain(), true, false, true));
+        // Without a stored ID there is nothing to ask PayPal: no provider call either way.
+        verifyNoInteractions(gateway);
+    }
+
+    @Test void onlyACheckoutThatNeverSentACreateRequestMayBeAbandonedWithoutProviderData() {
+        assertEquals("NOT_CREATED", PayPalRecoveryEvidence.withoutProviderId(false).availability());
+        assertEquals(EnumSet.of(Action.ABANDON), allowed(PayPalRecoveryEvidence.withoutProviderId(false)));
+        assertEquals("CREATION_UNCERTAIN", PayPalRecoveryEvidence.withoutProviderId(true).availability());
+        assertTrue(allowed(PayPalRecoveryEvidence.withoutProviderId(true)).isEmpty());
     }
 
     @Test void mismatchedEvidenceIsUnresolved() {
@@ -114,7 +141,7 @@ class PayPalRecoveryEvidenceTest {
         assertNull(uncaptured.captureId());
         assertNull(uncaptured.finalCapture());
         assertEquals("35.50", uncaptured.amount());
-        assertEquals("NOT_CREATED", PayPalRecoveryEvidence.fetch(mock(PayPalGateway.class), " ", REF, AMOUNT).availability());
+        assertEquals("NOT_CREATED", PayPalRecoveryEvidence.fetch(mock(PayPalGateway.class), " ", false, REF, AMOUNT).availability());
         assertThrows(IllegalArgumentException.class,
                 () -> PayPalRecoveryEvidence.unknown(PayPalRecoveryEvidence.Availability.AVAILABLE, "x"));
         Snapshot noOutcome = new Snapshot("AVAILABLE", null, null, null, null, null, null, null, null, null, null);

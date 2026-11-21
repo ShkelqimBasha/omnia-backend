@@ -111,5 +111,13 @@ On the Live server:
    - the merchant and amount in the PayPal Live dashboard
 
    Then refund it in PayPal and confirm the refund reaches the server.
-7. **Rollback.** Set the environment back to `sandbox` (or `enabled=false`) and restart. Live
-   checkouts then wait untouched (refused, never sent to Sandbox) until Live is configured again.
+7. **Rollback to Sandbox.** Restore **both** settings and restart:
+   - `omnia.paypal.environment=sandbox`
+   - `omnia.paypal.credentials-file` = the Sandbox credentials file again
+
+   Changing only the environment leaves the Live credentials file in place. That combination
+   (`sandbox` setting, `"environment":"live"` file) is refused, so PayPal stays off until the
+   credentials file is also pointed back to Sandbox. To stop PayPal entirely instead, set
+   `omnia.paypal.enabled=false`. After the rollback, Live checkouts wait untouched: they are
+   refused and never sent to Sandbox until Live is configured again. Afterwards check that
+   `GET /api/paypal/config` answers `"enabled":true,"environment":"sandbox"`.

@@ -36,6 +36,7 @@ class PayPalCheckoutIntegrationTest extends AbstractIntegrationTest {
     private final ObjectMapper json=new ObjectMapper();private String attempt;
     @BeforeEach void setup()throws Exception{
         gateway=mock(PayPalGateway.class);current=mock(CurrentUserService.class);checkout=mock(CheckoutService.class);
+        when(gateway.environment()).thenReturn("sandbox");
         when(gateway.merchant()).thenReturn("MERCHANT1");
         var roles=em.createQuery("select r from Role r where r.name='USER'",Role.class).getResultList();
         Role role=roles.isEmpty()?Role.builder().name("USER").build():roles.get(0);if(roles.isEmpty())em.persist(role);
@@ -190,5 +191,98 @@ class PayPalCheckoutIntegrationTest extends AbstractIntegrationTest {
         assertEquals("ABANDONED",service.abandon(id).state());
         verify(gateway,never()).create(anyString(),any());
         assertEquals("CANCELLED",jdbc.queryForObject("SELECT status FROM orders WHERE id=?",String.class,order.getId()));
+    }
+
+    // ---- Sandbox and Live ----
+
+    private static final String LIVE_LINK="{\"id\":\"PROVIDER123\",\"links\":[{\"rel\":\"approve\",\"href\":\"https://www.paypal.com/checkoutnow?token=PROVIDER123\"}]}";
+    private String environmentOf(String id){return jdbc.queryForObject("SELECT environment FROM paypal_checkouts WHERE id=?",String.class,id);}
+
+    @Test void sandboxCheckoutIsRecordedAndReportedAsSandbox()throws Exception{
+        var view=service.create(key,request());
+        assertEquals("sandbox",environmentOf(view.id()));
+        assertTrue(view.sandbox());assertEquals("sandbox",view.environment());
+        assertTrue(view.approvalUrl().startsWith("https://www.sandbox.paypal.com/"));
+    }
+
+    @Test void liveCheckoutIsRecordedReportedAndCapturedInLive()throws Exception{
+        when(gateway.environment()).thenReturn("live");
+        when(gateway.create(anyString(),any())).thenAnswer(inv->{attempt=inv.getArgument(0);return json.readTree(LIVE_LINK);});
+        var view=service.create(key,request());
+        assertEquals("live",environmentOf(view.id()));
+        assertFalse(view.sandbox());assertEquals("live",view.environment());
+        assertEquals("https://www.paypal.com/checkoutnow?token=PROVIDER123",view.approvalUrl());
+        when(gateway.get("PROVIDER123")).thenReturn(evidence("APPROVED",null),evidence("COMPLETED","COMPLETED"));
+        var paid=service.sync(view.id(),true);
+        assertEquals("PAID",paid.state());assertEquals("live",paid.environment());
+        verify(gateway,times(1)).capture("PROVIDER123",view.id());
+    }
+
+    @Test void liveServerNeverAcceptsASandboxApprovalLink()throws Exception{
+        when(gateway.environment()).thenReturn("live");   // default stub answers with a Sandbox approval link
+        assertThrows(IllegalStateException.class,()->service.create(key,request()));
+        String id=jdbc.queryForObject("SELECT id FROM paypal_checkouts WHERE user_id=? AND request_key=?",String.class,user.getId(),key);
+        assertNull(jdbc.queryForObject("SELECT paypal_order_id FROM paypal_checkouts WHERE id=?",String.class,id));
+        assertEquals("CREATING",jdbc.queryForObject("SELECT state FROM paypal_checkouts WHERE id=?",String.class,id));
+    }
+
+    @Test void sandboxCheckoutIsNeverSentToLive()throws Exception{
+        var sandbox=service.create(key,request());          // APPROVAL in Sandbox, order PROVIDER123
+        clearInvocations(gateway);
+        when(gateway.environment()).thenReturn("live");
+        when(gateway.verifyWebhook(anyMap(),any())).thenReturn(true);
+
+        // Check, capture, cancel and repeat of the original request: refused before any PayPal call.
+        assertThrows(IllegalStateException.class,()->service.sync(sandbox.id(),false));
+        assertThrows(IllegalStateException.class,()->service.sync(sandbox.id(),true));
+        assertThrows(IllegalStateException.class,()->service.abandon(sandbox.id()));
+        assertThrows(IllegalStateException.class,()->service.create(key,request()));
+        // A Live webhook with the same order ID matches no Live checkout.
+        var event=json.createObjectNode().put("id","WH-LIVE-1").put("event_type","CHECKOUT.ORDER.APPROVED");
+        event.putObject("resource").put("id","PROVIDER123");
+        service.webhook(Map.of(),event);
+
+        verify(gateway,never()).get(anyString());verify(gateway,never()).capture(anyString(),anyString());
+        verify(gateway,never()).create(anyString(),any());
+        assertEquals("APPROVAL",jdbc.queryForObject("SELECT state FROM paypal_checkouts WHERE id=?",String.class,sandbox.id()));
+        assertEquals("sandbox",environmentOf(sandbox.id()));
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM paypal_webhook_events WHERE checkout_id=?",Integer.class,sandbox.id()));
+        // The buyer's open Sandbox checkout is not offered for resuming on the Live server.
+        assertNull(service.latest());
+        // Back on Sandbox it is the buyer's open checkout again.
+        when(gateway.environment()).thenReturn("sandbox");
+        assertEquals(sandbox.id(),service.latest().id());
+        assertEquals(sandbox.id(),service.forOrder(order.getId()).id());
+    }
+
+    @Test void liveCheckoutIsNeverSentToSandbox()throws Exception{
+        when(gateway.environment()).thenReturn("live");
+        when(gateway.create(anyString(),any())).thenAnswer(inv->{attempt=inv.getArgument(0);return json.readTree(LIVE_LINK);});
+        var live=service.create(key,request());
+        clearInvocations(gateway);
+        when(gateway.environment()).thenReturn("sandbox");
+        assertThrows(IllegalStateException.class,()->service.sync(live.id(),true));
+        assertThrows(IllegalStateException.class,()->service.abandon(live.id()));
+        verify(gateway,never()).get(anyString());verify(gateway,never()).capture(anyString(),anyString());
+        assertEquals("live",service.forOrder(order.getId()).environment());
+    }
+
+    @Test void unmarkedCheckoutOfTheOtherEnvironmentIsNotMarkedAndCanStillBeCancelled()throws Exception{
+        // A Sandbox checkout that never sent a create request, seen by a Live server.
+        String id=UUID.randomUUID().toString();
+        jdbc.update("INSERT INTO paypal_checkouts(id,user_id,request_key,request_hash,checkout_group_id,amount) VALUES(?,?,?,?,?,?)",id,user.getId(),key,"0".repeat(64),group.getId(),new BigDecimal("12.30"));
+        when(gateway.environment()).thenReturn("live");
+        assertThrows(IllegalStateException.class,()->service.sync(id,false));
+        assertNull(jdbc.queryForObject("SELECT paypal_create_attempted_at FROM paypal_checkouts WHERE id=?",java.sql.Timestamp.class,id),
+                "no request can be sent, so the checkout keeps its proof that PayPal holds nothing");
+        // Nothing ever reached PayPal, so the buyer can release the orders without asking any PayPal.
+        assertEquals("ABANDONED",service.abandon(id).state());
+        verify(gateway,never()).create(anyString(),any());verify(gateway,never()).get(anyString());
+    }
+
+    @Test void unconfiguredServerCreatesNothing(){
+        when(gateway.environment()).thenReturn(null);
+        assertThrows(IllegalStateException.class,()->service.create(key,request()));
+        verify(checkout,never()).checkout(any());verify(gateway,never()).create(anyString(),any());
     }
 }

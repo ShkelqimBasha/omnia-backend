@@ -33,11 +33,15 @@ public class PayPalCheckoutService {
     private final PayPalRecoveryLedger ledger;
     /** The only local states from which our backend may ask PayPal to capture. */
     static final Set<String> CAPTURABLE=Set.of("CREATING","APPROVAL","APPROVED","PENDING","FAILED");
+    /** {@code sandbox} and {@code environment} describe the checkout's own environment (app contract). */
     public record View(String id,String state,String currency,BigDecimal amount,String approvalUrl,
-                       String checkoutReference,List<Long> orderIds,boolean sandbox,String requestKey) {}
-    /** {@code attempted}: when a PayPal create request may first have been sent; null means none ever was. */
+                       String checkoutReference,List<Long> orderIds,boolean sandbox,String environment,String requestKey) {}
+    /**
+     * {@code attempted}: when a PayPal create request may first have been sent; null means none ever was.
+     * {@code environment}: the PayPal environment the checkout was created in ("sandbox" or "live").
+     */
     private record Row(String id,long owner,String hash,long group,BigDecimal amount,String provider,
-                       String approval,String state,Instant created,Instant attempted) {}
+                       String approval,String state,Instant created,Instant attempted,String environment) {}
     public PayPalCheckoutService(JdbcTemplate jdbc,CurrentUserService current,CheckoutService checkout,
                                  PayPalRecoveryTransitions transitions,PayPalGateway gateway,ObjectMapper json,EntityManager em,
                                  PlatformTransactionManager manager,PayPalRecoveryLedger ledger) {
@@ -53,6 +57,8 @@ public class PayPalCheckoutService {
         gateway.requireReady(); uuid(key);long owner=owner();
         if(request.getItems()==null || request.getItems().size()>100) throw new IllegalArgumentException("Too many items");
         String hash=hash(request);
+        String environment=gateway.environment();
+        if(environment==null)throw new IllegalStateException("PayPal is not configured");
         String id=tx.execute(status->{
             jdbc.queryForObject("SELECT id FROM users WHERE id=? FOR UPDATE",Long.class,owner);
             Integer cancelled=jdbc.queryForObject("SELECT COUNT(*) FROM paypal_cancelled_requests WHERE user_id=? AND request_key=?",Integer.class,owner,key);
@@ -63,15 +69,16 @@ public class PayPalCheckoutService {
                 if(!r.hash.equals(hash))throw new IllegalArgumentException("Checkout key already used for different details");
                 return r.id;
             }
-            // One unresolved checkout per buyer prevents duplicate reservations across devices.
-            Integer pending=jdbc.queryForObject("SELECT COUNT(*) FROM paypal_checkouts WHERE user_id=? AND state NOT IN ('PAID','REFUNDED','ABANDONED','RECOVERY_REQUIRED')",Integer.class,owner);
+            // One unresolved checkout per buyer prevents duplicate reservations across devices. A checkout of
+            // the other environment cannot be resumed or checked here, so it does not block a new purchase.
+            Integer pending=jdbc.queryForObject("SELECT COUNT(*) FROM paypal_checkouts WHERE user_id=? AND environment=? AND state NOT IN ('PAID','REFUNDED','ABANDONED','RECOVERY_REQUIRED')",Integer.class,owner,environment);
             if(pending!=null && pending>0) throw new IllegalArgumentException("Resume or cancel your existing PayPal checkout first");
             var result=checkout.checkout(request);em.flush();
             long group=jdbc.queryForObject("SELECT id FROM checkout_groups WHERE checkout_reference=? AND user_id=?",Long.class,result.getCheckoutReference(),owner);
             BigDecimal total=result.getTotalAmount();
             if(total==null || total.signum()<=0 || total.scale()>2)throw new IllegalArgumentException("PayPal amount must be positive EUR");
             String created=UUID.randomUUID().toString();
-            jdbc.update("INSERT INTO paypal_checkouts(id,user_id,request_key,request_hash,checkout_group_id,amount) VALUES(?,?,?,?,?,?)",created,owner,key,hash,group,total);
+            jdbc.update("INSERT INTO paypal_checkouts(id,user_id,request_key,request_hash,checkout_group_id,amount,environment) VALUES(?,?,?,?,?,?,?)",created,owner,key,hash,group,total,environment);
             jdbc.update("UPDATE payments p JOIN orders o ON o.id=p.order_id SET p.method='PAYPAL' WHERE o.checkout_group_id=? AND p.status='PENDING'",group);
             return created;
         });
@@ -83,11 +90,14 @@ public class PayPalCheckoutService {
         // Commit the attempt marker before reconcile() may send a create request. If PayPal creates the
         // order but the response or the local commit is lost, the marker survives the rollback, so a
         // missing PayPal order ID is never mistaken for proof that no PayPal order exists.
-        tx.executeWithoutResult(status->jdbc.update("UPDATE paypal_checkouts SET paypal_create_attempted_at=UTC_TIMESTAMP(6) WHERE id=? AND user_id=? AND paypal_order_id IS NULL AND state='CREATING' AND paypal_create_attempted_at IS NULL AND created_at>=DATE_SUB(CURRENT_TIMESTAMP,INTERVAL 5 HOUR)",id,owner));
+        // Only a checkout of this server's environment can be sent to PayPal, so only it is marked.
+        tx.executeWithoutResult(status->jdbc.update("UPDATE paypal_checkouts SET paypal_create_attempted_at=UTC_TIMESTAMP(6) WHERE id=? AND user_id=? AND environment=? AND paypal_order_id IS NULL AND state='CREATING' AND paypal_create_attempted_at IS NULL AND created_at>=DATE_SUB(CURRENT_TIMESTAMP,INTERVAL 5 HOUR)",id,owner,gateway.environment()));
         return tx.execute(status->{Row r=locked(id);if(r.owner!=owner)throw new AccessDeniedException("Payment not found");if("RECOVERY_REQUIRED".equals(r.state))return view(r);return reconcile(r,capture);});
     }
     public View latest() {
-        long owner=owner();return tx.execute(s->{var rows=jdbc.query("SELECT * FROM paypal_checkouts WHERE user_id=? AND state NOT IN ('PAID','REFUNDED','ABANDONED','RECOVERY_REQUIRED') ORDER BY created_at DESC LIMIT 1",this::row,owner);return rows.isEmpty()?null:view(rows.get(0));});
+        // The open checkout of this server's environment (any environment while PayPal is not configured).
+        long owner=owner();String environment=gateway.environment();
+        return tx.execute(s->{var rows=jdbc.query("SELECT * FROM paypal_checkouts WHERE user_id=? AND environment=COALESCE(?,environment) AND state NOT IN ('PAID','REFUNDED','ABANDONED','RECOVERY_REQUIRED') ORDER BY created_at DESC LIMIT 1",this::row,owner,environment);return rows.isEmpty()?null:view(rows.get(0));});
     }
     public View forOrder(long orderId) {
         long owner=owner();return tx.execute(s->{var rows=jdbc.query("SELECT p.* FROM paypal_checkouts p JOIN orders o ON o.checkout_group_id=p.checkout_group_id WHERE o.id=? AND p.user_id=?",this::row,orderId,owner);
@@ -101,6 +111,7 @@ public class PayPalCheckoutService {
             if("RECOVERY_REQUIRED".equals(r.state))throw new IllegalArgumentException("Payment needs manual review"); if("ABANDONED".equals(r.state))return view(r);
             PayPalRecoveryEvidence.Snapshot evidence;
             if(r.provider!=null) {
+                requireServed(r);
                 JsonNode details=gateway.get(r.provider);
                 String merchant=gateway.merchant();
                 var proof=PayPalEvidence.verify(details,r.provider,r.id,merchant,r.amount);
@@ -137,7 +148,9 @@ public class PayPalCheckoutService {
                 event.path("resource").path("supplementary_data").path("related_ids").path("order_id").asText();
         String eventId=event.path("id").asText("");
         String delivery=eventId.matches("[A-Za-z0-9-]{1,64}")?eventId:null;
-        var ids=jdbc.queryForList("SELECT id FROM paypal_checkouts WHERE paypal_order_id=?",String.class,provider);
+        // The event was verified with this server's credentials, so it can only concern this environment's
+        // checkouts; a checkout of the other environment is never touched by it.
+        var ids=jdbc.queryForList("SELECT id FROM paypal_checkouts WHERE paypal_order_id=? AND environment=?",String.class,provider,gateway.environment());
         for(String id:ids)tx.execute(s->{
             Row r=locked(id);
             // The same PayPal delivery again (same event ID): nothing to do.
@@ -158,7 +171,7 @@ public class PayPalCheckoutService {
     }
     /** Provider truth for a webhook. Missing evidence is never read as "unpaid": PayPal redelivers. */
     private PayPalRecoveryEvidence.Snapshot verifiedEvidence(Row r) {
-        var evidence=PayPalRecoveryEvidence.fetch(gateway,r.provider,r.attempted!=null,r.id,r.amount);
+        var evidence=PayPalRecoveryEvidence.fetch(gateway,r.environment,r.provider,r.attempted!=null,r.id,r.amount);
         if(!evidence.available() && !"MISMATCH".equals(evidence.availability()))
             throw new IllegalStateException("PayPal evidence unavailable; retry");
         return evidence;
@@ -215,6 +228,7 @@ public class PayPalCheckoutService {
     private View reconcile(Row r,boolean capture) {
         if(Set.of("ABANDONED","REFUNDED","REVIEW","RECOVERY_REQUIRED").contains(r.state)) return view(r);
         gateway.requireReady();
+        requireServed(r);
         if(r.provider==null) {
             // Every create request must follow a committed attempt marker (see syncOwned).
             if(r.attempted==null)
@@ -225,7 +239,7 @@ public class PayPalCheckoutService {
             JsonNode created=gateway.create(r.id,r.amount);
             String provider=created.path("id").asText();
             if(!provider.matches("[A-Z0-9]{5,64}"))throw new IllegalStateException("Invalid PayPal order response");
-            String approval=PayPalGateway.approval(created);
+            String approval=PayPalGateway.approval(created,r.environment);
             jdbc.update("UPDATE paypal_checkouts SET paypal_order_id=?,approval_url=?,state='APPROVAL' WHERE id=?",provider,approval,r.id);
             r=locked(r.id);
         }
@@ -300,19 +314,28 @@ public class PayPalCheckoutService {
             throw new IllegalStateException("Checkout changed; manual review required");
         return orders.stream().map(PayPalRecoveryTransitions.GroupOrder::id).toList();
     }
+    /**
+     * A checkout is only ever sent to the PayPal environment it was created in. A Sandbox checkout on a
+     * Live server (or the reverse) is refused before any request; nothing about it changes.
+     */
+    private void requireServed(Row r) {
+        if(!PayPalGateway.serves(gateway.environment(),r.environment))
+            throw new IllegalStateException("This PayPal checkout belongs to PayPal "+r.environment+" and cannot be processed by this server");
+    }
     private static String marks(List<?> values) {return String.join(",",Collections.nCopies(values.size(),"?"));}
     private List<Long> orderIds(long group) {return jdbc.queryForList("SELECT id FROM orders WHERE checkout_group_id=? ORDER BY id",Long.class,group);}
     private View view(Row r) {
         String ref=jdbc.queryForObject("SELECT checkout_reference FROM checkout_groups WHERE id=?",String.class,r.group);
         String key=jdbc.queryForObject("SELECT request_key FROM paypal_checkouts WHERE id=?",String.class,r.id);
-        return new View(r.id,r.state,"EUR",r.amount,r.approval,ref,orderIds(r.group),true,key);
+        return new View(r.id,r.state,"EUR",r.amount,r.approval,ref,orderIds(r.group),!PayPalGateway.LIVE.equals(r.environment),r.environment,key);
     }
     private Row locked(String id) {
         var rows=jdbc.query("SELECT * FROM paypal_checkouts WHERE id=? FOR UPDATE",this::row,id);
         if(rows.isEmpty())throw new AccessDeniedException("Payment not found");return rows.get(0);
     }
     private Row row(ResultSet r,int n)throws SQLException {return new Row(r.getString("id"),r.getLong("user_id"),r.getString("request_hash"),r.getLong("checkout_group_id"),r.getBigDecimal("amount"),r.getString("paypal_order_id"),r.getString("approval_url"),r.getString("state"),r.getTimestamp("created_at").toInstant(),
-            Optional.ofNullable(r.getTimestamp("paypal_create_attempted_at")).map(java.sql.Timestamp::toInstant).orElse(null));}
+            Optional.ofNullable(r.getTimestamp("paypal_create_attempted_at")).map(java.sql.Timestamp::toInstant).orElse(null),
+            r.getString("environment"));}
     private String hash(Object body) {
         try {return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(json.writeValueAsString(body).getBytes(StandardCharsets.UTF_8)));}
         catch(Exception ex){throw new IllegalArgumentException("Invalid checkout request");}

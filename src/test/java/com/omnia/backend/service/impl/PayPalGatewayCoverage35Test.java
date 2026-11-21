@@ -117,6 +117,66 @@ class PayPalGatewayCoverage35Test {
     }
     @ParameterizedTest @NullAndEmptySource @ValueSource(strings={"../bad","lowercase","1234","A1234?token=x"})
     void invalidIdsNeverReachNetwork(String id) {assertThrows(IllegalArgumentException.class,()->gateway.get(id));assertThrows(IllegalArgumentException.class,()->gateway.capture(id,"key"));verifyNoInteractions(http);}
+    void credentialsFor(String environment) throws Exception {
+        var c=new HashMap<String,Object>(Map.of("clientId","client","clientSecret","fake-test-secret","merchantId","TESTMERCHANT1","webhookId","WH-TEST"));
+        if(environment!=null)c.put("environment",environment);
+        json.writeValue(credentials.toFile(),c);
+    }
+    void setting(String environment){ReflectionTestUtils.setField(gateway,"environment",environment);}
+
+    @Test void sandboxIsTheDefaultAndAcceptsSandboxCredentialsWithOrWithoutTheField() throws Exception {
+        assertEquals("sandbox",gateway.environment(),"no setting means Sandbox");
+        credentialsFor("sandbox");assertEquals("sandbox",gateway.environment());
+        credentialsFor(null);assertEquals("sandbox",gateway.environment());
+        verifyNoInteractions(http);
+    }
+    @Test void liveNeedsTheLiveSettingAndLiveCredentials() throws Exception {
+        setting("live");credentialsFor("live");
+        assertTrue(gateway.ready());assertEquals("live",gateway.environment());
+        verifyNoInteractions(http);
+    }
+    @Test void mixedOrUnknownConfigurationsAreRefusedBeforeAnyRequest() throws Exception {
+        // {setting, credentials "environment" field}
+        String[][] refused={{"live",null},{"live","sandbox"},{"live","LIVE"},{"sandbox","live"},{"production","live"},{"LIVE","live"},{"",null},{null,null}};
+        for(String[] c:refused){
+            setting(c[0]);credentialsFor(c[1]);
+            String label=c[0]+"/"+c[1];
+            assertFalse(gateway.ready(),label);assertNull(gateway.environment(),label);
+            assertThrows(IllegalStateException.class,gateway::requireReady,label);
+            assertThrows(IllegalStateException.class,()->gateway.get("ORDER123"),label);
+            assertThrows(IllegalStateException.class,()->gateway.capture("ORDER123","key"),label);
+            assertThrows(IllegalStateException.class,()->gateway.create("local-reference",BigDecimal.ONE),label);
+        }
+        verifyNoInteractions(http);
+    }
+    @Test void liveSendsEveryRequestToPayPalLiveWithTheLiveBrand() throws Exception {
+        setting("live");credentialsFor("live");
+        responses(tokenResponse(),response(201,"{\"id\":\"ORDER123\"}"),response(200,"{}"),response(201,"{}"));
+        gateway.create("local-reference",new BigDecimal("38.50"));gateway.get("ORDER123");gateway.capture("ORDER123","key");
+        for(HttpRequest request:requests(4))assertEquals("api-m.paypal.com",request.uri().getHost(),request.uri().toString());
+        var create=json.readTree(body(requests(4).get(1)));
+        assertEquals("Omnia",create.at("/payment_source/paypal/experience_context/brand_name").asText());
+    }
+    @Test void sandboxKeepsTheSandboxHostAndBrand() throws Exception {
+        responses(tokenResponse(),response(201,"{\"id\":\"ORDER123\"}"));
+        gateway.create("local-reference",new BigDecimal("38.50"));
+        var req=requests(2);
+        for(HttpRequest request:req)assertEquals("api-m.sandbox.paypal.com",request.uri().getHost());
+        assertEquals("Omnia Sandbox",json.readTree(body(req.get(1))).at("/payment_source/paypal/experience_context/brand_name").asText());
+    }
+    @Test void aTokenFromOneEnvironmentIsNeverReusedForTheOther() throws Exception {
+        credentialsFor("sandbox");
+        responses(tokenResponse(),tokenResponse());
+        gateway.token();setting("live");credentialsFor("live");gateway.token();
+        var req=requests(2);
+        assertEquals("api-m.sandbox.paypal.com",req.get(0).uri().getHost());assertEquals("api-m.paypal.com",req.get(1).uri().getHost());
+    }
+    @Test void serversOnlySendCheckoutsOfTheirOwnEnvironment(){
+        assertTrue(PayPalGateway.serves("sandbox","sandbox"));assertTrue(PayPalGateway.serves("live","live"));
+        assertFalse(PayPalGateway.serves("live","sandbox"));assertFalse(PayPalGateway.serves("sandbox","live"));
+        assertFalse(PayPalGateway.serves(null,"sandbox"));assertFalse(PayPalGateway.serves(null,null));assertFalse(PayPalGateway.serves("live",null));
+    }
+
     @Test void configurationMustBeExplicitValidAndSandboxReady() throws Exception {
         assertTrue(gateway.ready());ReflectionTestUtils.setField(gateway,"enabled",false);assertFalse(gateway.ready());
         ReflectionTestUtils.setField(gateway,"enabled",true);

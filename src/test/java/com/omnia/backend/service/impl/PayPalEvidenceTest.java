@@ -57,9 +57,21 @@ class PayPalEvidenceTest {
     @Test void rejectsUntrustedApprovalHosts()throws Exception{
         for(String url:new String[]{"http://www.sandbox.paypal.com/x","https://www.sandbox.paypal.com.evil.test/x","https://www.sandbox.paypal.com@evil.test/x","https://evil.test/x"}){
             var n=json.createObjectNode();n.putArray("links").addObject().put("rel","approve").put("href",url);
-            assertThrows(IllegalStateException.class,()->PayPalGateway.approval(n));
+            assertThrows(IllegalStateException.class,()->PayPalGateway.approval(n,"sandbox"));
         }
         var n=json.createObjectNode();n.putArray("links").addObject().put("rel","payer-action").put("href","https://www.sandbox.paypal.com/checkoutnow?token=TEST123");
-        assertTrue(PayPalGateway.approval(n).startsWith("https://www.sandbox.paypal.com/"));
+        assertTrue(PayPalGateway.approval(n,"sandbox").startsWith("https://www.sandbox.paypal.com/"));
+    }
+    @Test void approvalLinkMustBeOnTheCheckoutsOwnEnvironment()throws Exception{
+        var live=json.createObjectNode();live.putArray("links").addObject().put("rel","approve").put("href","https://www.paypal.com/checkoutnow?token=LIVE123");
+        var sandbox=json.createObjectNode();sandbox.putArray("links").addObject().put("rel","approve").put("href","https://www.sandbox.paypal.com/checkoutnow?token=TEST123");
+        assertEquals("https://www.paypal.com/checkoutnow?token=LIVE123",PayPalGateway.approval(live,"live"));
+        assertThrows(IllegalStateException.class,()->PayPalGateway.approval(sandbox,"live"),"a Live checkout never shows a Sandbox page");
+        assertThrows(IllegalStateException.class,()->PayPalGateway.approval(live,"sandbox"),"a Sandbox checkout never shows a Live page");
+        for(String unknown:new String[]{null,"","LIVE","production"})assertThrows(IllegalStateException.class,()->PayPalGateway.approval(live,unknown));
+        for(String url:new String[]{"http://www.paypal.com/x","https://www.paypal.com.evil.test/x","https://www.paypal.com@evil.test/x","https://www.paypal.com:8443/x","https://paypal.com/x"}){
+            var n=json.createObjectNode();n.putArray("links").addObject().put("rel","approve").put("href",url);
+            assertThrows(IllegalStateException.class,()->PayPalGateway.approval(n,"live"),url);
+        }
     }
 }

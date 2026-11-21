@@ -47,6 +47,7 @@ class PayPalRecoveryIntegrationTest extends AbstractIntegrationTest {
     private static final BigDecimal TOTAL = new BigDecimal("35.50");
 
     @BeforeEach void setup() {
+        when(gateway.environment()).thenReturn("sandbox");
         when(gateway.merchant()).thenReturn("MERCHANT1");
         when(gateway.verifyWebhook(anyMap(), any())).thenReturn(true);
         new TransactionTemplate(manager).executeWithoutResult(s -> {
@@ -992,6 +993,99 @@ class PayPalRecoveryIntegrationTest extends AbstractIntegrationTest {
         assertEquals(key, requestKey());
         verify(gateway, never()).create(anyString(), any());
         verify(gateway, never()).get(anyString());
+    }
+
+    /**
+     * Order #31's situation after the switch to Live: a Sandbox checkout in RECOVERY_REQUIRED with a
+     * stored Sandbox order ID. The Live server never asks PayPal Live about it, permits no action on
+     * the strength of that, ignores webhooks for its order ID and leaves it exactly as it was.
+     */
+    @Test void sandboxCheckoutUnderRecoveryIsNeverSentToLive() throws Exception {
+        when(gateway.environment()).thenReturn("live");
+        String before = state();
+        String key = requestKey();
+
+        JsonNode detail = detail();
+        assertEquals("OTHER_ENVIRONMENT", detail.path("evidence").path("availability").asText());
+        assertTrue(detail.path("evidence").path("detail").asText().contains("PayPal sandbox"));
+        assertEquals(List.of(), json.convertValue(detail.path("allowedActions"), List.class));
+        for (String action : List.of("ABANDON", "CONFIRM_PAID", "CONFIRM_REFUNDED")) {
+            MvcResult refused = resolve(superAdmin, UUID.randomUUID().toString(), action, "RECOVERY_REQUIRED",
+                    detail.path("evidenceFingerprint").asText(), "No Live evidence for a Sandbox checkout");
+            assertEquals(409, refused.getResponse().getStatus(), action);
+        }
+
+        // A Live webhook carrying the same order ID matches no Live checkout: nothing is read or recorded.
+        webhook("WH-LIVE-1", "PAYMENT.CAPTURE.COMPLETED");
+        webhook("WH-LIVE-2", "CHECKOUT.ORDER.APPROVED");
+        assertEquals(0L, count("SELECT COUNT(*) FROM paypal_webhook_events WHERE checkout_id=?", checkoutId));
+        assertEquals(0L, count("SELECT COUNT(*) FROM paypal_review_cases WHERE checkout_id=?", checkoutId));
+
+        assertEquals(before, state());
+        assertEquals(List.of("PENDING", "PENDING"), orderStatuses());
+        assertEquals(key, requestKey());
+        verify(gateway, never()).get(anyString());
+        verify(gateway, never()).capture(anyString(), anyString());
+        verify(gateway, never()).create(anyString(), any());
+        verify(gateway, never()).merchant();
+    }
+
+    private JsonNode config() throws Exception {
+        MvcResult result = mockMvc.perform(as(get("/api/paypal/config"), buyer, "USER")).andReturn();
+        assertEquals(200, result.getResponse().getStatus());
+        return json.readTree(result.getResponse().getContentAsString());
+    }
+
+    /** The contract the Android app (e47ca41) checks before it uses PayPal. */
+    @Test void configReportsLiveOnlyWhenLiveIsConfiguredAndReady() throws Exception {
+        JsonNode sandbox = config();
+        assertTrue(sandbox.path("enabled").asBoolean());
+        assertTrue(sandbox.path("sandbox").asBoolean());
+        assertEquals("sandbox", sandbox.path("environment").asText());
+        assertEquals("EUR", sandbox.path("currency").asText());
+
+        when(gateway.environment()).thenReturn("live");
+        JsonNode live = config();
+        assertTrue(live.path("enabled").asBoolean());
+        assertFalse(live.path("sandbox").asBoolean());
+        assertEquals("live", live.path("environment").asText());
+
+        // Misconfigured (unknown setting, mixed credentials) or disabled: never reported as Live.
+        when(gateway.environment()).thenReturn(null);
+        JsonNode off = config();
+        assertFalse(off.path("enabled").asBoolean());
+        assertTrue(off.path("sandbox").asBoolean());
+        assertEquals("sandbox", off.path("environment").asText());
+    }
+
+    @Test void checkoutAnswersCarryTheCheckoutsOwnEnvironment() throws Exception {
+        MvcResult result = mockMvc.perform(as(get("/api/paypal/orders/" + firstOrder), buyer, "USER")).andReturn();
+        assertEquals(200, result.getResponse().getStatus(), result.getResponse().getContentAsString());
+        JsonNode view = json.readTree(result.getResponse().getContentAsString());
+        assertTrue(view.path("sandbox").asBoolean());
+        assertEquals("sandbox", view.path("environment").asText());
+        // Still described as Sandbox while the server runs Live: the app's Live build refuses it.
+        when(gateway.environment()).thenReturn("live");
+        view = json.readTree(mockMvc.perform(as(get("/api/paypal/orders/" + firstOrder), buyer, "USER")).andReturn().getResponse().getContentAsString());
+        assertEquals("sandbox", view.path("environment").asText());
+        assertTrue(view.path("sandbox").asBoolean());
+    }
+
+    @Test void returnPageNamesTheServersEnvironment() throws Exception {
+        String sandbox = mockMvc.perform(get("/api/paypal/return").param("checkout", checkoutId)).andReturn().getResponse().getContentAsString();
+        assertTrue(sandbox.contains("PayPal Sandbox"));
+        assertTrue(sandbox.contains("omnia://paypal-return?checkout=" + checkoutId));
+        when(gateway.environment()).thenReturn("live");
+        String live = mockMvc.perform(get("/api/paypal/return").param("checkout", checkoutId)).andReturn().getResponse().getContentAsString();
+        assertFalse(live.contains("Sandbox"), live);
+        assertTrue(live.contains("PayPal</h2>"), live);
+    }
+
+    @Test void existingCheckoutsAreSandboxAndTheColumnRefusesUnknownEnvironments() {
+        assertEquals("sandbox", jdbc.queryForObject("SELECT environment FROM paypal_checkouts WHERE id=?", String.class, checkoutId));
+        assertThrows(org.springframework.dao.DataAccessException.class,
+                () -> jdbc.update("UPDATE paypal_checkouts SET environment='production' WHERE id=?", checkoutId));
+        assertEquals("sandbox", jdbc.queryForObject("SELECT environment FROM paypal_checkouts WHERE id=?", String.class, checkoutId));
     }
 
 }

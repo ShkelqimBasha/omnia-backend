@@ -79,7 +79,7 @@ public class PayPalRecoveryService {
 
     /** {@code createAttempted}: a PayPal create request may have been sent (marker committed before each request). */
     private record Row(String id, long group, BigDecimal amount, String provider, String state, Instant created,
-                       boolean createAttempted) {}
+                       boolean createAttempted, String environment) {}
 
     public List<Summary> list() {
         requireSuperAdmin();
@@ -102,7 +102,7 @@ public class PayPalRecoveryService {
         requireSuperAdmin();
         uuid(checkoutId);
         Row row = find(checkoutId, false);
-        Snapshot evidence = PayPalRecoveryEvidence.fetch(gateway, row.provider(), row.createAttempted(), row.id(), row.amount());
+        Snapshot evidence = PayPalRecoveryEvidence.fetch(gateway, row.environment(), row.provider(), row.createAttempted(), row.id(), row.amount());
         List<OrderLine> orders = jdbc.query("SELECT id,status,total_amount FROM orders WHERE checkout_group_id=? ORDER BY id",
                 (r, n) -> new OrderLine(r.getLong(1), r.getString(2), r.getBigDecimal(3)), row.group());
         List<PayPalRecoveryTransitions.GroupOrder> group = orders.stream()
@@ -140,7 +140,7 @@ public class PayPalRecoveryService {
                 throw new ConflictException("Only RECOVERY_REQUIRED checkouts can be resolved here");
 
             // Fresh provider evidence under the row lock: webhooks for this checkout wait for us.
-            Snapshot evidence = PayPalRecoveryEvidence.fetch(gateway, row.provider(), row.createAttempted(), row.id(), row.amount());
+            Snapshot evidence = PayPalRecoveryEvidence.fetch(gateway, row.environment(), row.provider(), row.createAttempted(), row.id(), row.amount());
             if (!evidence.fingerprint().equals(request.evidenceFingerprint()))
                 throw new ConflictException("PayPal evidence changed; review it again");
             List<PayPalRecoveryTransitions.GroupOrder> orders = transitions.lockGroup(row.id(), row.group());
@@ -263,9 +263,9 @@ public class PayPalRecoveryService {
     }
 
     private Row find(String id, boolean lock) {
-        List<Row> rows = jdbc.query("SELECT id,checkout_group_id,amount,paypal_order_id,state,created_at,paypal_create_attempted_at FROM paypal_checkouts WHERE id=?" + (lock ? " FOR UPDATE" : ""),
+        List<Row> rows = jdbc.query("SELECT id,checkout_group_id,amount,paypal_order_id,state,created_at,paypal_create_attempted_at,environment FROM paypal_checkouts WHERE id=?" + (lock ? " FOR UPDATE" : ""),
                 (r, n) -> new Row(r.getString(1), r.getLong(2), r.getBigDecimal(3), r.getString(4), r.getString(5),
-                        r.getTimestamp(6).toInstant(), r.getTimestamp(7) != null), id);
+                        r.getTimestamp(6).toInstant(), r.getTimestamp(7) != null, r.getString(8)), id);
         if (rows.isEmpty()) throw new ResourceNotFoundException("PayPal checkout not found");
         return rows.get(0);
     }

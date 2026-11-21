@@ -37,7 +37,12 @@ public final class PayPalRecoveryEvidence {
         /** Timeout, network failure, misconfiguration or another provider error. */
         UNAVAILABLE,
         /** PayPal returned an order that does not match this checkout. */
-        MISMATCH
+        MISMATCH,
+        /**
+         * The checkout belongs to the other PayPal environment (for example a Sandbox checkout on a
+         * Live server). PayPal is not asked at all. Not proof of non-payment.
+         */
+        OTHER_ENVIRONMENT
     }
 
     public enum Action { CONFIRM_PAID, CONFIRM_REFUNDED, ABANDON, FLAG_MANUAL }
@@ -94,10 +99,18 @@ public final class PayPalRecoveryEvidence {
     /**
      * Read provider truth; failures become an explicit unknown availability, never an outcome.
      * A missing PayPal order ID is NOT_CREATED only when {@code createAttempted} is false.
+     * {@code environment} is the checkout's own PayPal environment: a checkout of the other
+     * environment is never sent to the PayPal this server uses.
      */
-    public static Snapshot fetch(PayPalGateway gateway, String providerOrderId, boolean createAttempted,
-                                 String reference, BigDecimal amount) {
+    public static Snapshot fetch(PayPalGateway gateway, String environment, String providerOrderId,
+                                 boolean createAttempted, String reference, BigDecimal amount) {
         if (providerOrderId == null || providerOrderId.isBlank()) return withoutProviderId(createAttempted);
+        String served = gateway.environment();
+        if (!PayPalGateway.serves(served, environment)) {
+            if (served == null) return unknown(Availability.UNAVAILABLE, "PayPal evidence could not be read");
+            return unknown(Availability.OTHER_ENVIRONMENT,
+                    "Checkout belongs to PayPal " + label(environment) + "; this server uses PayPal " + served);
+        }
         try {
             String merchant = gateway.merchant();
             return from(gateway.get(providerOrderId), providerOrderId, reference, merchant, amount);
@@ -158,6 +171,9 @@ public final class PayPalRecoveryEvidence {
         }
     }
 
+    private static String label(String environment) {
+        return PayPalGateway.LIVE.equals(environment) || PayPalGateway.SANDBOX.equals(environment) ? environment : "unknown";
+    }
     private static String id(String value) {
         return value != null && value.matches("[A-Z0-9]{5,64}") ? value : null;
     }

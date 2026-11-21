@@ -91,9 +91,9 @@ class PayPalRecoveryMigrationTest {
 
         List<Map<String, Object>> before = jdbc.queryForList(
                 "SELECT id,user_id,request_key,request_hash,checkout_group_id,amount,paypal_order_id,approval_url,state,created_at,updated_at FROM paypal_checkouts ORDER BY id");
-        flyway(null).migrate();
-        assertEquals("38", flyway(null).info().current().getVersion().getVersion());
-        flyway(null).validate();
+        flyway("38").migrate();
+        assertEquals("38", flyway("38").info().current().getVersion().getVersion());
+        flyway("38").validate();
         // Nothing proves an existing checkout never sent a create request, so every row is marked.
         assertEquals(3, jdbc.queryForObject(
                 "SELECT COUNT(*) FROM paypal_checkouts WHERE paypal_create_attempted_at = created_at", Integer.class));
@@ -102,9 +102,28 @@ class PayPalRecoveryMigrationTest {
                 "SELECT id,user_id,request_key,request_hash,checkout_group_id,amount,paypal_order_id,approval_url,state,created_at,updated_at FROM paypal_checkouts ORDER BY id"));
         assertNull(jdbc.queryForObject("SELECT paypal_order_id FROM paypal_checkouts WHERE id=?", String.class, uncertain));
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM paypal_recovery_events", Integer.class));
+
+        // V39: every existing checkout was created by the Sandbox-only backend and is marked Sandbox.
+        String columns = "id,user_id,request_key,request_hash,checkout_group_id,amount,paypal_order_id,approval_url,state,created_at,updated_at,paypal_create_attempted_at";
+        List<Map<String, Object>> beforeV39 = jdbc.queryForList("SELECT " + columns + " FROM paypal_checkouts ORDER BY id");
+        flyway(null).migrate();
+        assertEquals("39", flyway(null).info().current().getVersion().getVersion());
+        flyway(null).validate();
+        assertEquals(List.of("sandbox", "sandbox", "sandbox"),
+                jdbc.queryForList("SELECT environment FROM paypal_checkouts ORDER BY id", String.class));
+        // Including the legacy RECOVERY_REQUIRED checkout (like order #31): state, provider ID, marker
+        // and timestamps are exactly as before.
+        assertEquals(beforeV39, jdbc.queryForList("SELECT " + columns + " FROM paypal_checkouts ORDER BY id"));
+        assertEquals("RECOVERY_REQUIRED", jdbc.queryForObject("SELECT state FROM paypal_checkouts WHERE id=?", String.class, legacy));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM paypal_recovery_events", Integer.class));
+        // Only the two known environments can be stored.
+        assertThrows(Exception.class, () -> jdbc.update("UPDATE paypal_checkouts SET environment='production' WHERE id=?", legacy));
+        assertThrows(Exception.class, () -> jdbc.update("UPDATE paypal_checkouts SET environment=NULL WHERE id=?", legacy));
+        jdbc.update("UPDATE paypal_checkouts SET environment='live' WHERE id=?", ordinary);
+        assertEquals("live", jdbc.queryForObject("SELECT environment FROM paypal_checkouts WHERE id=?", String.class, ordinary));
     }
 
-    @Test void migrationVersionsAreUniqueAndV38IsTheLatest() throws Exception {
+    @Test void migrationVersionsAreUniqueAndV39IsTheLatest() throws Exception {
         Pattern name = Pattern.compile("V(\\d+)__.+\\.sql");
         Map<Integer, List<String>> versions = new TreeMap<>();
         for (Resource resource : new PathMatchingResourcePatternResolver().getResources("classpath*:db/migration/*.sql")) {
@@ -114,7 +133,8 @@ class PayPalRecoveryMigrationTest {
         versions.forEach((version, files) -> assertEquals(1, files.size(), "duplicate version V" + version + ": " + files));
         assertEquals(List.of("V37__add_paypal_recovery.sql"), versions.get(37));
         assertEquals(List.of("V38__record_paypal_create_attempts.sql"), versions.get(38));
-        assertEquals(38, ((TreeMap<Integer, List<String>>) versions).lastKey());
-        for (int v = 1; v <= 38; v++) assertTrue(versions.containsKey(v), "missing V" + v);
+        assertEquals(List.of("V39__record_paypal_checkout_environment.sql"), versions.get(39));
+        assertEquals(39, ((TreeMap<Integer, List<String>>) versions).lastKey());
+        for (int v = 1; v <= 39; v++) assertTrue(versions.containsKey(v), "missing V" + v);
     }
 }

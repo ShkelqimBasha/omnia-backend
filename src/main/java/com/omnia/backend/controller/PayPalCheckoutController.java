@@ -14,7 +14,17 @@ import java.util.*;
 public class PayPalCheckoutController {
     private final PayPalCheckoutService service;private final PayPalGateway gateway;
     public PayPalCheckoutController(PayPalCheckoutService service,PayPalGateway gateway){this.service=service;this.gateway=gateway;}
-    @GetMapping("/config") public Map<String,Object> config(){return Map.of("enabled",gateway.ready(),"sandbox",true,"currency","EUR","cardsEnabled",false);}
+    /**
+     * Contract with the app: {@code environment} is "live" only when Live is configured and its
+     * credentials are in place ({@code enabled} true, {@code sandbox} false). Otherwise the server
+     * reports Sandbox, enabled or not, so no app ever takes a misconfigured server for Live.
+     */
+    @GetMapping("/config") public Map<String,Object> config(){
+        String environment=gateway.environment();
+        boolean live=PayPalGateway.LIVE.equals(environment);
+        return Map.of("enabled",environment!=null,"sandbox",!live,"environment",live?PayPalGateway.LIVE:PayPalGateway.SANDBOX,
+                "currency","EUR","cardsEnabled",false);
+    }
     @PostMapping("/checkouts/{key}") public PayPalCheckoutService.View create(@PathVariable String key,@Valid @RequestBody CreateOrderRequest request){return service.create(key,request);}
     @GetMapping("/pending") public PayPalCheckoutService.View pending(){return service.latest();}
     @GetMapping("/orders/{id}") public PayPalCheckoutService.View order(@PathVariable long id){return service.forOrder(id);}
@@ -27,7 +37,9 @@ public class PayPalCheckoutController {
         service.webhook(lower,event);return Map.of("received",true);
     }
     // A browser redirect is never proof of payment. The authenticated app checks/captures with the server.
-    @GetMapping(value="/return",produces=MediaType.TEXT_HTML_VALUE) public String browserReturn(@RequestParam(name="checkout", required=false) String checkout){return "<!doctype html><html><meta name='viewport' content='width=device-width'><title>Omnia Sandbox</title><body><h2>Omnia — PayPal Sandbox</h2><p>Return to Omnia and tap Check payment. / Kthehu në Omnia dhe shtyp Kontrollo pagesën.</p>" + (checkout != null && checkout.matches("[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}")
+    @GetMapping(value="/return",produces=MediaType.TEXT_HTML_VALUE) public String browserReturn(@RequestParam(name="checkout", required=false) String checkout){
+        String name=PayPalGateway.LIVE.equals(gateway.environment())?"PayPal":"PayPal Sandbox";
+        return "<!doctype html><html><meta name='viewport' content='width=device-width'><title>Omnia "+name+"</title><body><h2>Omnia — "+name+"</h2><p>Return to Omnia and tap Check payment. / Kthehu në Omnia dhe shtyp Kontrollo pagesën.</p>" + (checkout != null && checkout.matches("[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}")
                 ? "<p><a href='omnia://paypal-return?checkout=" + checkout + "'>Hap Omnia</a></p>"
                 : "<p>Hap Historikun e porosive në Omnia për të kontrolluar pagesën.</p>") + "</body></html>";}
 }

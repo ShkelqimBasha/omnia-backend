@@ -27,4 +27,14 @@ public interface OrganizationRepository
     List<Organization> findAllByStatusOrderByNameAsc(
             OrganizationStatus status
     );
+
+    @org.springframework.data.jpa.repository.Query("""
+            select case when count(o) > 0 then true else false end
+            from Organization o
+            where o.logoFile.id = :uploadedFileId
+              and o.status = com.omnia.backend.enums.OrganizationStatus.ACTIVE
+            """)
+    boolean existsActiveByLogoFileId(
+            @org.springframework.data.repository.query.Param("uploadedFileId") Long uploadedFileId
+    );
 }

@@ -53,8 +53,17 @@ public class PayPalGateway {
             boolean credentialsMatch=LIVE.equals(setting) ? LIVE.equals(declared) : declared.isEmpty() || SANDBOX.equals(declared);
             return credentialsMatch && !c.path("clientId").asText().isBlank()
                 && !c.path("clientSecret").asText().isBlank() && c.path("merchantId").asText().matches("[A-Z0-9]{5,32}")
-                && !c.path("webhookId").asText().isBlank() && publicBase.matches("https://[A-Za-z0-9.-]+(?::[0-9]+)?"); }
+                && !c.path("webhookId").asText().isBlank() && publicBaseAllowed(setting); }
         catch (Exception ex) { return false; }
+    }
+    /**
+     * PayPal returns buyers to {@code publicBase}. Always https, except that Sandbox may also use
+     * http://localhost / 127.0.0.1 so a developer's machine gets the buyer back to its local server.
+     */
+    private boolean publicBaseAllowed(String setting) {
+        if (publicBase == null) return false;
+        if (publicBase.matches("https://[A-Za-z0-9.-]+(?::[0-9]+)?")) return true;
+        return SANDBOX.equals(setting) && publicBase.matches("http://(?:localhost|127[.]0[.]0[.]1)(?::[0-9]+)?");
     }
     public void requireReady() { if (!ready()) throw new IllegalStateException("PayPal is not configured"); }
     /** Environment this server sends requests to ("sandbox" or "live"), or null when PayPal is not ready. */

@@ -202,6 +202,18 @@ class PayPalGatewayCoverage35Test {
         assertFalse(PayPalGateway.serves(null,"sandbox"));assertFalse(PayPalGateway.serves(null,null));assertFalse(PayPalGateway.serves("live",null));
     }
 
+    @Test void sandboxMayReturnToLocalhostOverHttpButLiveNever() throws Exception {
+        for (String local : List.of("http://localhost:8081","http://127.0.0.1:8081","http://localhost")) {
+            ReflectionTestUtils.setField(gateway,"publicBase",local);assertTrue(gateway.ready(),local);
+        }
+        for (String bad : List.of("http://api.example.com","http://localhost.evil.example","http://localhost:8081/x","http://user@localhost")) {
+            ReflectionTestUtils.setField(gateway,"publicBase",bad);assertFalse(gateway.ready(),bad);
+        }
+        json.writeValue(credentials.toFile(),Map.of("clientId","live-client","clientSecret","fake-live-secret","merchantId","LIVEMERCHANT1","webhookId","WH-LIVE","environment","live"));
+        setting(PayPalGateway.LIVE);
+        ReflectionTestUtils.setField(gateway,"publicBase","https://api.example.com");assertTrue(gateway.ready());
+        ReflectionTestUtils.setField(gateway,"publicBase","http://localhost:8081");assertFalse(gateway.ready());
+    }
     @Test void configurationMustBeExplicitValidAndSandboxReady() throws Exception {
         assertTrue(gateway.ready());ReflectionTestUtils.setField(gateway,"enabled",false);assertFalse(gateway.ready());
         ReflectionTestUtils.setField(gateway,"enabled",true);

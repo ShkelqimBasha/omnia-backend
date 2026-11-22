@@ -40,5 +40,8 @@ class AccountSettingsServiceTest {
         assertEquals("new-hash",actor.getPasswordHash());verify(users).saveAndFlush(actor);verify(refresh).revokeAllUserTokens(7L);verify(resets).deleteByUserId(7L);}
     @Test void passwordsAreNeverTrimmed(){when(encoder.matches(" old password ","old-hash")).thenReturn(true);when(encoder.encode(" new password ")).thenReturn("new-hash");service.password(password(" old password "," new password "));verify(encoder).encode(" new password ");}
     @Test void unauthenticatedCallerCannotReadOrWrite(){when(current.requireCurrentUser()).thenThrow(new AccessDeniedException("Authentication required"));assertThrows(AccessDeniedException.class,()->service.get());assertThrows(AccessDeniedException.class,()->service.save(request));assertThrows(AccessDeniedException.class,()->service.password(password("old","NewPass123")));verifyNoInteractions(em,refresh,resets);}
+    @Test void accentColorDefaultsToOmniaForNewAndOlderClients(){assertEquals("omnia",service.get().accentColor());var r=service.save(request);assertEquals("omnia",r.accentColor());}
+    @Test void savesChosenAccentColor(){request.setAccentColor("emerald");assertEquals("emerald",service.save(request).accentColor());}
+    @Test void requestWithoutAccentKeepsSavedPalette(){when(settings.findById(7L)).thenReturn(Optional.of(UserSettings.builder().userId(7L).revision(3L).accentColor("pink").build()));request.setRevision(3L);assertEquals("pink",service.save(request).accentColor());}
     private ChangeCurrentPasswordRequest password(String current,String next){return ChangeCurrentPasswordRequest.builder().currentPassword(current).newPassword(next).build();}
 }

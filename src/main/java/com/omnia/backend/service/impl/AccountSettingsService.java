@@ -15,6 +15,7 @@ import java.nio.charset.StandardCharsets;
 
 @Service
 public class AccountSettingsService {
+    static final String DEFAULT_ACCENT="omnia";
     private final CurrentUserService current;private final UserRepository users;
     private final UserSettingsRepository settings;private final PasswordEncoder encoder;
     private final RefreshTokenService refresh;private final PasswordResetTokenRepository resets;
@@ -25,7 +26,7 @@ public class AccountSettingsService {
     }
     @Transactional(readOnly=true) public UserSettingsResponse get(){User user=current.requireCurrentUser();
         return settings.findById(user.getId()).map(this::response).orElseGet(()->new UserSettingsResponse(false,
-            (clean(user.getFirstName())+" "+clean(user.getLastName())).trim(),clean(user.getPhone()),"","system","sq","EUR",true,-1));}
+            (clean(user.getFirstName())+" "+clean(user.getLastName())).trim(),clean(user.getPhone()),"","system","sq","EUR",true,-1,DEFAULT_ACCENT));}
     @Transactional public UserSettingsResponse save(UserSettingsRequest r){
         User user=current.requireCurrentUser();em.lock(user,LockModeType.PESSIMISTIC_WRITE);
         UserSettings row=settings.findById(user.getId()).orElse(null);
@@ -34,6 +35,7 @@ public class AccountSettingsService {
         if(row==null)row=UserSettings.builder().userId(user.getId()).build();
         row.setFullName(clean(r.getFullName()));row.setPhone(clean(r.getPhone()));row.setAddress(clean(r.getAddress()));
         row.setTheme(r.getTheme());row.setLanguage(r.getLanguage());row.setCurrency(r.getCurrency());row.setNotifications(Boolean.TRUE.equals(r.getNotifications()));
+        if(r.getAccentColor()!=null)row.setAccentColor(r.getAccentColor());else if(row.getAccentColor()==null)row.setAccentColor(DEFAULT_ACCENT);
         return response(settings.saveAndFlush(row));
     }
     @Transactional public void password(ChangeCurrentPasswordRequest r){
@@ -47,6 +49,6 @@ public class AccountSettingsService {
         user.setPasswordHash(encoder.encode(next));users.saveAndFlush(user);
         refresh.revokeAllUserTokens(user.getId());resets.deleteByUserId(user.getId());
     }
-    private UserSettingsResponse response(UserSettings r){return new UserSettingsResponse(true,r.getFullName(),r.getPhone(),r.getAddress(),r.getTheme(),r.getLanguage(),r.getCurrency(),r.isNotifications(),r.getRevision());}
+    private UserSettingsResponse response(UserSettings r){return new UserSettingsResponse(true,r.getFullName(),r.getPhone(),r.getAddress(),r.getTheme(),r.getLanguage(),r.getCurrency(),r.isNotifications(),r.getRevision(),r.getAccentColor()==null?DEFAULT_ACCENT:r.getAccentColor());}
     private static String clean(String s){return s==null?"":s.trim();}
 }

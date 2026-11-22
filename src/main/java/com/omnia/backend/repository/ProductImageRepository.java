@@ -61,4 +61,17 @@ public interface ProductImageRepository
             @Param("uploadedFileId") Long uploadedFileId,
             @Param("imageId") Long imageId
     );
+
+    @Query("""
+            select case when count(image) > 0
+                        then true
+                        else false
+                   end
+            from ProductImage image
+            where image.uploadedFile.id = :uploadedFileId
+              and image.product.status = com.omnia.backend.enums.ProductStatus.ACTIVE
+            """)
+    boolean existsForActiveProductByUploadedFileId(
+            @Param("uploadedFileId") Long uploadedFileId
+    );
 }

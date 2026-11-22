@@ -48,7 +48,7 @@ class PayPalCheckoutIntegrationTest extends AbstractIntegrationTest {
         when(current.requireCurrentUser()).thenReturn(user);
         when(checkout.checkout(any())).thenReturn(CheckoutResponse.builder().checkoutReference(group.getCheckoutReference()).totalAmount(new BigDecimal("12.30")).build());
         orderService=mock(OrderService.class);service=new PayPalCheckoutService(jdbc,current,checkout,transitions,gateway,json,em,manager,ledger);key=UUID.randomUUID().toString();
-        when(gateway.create(anyString(),any())).thenAnswer(inv->{attempt=inv.getArgument(0);return json.readTree("{\"id\":\"PROVIDER123\",\"links\":[{\"rel\":\"approve\",\"href\":\"https://www.sandbox.paypal.com/checkoutnow?token=PROVIDER123\"}]}");});
+        when(gateway.create(anyString(),any(),anyBoolean())).thenAnswer(inv->{attempt=inv.getArgument(0);return json.readTree("{\"id\":\"PROVIDER123\",\"links\":[{\"rel\":\"approve\",\"href\":\"https://www.sandbox.paypal.com/checkoutnow?token=PROVIDER123\"}]}");});
         when(gateway.get("PROVIDER123")).thenAnswer(inv->evidence("CREATED",null));
     }
     private CreateOrderRequest request(){return CreateOrderRequest.builder().items(List.of()).build();}
@@ -61,7 +61,7 @@ class PayPalCheckoutIntegrationTest extends AbstractIntegrationTest {
     }
     @Test void retryUsesSameOrdersAndProviderRequest()throws Exception{
         var first=service.create(key,request());var second=service.create(key,request());
-        assertEquals(first.id(),second.id());verify(checkout,times(1)).checkout(any());verify(gateway,times(1)).create(anyString(),any());
+        assertEquals(first.id(),second.id());verify(checkout,times(1)).checkout(any());verify(gateway,times(1)).create(anyString(),any(),anyBoolean());
         assertEquals("PAYPAL",jdbc.queryForObject("SELECT method FROM payments WHERE order_id=?",String.class,order.getId()));
         assertThrows(IllegalArgumentException.class,()->guard.check(order,false));
     }
@@ -85,7 +85,7 @@ class PayPalCheckoutIntegrationTest extends AbstractIntegrationTest {
     }
     @Test void cancelledRequestKeyCannotCreateOrdersLater(){
         service.cancelRequest(key);assertThrows(IllegalArgumentException.class,()->service.create(key,request()));
-        verify(checkout,never()).checkout(any());verify(gateway,never()).create(anyString(),any());
+        verify(checkout,never()).checkout(any());verify(gateway,never()).create(anyString(),any(),anyBoolean());
     }
     @Test void uncertainCaptureResponseReadsProviderTruthBeforeSettling()throws Exception{
         var first=service.create(key,request());
@@ -158,7 +158,7 @@ class PayPalCheckoutIntegrationTest extends AbstractIntegrationTest {
     @Test void createThatSucceedsRemotelyButTimesOutLocallyIsNeverCancelledOnTheMissingId()throws Exception{
         // PayPal creates PROVIDER123 for this request ID, but the response never reaches us.
         List<String> requestIds=new ArrayList<>();
-        when(gateway.create(anyString(),any())).thenAnswer(inv->{attempt=inv.getArgument(0);requestIds.add(attempt);throw new IllegalStateException("PayPal create timed out");})
+        when(gateway.create(anyString(),any(),anyBoolean())).thenAnswer(inv->{attempt=inv.getArgument(0);requestIds.add(attempt);throw new IllegalStateException("PayPal create timed out");})
             .thenAnswer(inv->{requestIds.add(inv.getArgument(0));return json.readTree("{\"id\":\"PROVIDER123\",\"links\":[{\"rel\":\"approve\",\"href\":\"https://www.sandbox.paypal.com/checkoutnow?token=PROVIDER123\"}]}");});
         assertThrows(IllegalStateException.class,()->service.create(key,request()));
         String id=jdbc.queryForObject("SELECT id FROM paypal_checkouts WHERE user_id=? AND request_key=?",String.class,user.getId(),key);
@@ -189,7 +189,7 @@ class PayPalCheckoutIntegrationTest extends AbstractIntegrationTest {
         jdbc.update("INSERT INTO paypal_checkouts(id,user_id,request_key,request_hash,checkout_group_id,amount) VALUES(?,?,?,?,?,?)",id,user.getId(),key,"0".repeat(64),group.getId(),new BigDecimal("12.30"));
         assertNull(jdbc.queryForObject("SELECT paypal_create_attempted_at FROM paypal_checkouts WHERE id=?",java.sql.Timestamp.class,id));
         assertEquals("ABANDONED",service.abandon(id).state());
-        verify(gateway,never()).create(anyString(),any());
+        verify(gateway,never()).create(anyString(),any(),anyBoolean());
         assertEquals("CANCELLED",jdbc.queryForObject("SELECT status FROM orders WHERE id=?",String.class,order.getId()));
     }
 
@@ -207,7 +207,7 @@ class PayPalCheckoutIntegrationTest extends AbstractIntegrationTest {
 
     @Test void liveCheckoutIsRecordedReportedAndCapturedInLive()throws Exception{
         when(gateway.environment()).thenReturn("live");
-        when(gateway.create(anyString(),any())).thenAnswer(inv->{attempt=inv.getArgument(0);return json.readTree(LIVE_LINK);});
+        when(gateway.create(anyString(),any(),anyBoolean())).thenAnswer(inv->{attempt=inv.getArgument(0);return json.readTree(LIVE_LINK);});
         var view=service.create(key,request());
         assertEquals("live",environmentOf(view.id()));
         assertFalse(view.sandbox());assertEquals("live",view.environment());
@@ -243,7 +243,7 @@ class PayPalCheckoutIntegrationTest extends AbstractIntegrationTest {
         service.webhook(Map.of(),event);
 
         verify(gateway,never()).get(anyString());verify(gateway,never()).capture(anyString(),anyString());
-        verify(gateway,never()).create(anyString(),any());
+        verify(gateway,never()).create(anyString(),any(),anyBoolean());
         assertEquals("APPROVAL",jdbc.queryForObject("SELECT state FROM paypal_checkouts WHERE id=?",String.class,sandbox.id()));
         assertEquals("sandbox",environmentOf(sandbox.id()));
         assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM paypal_webhook_events WHERE checkout_id=?",Integer.class,sandbox.id()));
@@ -257,7 +257,7 @@ class PayPalCheckoutIntegrationTest extends AbstractIntegrationTest {
 
     @Test void liveCheckoutIsNeverSentToSandbox()throws Exception{
         when(gateway.environment()).thenReturn("live");
-        when(gateway.create(anyString(),any())).thenAnswer(inv->{attempt=inv.getArgument(0);return json.readTree(LIVE_LINK);});
+        when(gateway.create(anyString(),any(),anyBoolean())).thenAnswer(inv->{attempt=inv.getArgument(0);return json.readTree(LIVE_LINK);});
         var live=service.create(key,request());
         clearInvocations(gateway);
         when(gateway.environment()).thenReturn("sandbox");
@@ -277,12 +277,12 @@ class PayPalCheckoutIntegrationTest extends AbstractIntegrationTest {
                 "no request can be sent, so the checkout keeps its proof that PayPal holds nothing");
         // Nothing ever reached PayPal, so the buyer can release the orders without asking any PayPal.
         assertEquals("ABANDONED",service.abandon(id).state());
-        verify(gateway,never()).create(anyString(),any());verify(gateway,never()).get(anyString());
+        verify(gateway,never()).create(anyString(),any(),anyBoolean());verify(gateway,never()).get(anyString());
     }
 
     @Test void unconfiguredServerCreatesNothing(){
         when(gateway.environment()).thenReturn(null);
         assertThrows(IllegalStateException.class,()->service.create(key,request()));
-        verify(checkout,never()).checkout(any());verify(gateway,never()).create(anyString(),any());
+        verify(checkout,never()).checkout(any());verify(gateway,never()).create(anyString(),any(),anyBoolean());
     }
 }

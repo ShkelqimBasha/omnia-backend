@@ -33,6 +33,8 @@ public class PayPalGateway {
     @Value("${omnia.paypal.environment:sandbox}") private String environment = SANDBOX;
     @Value("${omnia.paypal.credentials-file:}") private String file;
     @Value("${omnia.paypal.public-base:https://api.myomniaapp.com}") private String publicBase;
+    /** Web app page that shows a PayPal checkout, e.g. https://myomniaapp.com/pagesa/paypal. Empty = no web return. */
+    @Value("${omnia.paypal.web-return-url:}") private String webReturnUrl = "";
     private String cachedToken,cachedClient;
     private long tokenExpires;
     public PayPalGateway(ObjectMapper json) { this.json = json; }
@@ -51,8 +53,17 @@ public class PayPalGateway {
             boolean credentialsMatch=LIVE.equals(setting) ? LIVE.equals(declared) : declared.isEmpty() || SANDBOX.equals(declared);
             return credentialsMatch && !c.path("clientId").asText().isBlank()
                 && !c.path("clientSecret").asText().isBlank() && c.path("merchantId").asText().matches("[A-Z0-9]{5,32}")
-                && !c.path("webhookId").asText().isBlank() && publicBase.matches("https://[A-Za-z0-9.-]+(?::[0-9]+)?"); }
+                && !c.path("webhookId").asText().isBlank() && publicBaseAllowed(setting); }
         catch (Exception ex) { return false; }
+    }
+    /**
+     * PayPal returns buyers to {@code publicBase}. Always https, except that Sandbox may also use
+     * http://localhost / 127.0.0.1 so a developer's machine gets the buyer back to its local server.
+     */
+    private boolean publicBaseAllowed(String setting) {
+        if (publicBase == null) return false;
+        if (publicBase.matches("https://[A-Za-z0-9.-]+(?::[0-9]+)?")) return true;
+        return SANDBOX.equals(setting) && publicBase.matches("http://(?:localhost|127[.]0[.]0[.]1)(?::[0-9]+)?");
     }
     public void requireReady() { if (!ready()) throw new IllegalStateException("PayPal is not configured"); }
     /** Environment this server sends requests to ("sandbox" or "live"), or null when PayPal is not ready. */
@@ -77,8 +88,10 @@ public class PayPalGateway {
         tokenExpires=System.currentTimeMillis()+Math.max(0,Math.min(3600,result.path("expires_in").asLong(300))-60)*1000;
         return token;
     }
-    public JsonNode create(String id, BigDecimal total) {
-        String root=publicBase+"/api/paypal/return?checkout="+id;
+    public JsonNode create(String id, BigDecimal total) { return create(id,total,false); }
+    public JsonNode create(String id, BigDecimal total, boolean web) {
+        // client=web makes /api/paypal/return send the browser back to the web app; it changes nothing else.
+        String root=publicBase+"/api/paypal/return?checkout="+id+(web && webReturnUrl()!=null?"&client=web":"");
         Map<String,Object> body=Map.of("intent","CAPTURE","purchase_units",List.of(Map.of(
                 "reference_id",id,"custom_id",id,"payee",Map.of("merchant_id",merchant()),
                 "amount",Map.of("currency_code","EUR","value",total.toPlainString()))),
@@ -86,6 +99,15 @@ public class PayPalGateway {
                         "brand_name",LIVE.equals(setting())?"Omnia":"Omnia Sandbox","shipping_preference","NO_SHIPPING","user_action","PAY_NOW",
                         "return_url",root,"cancel_url",root+"&cancelled=true"))));
         return request("POST","/v2/checkout/orders",body,"create-"+id);
+    }
+    /**
+     * The configured web return page, or null when unset or not a plain https URL (http only for localhost).
+     * Only the checkout UUID is ever appended, so this cannot become an open redirect.
+     */
+    public String webReturnUrl() {
+        String url=webReturnUrl==null?"":webReturnUrl.trim().replaceAll("/+$","");
+        return url.matches("https://[A-Za-z0-9.-]+(?::[0-9]+)?(?:/[A-Za-z0-9._~/-]*)?")
+                || url.matches("http://(?:localhost|127[.]0[.]0[.]1)(?::[0-9]+)?(?:/[A-Za-z0-9._~/-]*)?")?url:null;
     }
     public JsonNode get(String id) { validId(id); return request("GET","/v2/checkout/orders/"+id,null,null); }
     public JsonNode capture(String id, String key) { validId(id); return request("POST","/v2/checkout/orders/"+id+"/capture",Map.of(),"capture-"+key); }

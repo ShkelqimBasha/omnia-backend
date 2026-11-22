@@ -53,7 +53,9 @@ public class PayPalCheckoutService {
         if(user.getStatus()!=UserStatus.ACTIVE) throw new AccessDeniedException("Active account required");
         return user.getId();
     }
-    public View create(String key,CreateOrderRequest request) {
+    public View create(String key,CreateOrderRequest request) { return create(key,request,false); }
+    /** {@code web}: the buyer started on the web app, so PayPal returns them there (see PayPalGateway). */
+    public View create(String key,CreateOrderRequest request,boolean web) {
         gateway.requireReady(); uuid(key);long owner=owner();
         if(request.getItems()==null || request.getItems().size()>100) throw new IllegalArgumentException("Too many items");
         String hash=hash(request);
@@ -83,16 +85,16 @@ public class PayPalCheckoutService {
             return created;
         });
         // Commit reservations before the network call. A timeout always retries this same provider request ID.
-        return syncOwned(id,false,owner);
+        return syncOwned(id,false,owner,web);
     }
-    public View sync(String id,boolean capture) { uuid(id);return syncOwned(id,capture,owner()); }
-    private View syncOwned(String id,boolean capture,long owner) {
+    public View sync(String id,boolean capture) { uuid(id);return syncOwned(id,capture,owner(),false); }
+    private View syncOwned(String id,boolean capture,long owner,boolean web) {
         // Commit the attempt marker before reconcile() may send a create request. If PayPal creates the
         // order but the response or the local commit is lost, the marker survives the rollback, so a
         // missing PayPal order ID is never mistaken for proof that no PayPal order exists.
         // Only a checkout of this server's environment can be sent to PayPal, so only it is marked.
         tx.executeWithoutResult(status->jdbc.update("UPDATE paypal_checkouts SET paypal_create_attempted_at=UTC_TIMESTAMP(6) WHERE id=? AND user_id=? AND environment=? AND paypal_order_id IS NULL AND state='CREATING' AND paypal_create_attempted_at IS NULL AND created_at>=DATE_SUB(CURRENT_TIMESTAMP,INTERVAL 5 HOUR)",id,owner,gateway.environment()));
-        return tx.execute(status->{Row r=locked(id);if(r.owner!=owner)throw new AccessDeniedException("Payment not found");if("RECOVERY_REQUIRED".equals(r.state))return view(r);return reconcile(r,capture);});
+        return tx.execute(status->{Row r=locked(id);if(r.owner!=owner)throw new AccessDeniedException("Payment not found");if("RECOVERY_REQUIRED".equals(r.state))return view(r);return reconcile(r,capture,web);});
     }
     public View latest() {
         // The open checkout of this server's environment (any environment while PayPal is not configured).
@@ -166,7 +168,7 @@ public class PayPalCheckoutService {
         // Closed checkouts never capture again; verified money after closing opens a review case.
         if(Set.of("ABANDONED","REFUNDED").contains(r.state)) return closedCheckoutEvidence(r);
         if("PAYMENT.CAPTURE.REVERSED".equals(type)) return reversal(r,event);
-        reconcile(r,true);
+        reconcile(r,true,false);
         return "RECONCILED";
     }
     /** Provider truth for a webhook. Missing evidence is never read as "unpaid": PayPal redelivers. */
@@ -225,7 +227,7 @@ public class PayPalCheckoutService {
         }
         return "REVERSED";
     }
-    private View reconcile(Row r,boolean capture) {
+    private View reconcile(Row r,boolean capture,boolean web) {
         if(Set.of("ABANDONED","REFUNDED","REVIEW","RECOVERY_REQUIRED").contains(r.state)) return view(r);
         gateway.requireReady();
         requireServed(r);
@@ -236,7 +238,7 @@ public class PayPalCheckoutService {
             // PayPal's default idempotency retention is six hours. Never risk recreating an uncertain charge after it:
             // the earlier request may have created an order, so hand the checkout to SUPER_ADMIN recovery instead.
             if(r.created.plus(Duration.ofHours(5)).isBefore(Instant.now())) return uncertainCreation(r);
-            JsonNode created=gateway.create(r.id,r.amount);
+            JsonNode created=gateway.create(r.id,r.amount,web);
             String provider=created.path("id").asText();
             if(!provider.matches("[A-Z0-9]{5,64}"))throw new IllegalStateException("Invalid PayPal order response");
             String approval=PayPalGateway.approval(created,r.environment);

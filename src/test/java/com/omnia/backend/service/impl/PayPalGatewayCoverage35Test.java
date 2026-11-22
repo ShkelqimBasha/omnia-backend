@@ -59,6 +59,31 @@ class PayPalGatewayCoverage35Test {
         assertEquals("TESTMERCHANT1",unit.at("/payee/merchant_id").asText());assertEquals("local-reference",unit.path("custom_id").asText());
         assertEquals("https://api.example.com/api/paypal/return?checkout=local-reference",payload.at("/payment_source/paypal/experience_context/return_url").asText());
     }
+    String returnUrlOf(boolean web) throws Exception {
+        responses(tokenResponse(),response(201,"{\"id\":\"ORDER123\"}"));
+        gateway.create("local-reference",new BigDecimal("38.50"),web);
+        return json.readTree(body(requests(2).get(1))).at("/payment_source/paypal/experience_context/return_url").asText();
+    }
+    @Test void webCheckoutKeepsAppReturnWhenNoWebPageIsConfigured() throws Exception {
+        assertEquals("https://api.example.com/api/paypal/return?checkout=local-reference",returnUrlOf(true));
+    }
+    @Test void webCheckoutReturnUrlCarriesClientWhenWebPageIsConfigured() throws Exception {
+        ReflectionTestUtils.setField(gateway,"webReturnUrl","https://shop.example.com/pagesa/paypal/");
+        assertEquals("https://api.example.com/api/paypal/return?checkout=local-reference&client=web",returnUrlOf(true));
+    }
+    @Test void appCheckoutNeverCarriesWebClient() throws Exception {
+        ReflectionTestUtils.setField(gateway,"webReturnUrl","https://shop.example.com/pagesa/paypal");
+        assertEquals("https://api.example.com/api/paypal/return?checkout=local-reference",returnUrlOf(false));
+    }
+    @Test void webReturnUrlAcceptsOnlyPlainHttpsOrLocalhost() {
+        ReflectionTestUtils.setField(gateway,"webReturnUrl","https://shop.example.com:8443/pagesa/paypal/");
+        assertEquals("https://shop.example.com:8443/pagesa/paypal",gateway.webReturnUrl());
+        ReflectionTestUtils.setField(gateway,"webReturnUrl","http://localhost:3001/pagesa/paypal");
+        assertEquals("http://localhost:3001/pagesa/paypal",gateway.webReturnUrl());
+        for (String bad : List.of("","http://myomniaapp.com/x","https://evil.example/x?y=1","javascript:alert(1)","https://a.example/x'onmouseover=1","//evil.example")) {
+            ReflectionTestUtils.setField(gateway,"webReturnUrl",bad);assertNull(gateway.webReturnUrl(),bad);
+        }
+    }
     @Test void getAndCaptureReuseTokenAndCaptureRetainsIdempotencyKey() throws Exception {
         responses(tokenResponse(),response(200,"{}"),response(201,"{\"status\":\"COMPLETED\"}"));
         gateway.get("ORDER123");assertEquals("COMPLETED",gateway.capture("ORDER123","checkout-key").path("status").asText());

@@ -937,7 +937,7 @@ class PayPalRecoveryIntegrationTest extends AbstractIntegrationTest {
         doAnswer(inv -> {
             remoteCreates.incrementAndGet();
             throw new IllegalStateException("PayPal create timed out");
-        }).when(gateway).create(eq(checkoutId), any());
+        }).when(gateway).create(eq(checkoutId), any(), anyBoolean());
 
         assertThrows(IllegalStateException.class, () -> asBuyer(() -> checkoutService.sync(checkoutId, false)));
         assertEquals(1, remoteCreates.get());
@@ -991,7 +991,7 @@ class PayPalRecoveryIntegrationTest extends AbstractIntegrationTest {
         assertEquals(8, stock(productA));
         assertEquals(8, stock(productB));
         assertEquals(key, requestKey());
-        verify(gateway, never()).create(anyString(), any());
+        verify(gateway, never()).create(anyString(), any(), anyBoolean());
         verify(gateway, never()).get(anyString());
     }
 
@@ -1026,7 +1026,7 @@ class PayPalRecoveryIntegrationTest extends AbstractIntegrationTest {
         assertEquals(key, requestKey());
         verify(gateway, never()).get(anyString());
         verify(gateway, never()).capture(anyString(), anyString());
-        verify(gateway, never()).create(anyString(), any());
+        verify(gateway, never()).create(anyString(), any(), anyBoolean());
         verify(gateway, never()).merchant();
     }
 

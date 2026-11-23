@@ -80,6 +80,18 @@ public class Organization {
     private void synchronizeEditorName() {
         if(editorNameKey!=null&&name!=null)editorNameKey=name.trim().replaceAll("\\s+"," ").toLowerCase(java.util.Locale.ROOT);
     }
+    /** Payment methods this company accepts (V49); at least one is on. */
+    @Builder.Default
+    @Column(name="accepts_cash_on_delivery",nullable=false)
+    private boolean acceptsCashOnDelivery=true;
+    @Builder.Default
+    @Column(name="accepts_paypal",nullable=false)
+    private boolean acceptsPaypal=true;
+    /** Optional COD limits on this company's product value in a checkout. */
+    @Column(name="cod_min_order_amount",precision=10,scale=2)
+    private java.math.BigDecimal codMinOrderAmount;
+    @Column(name="cod_max_order_amount",precision=10,scale=2)
+    private java.math.BigDecimal codMaxOrderAmount;
     @Version @Builder.Default
     @Column(name="editor_revision",nullable=false)
     private Long editorRevision=0L;

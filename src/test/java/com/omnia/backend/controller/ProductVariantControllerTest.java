@@ -1,6 +1,7 @@
 package com.omnia.backend.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.omnia.backend.common.exception.GlobalExceptionHandler;
 import com.omnia.backend.dto.request.ProductVariantRequest;
 import com.omnia.backend.dto.response.ProductVariantResponse;
 import com.omnia.backend.service.interfaces.ProductVariantService;
@@ -11,6 +12,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -20,7 +22,9 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -53,6 +57,7 @@ class ProductVariantControllerTest {
 
         mockMvc = MockMvcBuilders
                 .standaloneSetup(controller)
+                .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
 
         objectMapper = new ObjectMapper()
@@ -366,6 +371,137 @@ class ProductVariantControllerTest {
                 .deleteVariant(VARIANT_ID);
 
         verifyNoMoreInteractions(productVariantService);
+    }
+
+    @Test
+    void addVariant_WhenAccessDenied_ShouldReturnForbidden()
+            throws Exception {
+
+        when(
+                productVariantService.addVariant(
+                        eq(PRODUCT_ID),
+                        any(ProductVariantRequest.class)
+                )
+        ).thenThrow(new AccessDeniedException("denied"));
+
+        mockMvc.perform(
+                        post(
+                                "/api/product-variants/product/{productId}",
+                                PRODUCT_ID
+                        )
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(json(createRequest("Color", "Black", "1.00", 1)))
+                )
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void updateVariant_WhenAccessDenied_ShouldReturnForbidden()
+            throws Exception {
+
+        when(
+                productVariantService.updateVariant(
+                        eq(VARIANT_ID),
+                        any(ProductVariantRequest.class)
+                )
+        ).thenThrow(new AccessDeniedException("denied"));
+
+        mockMvc.perform(
+                        put("/api/product-variants/{variantId}", VARIANT_ID)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(json(createRequest("Color", "Black", "1.00", 1)))
+                )
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void deleteVariant_WhenAccessDenied_ShouldReturnForbidden()
+            throws Exception {
+
+        doThrow(new AccessDeniedException("denied"))
+                .when(productVariantService)
+                .deleteVariant(VARIANT_ID);
+
+        mockMvc.perform(
+                        delete("/api/product-variants/{variantId}", VARIANT_ID)
+                )
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void addVariant_WithBlankName_ShouldReturnBadRequest()
+            throws Exception {
+
+        assertRejected(createRequest("  ", "Black", "1.00", 1));
+    }
+
+    @Test
+    void addVariant_WithMissingValue_ShouldReturnBadRequest()
+            throws Exception {
+
+        assertRejected(createRequest("Color", null, "1.00", 1));
+    }
+
+    @Test
+    void addVariant_WithTooLongName_ShouldReturnBadRequest()
+            throws Exception {
+
+        assertRejected(createRequest("x".repeat(101), "Black", "1.00", 1));
+    }
+
+    @Test
+    void addVariant_WithNegativeStock_ShouldReturnBadRequest()
+            throws Exception {
+
+        assertRejected(createRequest("Color", "Black", "1.00", -1));
+    }
+
+    @Test
+    void addVariant_WithMissingStock_ShouldReturnBadRequest()
+            throws Exception {
+
+        assertRejected(createRequest("Color", "Black", "1.00", null));
+    }
+
+    @Test
+    void addVariant_WithTooPrecisePrice_ShouldReturnBadRequest()
+            throws Exception {
+
+        assertRejected(createRequest("Color", "Black", "1.005", 1));
+    }
+
+    @Test
+    void updateVariant_WithNegativeStock_ShouldReturnBadRequest()
+            throws Exception {
+
+        mockMvc.perform(
+                        put("/api/product-variants/{variantId}", VARIANT_ID)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(json(createRequest("Color", "Black", "1.00", -5)))
+                )
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(productVariantService);
+    }
+
+    private void assertRejected(ProductVariantRequest request)
+            throws Exception {
+
+        mockMvc.perform(
+                        post(
+                                "/api/product-variants/product/{productId}",
+                                PRODUCT_ID
+                        )
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(json(request))
+                )
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(productVariantService);
+    }
+
+    private String json(Object value) throws Exception {
+        return objectMapper.writeValueAsString(value);
     }
 
     private ProductVariantRequest createRequest(

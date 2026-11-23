@@ -22,11 +22,14 @@ public class NotificationInbox {
  static final String VISIBLE="n.recipient_id=? AND ((n.target_type='ORDER' AND EXISTS (SELECT 1 FROM orders o WHERE o.id=n.target_id AND (o.user_id=? OR ?=1 OR (o.organization_id=n.organization_id AND "+MANAGER+")))) OR (n.target_type='PRODUCT' AND EXISTS (SELECT 1 FROM products p WHERE p.id=n.target_id AND (p.organization_id=n.organization_id OR (p.organization_id IS NULL AND n.organization_id IS NULL)) AND (?=1 OR "+MANAGER+"))) OR (n.target_type='USER' AND ?=1 AND EXISTS (SELECT 1 FROM users t WHERE t.id=n.target_id AND t.deleted_at IS NULL)) OR (n.target_type='COMPANY' AND ?=1 AND EXISTS (SELECT 1 FROM organizations g WHERE g.id=n.target_id))"
   // Buyer notices: a price drop of a product that is still listed, and alerts of the recipient's own saved search.
   +" OR (n.category='BUYER' AND n.target_type='PRODUCT' AND EXISTS (SELECT 1 FROM products p WHERE p.id=n.target_id AND p.status='ACTIVE'))"
-  +" OR (n.category='BUYER' AND n.target_type='SEARCH' AND EXISTS (SELECT 1 FROM saved_searches s WHERE s.id=n.target_id AND s.user_id=n.recipient_id)))";
+  +" OR (n.category='BUYER' AND n.target_type='SEARCH' AND EXISTS (SELECT 1 FROM saved_searches s WHERE s.id=n.target_id AND s.user_id=n.recipient_id))"
+  +" OR (n.target_type='CHAT' AND EXISTS (SELECT 1 FROM chat_conversations c WHERE c.id=n.target_id AND c.organization_id=n.organization_id AND (c.buyer_id=? OR "+MANAGER+"))))";
+  /** Positional arguments for {@link #VISIBLE}, in placeholder order. */
+ static List<Object> visibleArgs(long id,boolean admin){int a=admin?1:0;return new ArrayList<>(List.of(id,id,a,id,a,id,a,a,id,id));}
  public record Notice(long id,String kind,String category,String targetType,long targetId,Long organizationId,String label,String status,java.math.BigDecimal amount,java.math.BigDecimal previousAmount,Integer quantity,String createdAt,boolean read){}
  public record Page(List<Notice> items,long throughId,long unread,Long nextBefore){}
  private static final RowMapper<Notice> MAPPER=(r,i)->new Notice(r.getLong("id"),r.getString("kind"),r.getString("category"),r.getString("target_type"),r.getLong("target_id"),r.getObject("organization_id",Long.class),r.getString("label"),r.getString("status"),r.getBigDecimal("amount"),r.getBigDecimal("previous_amount"),r.getObject("quantity",Integer.class),r.getTimestamp("created_at").toLocalDateTime().toInstant(ZoneOffset.UTC).toString(),r.getTimestamp("read_at")!=null);
- private List<Object> actor(){User u=current.requireCurrentUser();if(u.getStatus()!=UserStatus.ACTIVE)throw new AccessDeniedException("Active account required");long id=u.getId();int admin=current.hasPlatformAdminAccess(u)?1:0;return new ArrayList<>(List.of(id,id,admin,id,admin,id,admin,admin));}
+ private List<Object> actor(){User u=current.requireCurrentUser();if(u.getStatus()!=UserStatus.ACTIVE)throw new AccessDeniedException("Active account required");return visibleArgs(u.getId(),current.hasPlatformAdminAccess(u));}
  @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
  public Page list(String filter,long before){
   if(!Set.of("all","unread","system").contains(filter)||before<0)throw new IllegalArgumentException("Invalid notification filter or cursor");
@@ -50,6 +53,8 @@ public class NotificationInbox {
    case "USER" -> {User u=em.find(User.class,n.targetId());if(u==null)throw new ResourceNotFoundException("User unavailable");detail.put("name",safe(u.getFirstName())+" "+safe(u.getLastName()));detail.put("username",u.getUsername());detail.put("email",u.getEmail());detail.put("status",u.getStatus().name());}
    case "COMPANY" -> {Organization o=em.find(Organization.class,n.targetId());if(o==null)throw new ResourceNotFoundException("Company unavailable");detail.put("name",o.getName());detail.put("slug",o.getSlug());detail.put("description",safe(o.getDescription()));detail.put("status",o.getStatus().name());}
    case "SEARCH" -> {SavedSearch s=em.find(SavedSearch.class,n.targetId());if(s==null)throw new ResourceNotFoundException("Saved search unavailable");detail.put("name",s.getName());detail.put("filters",s.getFilters());detail.put("count",n.quantity()==null?0:n.quantity());}
+   case "CHAT" -> {var chat=jdbc.queryForList("SELECT c.id,c.product_id,c.product_name,g.name AS organization_name FROM chat_conversations c JOIN organizations g ON g.id=c.organization_id WHERE c.id=?",n.targetId());if(chat.isEmpty())throw new ResourceNotFoundException("Conversation unavailable");var c=chat.get(0);
+    detail.put("conversationId",c.get("id"));detail.put("productId",c.get("product_id"));detail.put("name",c.get("product_name"));detail.put("organization",c.get("organization_name"));}
    default -> throw new ResourceNotFoundException("Unsupported target");
   }
   jdbc.update("UPDATE notification_inbox SET read_at=COALESCE(read_at,UTC_TIMESTAMP(6)) WHERE id=? AND recipient_id=?",id,current.requireCurrentUser().getId());return detail;

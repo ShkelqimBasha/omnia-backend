@@ -58,6 +58,21 @@ public class NotificationWriter {
   em.flush();int written=0;String key="price:"+p.getId()+":"+before.stripTrailingZeros().toPlainString()+">"+after.stripTrailingZeros().toPlainString();
   for(long user:jdbc.queryForList("SELECT f.user_id FROM favorites f WHERE f.product_id=? ORDER BY f.user_id",Long.class,p.getId()))if(buyer(user,key,"PRICE_DROP","PRODUCT",p.getId(),p.getName(),after,before,null))written++;
   return written;}
+ /**
+  * A new chat message: one notice for the other side only (the buyer, or the company's active owners/admins),
+  * never the sender. While a recipient still has an unread notice for this chat, no new notice or push is added.
+  */
+ public void chat(long conversationId,long messageId,long organizationId,String productName,boolean fromBuyer,long buyerId,long senderId){
+  em.flush();
+  List<Long> users=fromBuyer
+   ?jdbc.queryForList("SELECT u.id FROM users u JOIN organization_members m ON m.user_id=u.id JOIN organizations g ON g.id=m.organization_id WHERE m.organization_id=? AND m.status='ACTIVE' AND m.membership_role IN ('OWNER','ADMIN') AND g.status='ACTIVE' AND u.deleted_at IS NULL AND u.status='ACTIVE' AND u.id<>?",Long.class,organizationId,senderId)
+   :jdbc.queryForList("SELECT u.id FROM users u WHERE u.id=? AND u.id<>? AND u.deleted_at IS NULL AND u.status='ACTIVE'",Long.class,buyerId,senderId);
+  String label=productName==null?"":productName.substring(0,Math.min(200,productName.length()));String key="chat:"+messageId;
+  for(long user:new TreeSet<>(users)){
+   int added=jdbc.update("INSERT INTO notification_inbox (recipient_id,event_key,kind,category,target_type,target_id,organization_id,label,status,created_at) SELECT ?,?,'CHAT_MESSAGE','USER','CHAT',?,?,?,?,UTC_TIMESTAMP(6) FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM notification_inbox x WHERE x.recipient_id=? AND x.target_type='CHAT' AND x.target_id=? AND x.read_at IS NULL)",user,key,conversationId,organizationId,label,fromBuyer?"BUYER":"SELLER",user,conversationId);
+   if(added>0)jdbc.update("INSERT INTO push_outbox(notification_id,available_at) SELECT id,UTC_TIMESTAMP(6) FROM notification_inbox WHERE recipient_id=? AND event_key=? ON DUPLICATE KEY UPDATE notification_id=notification_id",user,key);
+  }
+ }
  public void user(User u){write("user:"+u.getId(),"USER_REGISTERED","SYSTEM","USER",u.getId(),null,u.getUsername(),null,null,null,null);}
  /** "Shitës i verifikuar" decision, for the company's owners/admins (and platform admins). */
  public void verification(OrganizationVerification v){

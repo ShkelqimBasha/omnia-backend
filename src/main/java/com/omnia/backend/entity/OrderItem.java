@@ -26,6 +26,10 @@ public class OrderItem {
     @Column(name = "product_id")
     private Long productId;
 
+    /** Size bought (product_variants.id); NULL when unsized or when the size was deleted later. */
+    @Column(name = "variant_id")
+    private Long variantId;
+
     @Column(name = "product_name", nullable = false)
     private String productName;
 

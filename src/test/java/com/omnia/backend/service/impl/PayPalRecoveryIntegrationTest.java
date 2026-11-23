@@ -606,6 +606,31 @@ class PayPalRecoveryIntegrationTest extends AbstractIntegrationTest {
         assertEquals(2, count("SELECT COUNT(*) FROM order_status_history WHERE order_id IN (?,?) AND to_status='CANCELLED' AND changed_by_user_id=?", firstOrder, secondOrder, buyerId));
     }
 
+    @Test void buyerAbandonPutsStockBackOnEachSize() {
+        // Product A becomes a clothing listing with two sizes; each order line was bought in one.
+        jdbc.update("UPDATE categories SET kind='CLOTHING' WHERE id=(SELECT category_id FROM products WHERE id=?)", productA);
+        jdbc.update("INSERT INTO product_variants(product_id,variant_name,variant_value,price_adjustment,stock) VALUES(?,'SIZE','M',0,1)", productA);
+        long medium = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbc.update("INSERT INTO product_variants(product_id,variant_name,variant_value,price_adjustment,stock) VALUES(?,'SIZE','L',0,2)", productA);
+        long large = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbc.update("UPDATE products SET stock=3 WHERE id=?", productA);
+        jdbc.update("UPDATE order_items SET variant_id=? WHERE order_id=? AND product_id=?", medium, firstOrder, productA);
+        jdbc.update("UPDATE order_items SET variant_id=? WHERE order_id=? AND product_id=?", large, secondOrder, productA);
+        jdbc.update("UPDATE paypal_checkouts SET state='APPROVAL' WHERE id=?", checkoutId);
+        evidence("CREATED", null, null);
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(
+                new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(buyer, "n/a", List.of()));
+        try {
+            assertEquals("ABANDONED", checkoutService.abandon(checkoutId).state());
+        } finally {
+            org.springframework.security.core.context.SecurityContextHolder.clearContext();
+        }
+        assertEquals(3, count("SELECT stock FROM product_variants WHERE id=?", medium), "2 back on M");
+        assertEquals(3, count("SELECT stock FROM product_variants WHERE id=?", large), "1 back on L");
+        assertEquals(6, stock(productA), "product stock is the sum of its sizes");
+        assertEquals(8, stock(productB), "unsized product as before");
+    }
+
     // ---- Reversals and evidence anomalies from webhooks ----
 
     private void markPaid() throws Exception {

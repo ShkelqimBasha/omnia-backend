@@ -17,6 +17,9 @@ public class OrderItemResponse {
 
     private String productImage;
 
+    /** Size bought (null when unsized or deleted since); variantInfo keeps the text, e.g. "Masa: M". */
+    private Long variantId;
+
     private String variantInfo;
 
     private BigDecimal unitPrice;

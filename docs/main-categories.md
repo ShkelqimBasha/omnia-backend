@@ -5,8 +5,8 @@ It matches categories by name, so it works on any database. It does not delete c
 
 | Category | Kind | Buyer actions | Listing fields |
 |---|---|---|---|
-| Veshje (was "Modë", same id) | CLOTHING | cart + payment | size, colour, brand, condition |
-| Atlete & Këpucë (new) | SHOES | cart + payment | shoe size, brand, colour, condition |
+| Veshje (was "Modë", same id) | CLOTHING | cart + payment; buyer picks a size | sizes with own stock (see below); colour, brand, condition |
+| Atlete & Këpucë (new) | SHOES | cart + payment; buyer picks a size | sizes with own stock (see below); brand, colour, condition |
 | Kujdes për Lëkurën (was "Bukuri dhe Kujdes", same id) | SKINCARE | cart + payment | brand, product type, skin type, volume (ml), ingredients |
 | Makina (new) | CAR | "Kontakto shitësin"; "Bli online" only if the seller chose "Kontakt + blerje online" **and** the flag is on | make, model, year, km, fuel, gearbox, location (+ price) |
 | Prona (new) | PROPERTY | "Kontakto", "Kërko vizitë"; never cart or online payment | sale/rent, type, location, area m², rooms (+ price) |
@@ -43,6 +43,40 @@ New listings in an INACTIVE category are refused.
 - Server-side guards:
   - The cart and checkout refuse property, contact-only cars and every car while the flag is off.
   - A car is bought alone, quantity 1, for the full price. There is no deposit or reservation.
+
+## Sizes (clothing and shoes)
+
+V42 (`V42__add_product_sizes.sql`) adds sizes. Each size is a `product_variants` row named `SIZE` with its own stock.
+The product's `stock` is always the sum of its sizes. Rules are in `catalog/ProductSizes` and `catalog/SizeStock`.
+
+- Values:
+  - Clothing: `XS, S, M, L, XL, XXL, XXXL, ONE_SIZE`, shown as XS…XXL, `3XL`, `Një masë`.
+  - Shoes: 15–50 in half sizes, stored as `"38"`, `"42.5"`.
+  - Lower case, `3XL`, `42,5` and `42.0` are accepted and stored in the form above.
+- `POST`/`PUT /api/products` accept `sizes: [{value, stock}]`:
+  - Clothing and shoes only. Values must be valid and not repeated, stock 0–1 000 000, at most 40 sizes.
+  - `stock` is only needed for a product without sizes. With sizes, the server sets it to the sum.
+  - On update the list replaces the current sizes. A size that stays keeps its id.
+  - A removed size is deleted. If an open cart line uses it, it stays with stock 0 instead.
+  - `sizes: []` makes the product unsized again (`stock` is then required). Its cart lines with a size are removed.
+  - `sizes` left out on update keeps the sizes as they are.
+  - Moving the product to a category without sizes drops them.
+  - Moving between clothing and shoes needs the new `sizes` in the same request.
+- `GET /api/products` adds `sizes: [{id, value, label, stock}]` in display order and `sizeRequired`.
+  For other kinds, and clothing/shoe listings without sizes, these are `[]` and `false`.
+- Cart (`POST /api/cart`): `variantId` (a size id) is required for a product with sizes and refused otherwise.
+  The quantity, counting what is already in that line, may not go over that size's stock.
+  Each size is its own cart line. `CartItemResponse` adds `sizeLabel` and `availableStock`.
+- Checkout (`POST /api/orders/checkout`, PayPal checkout, `POST /api/orders`): each item carries `variantId` under the same rule.
+  Stock is checked and taken per size under the product row lock. The order line stores `variant_id` and `variant_info` (`"Masa: M"`, `"Numri: 42.5"`).
+  `OrderItemResponse` shows `variantId` and `variantInfo` in buyer, seller and admin views.
+- Cancel, admin cancel and PayPal group cancellation put stock back on the line's size.
+  If that size was deleted, a product with a single size gets it back. With several sizes nothing is put back, since there is no way to know which.
+- The old `/api/product-variants` endpoints follow the same rules: name `SIZE` only, no price adjustment.
+  Clients should send `sizes` on the product instead.
+- The old single-value fields `size` (clothing) and `shoeSize` (shoes) are gone.
+  V42 moved each stored value into one SIZE row holding the product's whole stock, and removed the keys.
+  Shoe numbers between half sizes were rounded to the nearest half. `attr.size` and `attr.shoeSize` filters now give 400.
 
 ## Car "Bli online" flag
 

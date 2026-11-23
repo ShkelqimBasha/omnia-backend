@@ -65,6 +65,26 @@ public class ProductResponse {
     private String sellerPhone;
     private String sellerEmail;
 
+    /** Clothing and shoes: the sizes in display order, each with its own stock; [] otherwise. */
+    @Builder.Default
+    private java.util.List<SizeView> sizes = java.util.List.of();
+
+    /** True when the buyer must choose one of {@link #sizes} before adding to the cart. */
+    private boolean sizeRequired;
+
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class SizeView {
+        /** product_variants.id, sent back as variantId in the cart and checkout. */
+        private Long id;
+        private String value;
+        private String label;
+        private Integer stock;
+    }
+
     @Getter
     @Setter
     @NoArgsConstructor

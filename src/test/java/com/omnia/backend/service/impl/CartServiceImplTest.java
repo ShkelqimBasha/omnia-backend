@@ -688,6 +688,10 @@ class CartServiceImplTest {
     void addToCart_shouldPreserveVariantId() {
 
         addRequest.setVariantId(55L);
+        product.setCategory(com.omnia.backend.entity.Category.builder().id(3L)
+                .name("Veshje").kind(com.omnia.backend.enums.CategoryKind.CLOTHING).build());
+        product.getVariants().add(com.omnia.backend.entity.ProductVariant.builder()
+                .id(55L).product(product).variantName("SIZE").variantValue("M").stock(10).build());
 
         when(userRepository.findByEmail("shkelqim@example.com"))
                 .thenReturn(Optional.of(user));

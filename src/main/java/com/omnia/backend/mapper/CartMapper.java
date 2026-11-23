@@ -14,12 +14,17 @@ public class CartMapper {
 
         BigDecimal subtotal = item.getPrice()
                 .multiply(BigDecimal.valueOf(item.getQuantity()));
+        com.omnia.backend.entity.ProductVariant size =
+                item.getVariantId() == null ? null : item.getVariant();
 
         return CartItemResponse.builder()
                 .id(item.getId())
                 .productId(item.getProduct().getId())
                 .productName(item.getProduct().getName())
                 .variantId(item.getVariantId())
+                .sizeLabel(size == null ? null
+                        : com.omnia.backend.catalog.ProductSizes.label(size.getVariantValue()))
+                .availableStock(com.omnia.backend.catalog.SizeStock.available(item.getProduct(), size))
                 .quantity(item.getQuantity())
                 .price(item.getPrice())
                 .subtotal(subtotal)

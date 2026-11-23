@@ -28,9 +28,14 @@ public class CartItem {
     @JoinColumn(name = "product_id", nullable = false)
     private Product product;
 
-    // Për momentin nuk kemi ProductVariant entity
+    // Masa e zgjedhur (product_variants.id); null për produktet pa masa
     @Column(name = "variant_id")
     private Long variantId;
+
+    // E njëjta kolonë, vetëm për lexim (etiketa dhe sasia e masës në shportë)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "variant_id", insertable = false, updatable = false)
+    private ProductVariant variant;
 
     @Column(nullable = false)
     private Integer quantity;

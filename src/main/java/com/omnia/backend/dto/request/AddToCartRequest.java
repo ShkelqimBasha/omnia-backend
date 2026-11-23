@@ -14,6 +14,7 @@ public class AddToCartRequest {
     @NotNull
     private Long productId;
 
+    /** Size (product_variants.id): required when the product has sizes, refused otherwise. */
     private Long variantId;
 
     @NotNull

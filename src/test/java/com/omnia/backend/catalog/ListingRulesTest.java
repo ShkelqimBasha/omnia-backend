@@ -21,8 +21,9 @@ class ListingRulesTest {
 
     @Test
     void eachMainCategoryHasTheAgreedFields() {
-        assertEquals(List.of("size", "color", "brand", "condition"), keys(CategoryKind.CLOTHING));
-        assertEquals(List.of("shoeSize", "brand", "color", "condition"), keys(CategoryKind.SHOES));
+        // Sizes are not listing fields: each size has its own stock (ProductSizes).
+        assertEquals(List.of("color", "brand", "condition"), keys(CategoryKind.CLOTHING));
+        assertEquals(List.of("brand", "color", "condition"), keys(CategoryKind.SHOES));
         assertEquals(List.of("brand", "productType", "skinType", "volumeMl", "ingredients"),
                 keys(CategoryKind.SKINCARE));
         assertEquals(List.of("make", "model", "year", "mileageKm", "fuel", "gearbox", "location"),
@@ -44,14 +45,13 @@ class ListingRulesTest {
     @Test
     void clothingNormalizesSelectsAndMovesBrandToTheBrandColumn() {
         Map<String, Object> raw = new HashMap<>();
-        raw.put("size", "m");
         raw.put("color", "  E zezë ");
         raw.put("condition", "new");
         raw.put("brand", "Zara");
         ListingRules.NormalizedListing listing = ListingRules.normalize(CategoryKind.CLOTHING, raw, null);
 
         assertEquals("Zara", listing.brand());
-        assertEquals(Map.of("size", "M", "color", "E zezë", "condition", "NEW"), listing.attributes());
+        assertEquals(Map.of("color", "E zezë", "condition", "NEW"), listing.attributes());
     }
 
     @Test
@@ -84,10 +84,6 @@ class ListingRulesTest {
         assertThrows(IllegalArgumentException.class,
                 () -> ListingRules.normalize(CategoryKind.SHOES, Map.of("condition", "BROKEN"), null));
         assertThrows(IllegalArgumentException.class,
-                () -> ListingRules.normalize(CategoryKind.SHOES, Map.of("shoeSize", "99"), null));
-        assertThrows(IllegalArgumentException.class,
-                () -> ListingRules.normalize(CategoryKind.SHOES, Map.of("shoeSize", "big"), null));
-        assertThrows(IllegalArgumentException.class,
                 () -> ListingRules.normalize(CategoryKind.GENERAL, Map.of("size", "M"), null));
         assertThrows(IllegalArgumentException.class,
                 () -> ListingRules.normalize(CategoryKind.SKINCARE,
@@ -95,10 +91,11 @@ class ListingRulesTest {
     }
 
     @Test
-    void shoeSizeKeepsHalfSizes() {
-        assertEquals(new BigDecimal("42.5"),
-                ListingRules.normalize(CategoryKind.SHOES, Map.of("shoeSize", "42,5"), null)
-                        .attributes().get("shoeSize"));
+    void theOldSingleSizeFieldsAreRefused() {
+        assertThrows(IllegalArgumentException.class,
+                () -> ListingRules.normalize(CategoryKind.CLOTHING, Map.of("size", "M"), null));
+        assertThrows(IllegalArgumentException.class,
+                () -> ListingRules.normalize(CategoryKind.SHOES, Map.of("shoeSize", "42"), null));
     }
 
     @Test

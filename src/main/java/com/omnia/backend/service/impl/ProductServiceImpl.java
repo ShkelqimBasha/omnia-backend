@@ -36,6 +36,13 @@ public class ProductServiceImpl
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.omnia.backend.catalog.CatalogSettings catalogSettings;
 
+    private ProductSizeWriter sizeWriter;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setSizeWriter(ProductSizeWriter sizeWriter) {
+        this.sizeWriter = sizeWriter;
+    }
+
 
     private static final int MAX_PAGE_SIZE = 100;
 
@@ -122,6 +129,11 @@ public class ProductServiceImpl
         com.omnia.backend.catalog.ListingRules.NormalizedListing listing =
                 com.omnia.backend.catalog.ListingRules.normalize(
                         kind, request.getAttributes(), request.getBrand());
+        List<com.omnia.backend.catalog.ProductSizes.SizeInput> sizes =
+                com.omnia.backend.catalog.ProductSizes.normalize(kind, sizeInputs(request));
+        if (sizes.isEmpty()) {
+            requireStock(request);
+        }
 
         Product product =
                 Product.builder()
@@ -137,7 +149,7 @@ public class ProductServiceImpl
                         .discountPrice(
                                 request.getDiscountPrice()
                         )
-                        .stock(request.getStock())
+                        .stock(sizes.isEmpty() ? request.getStock() : 0)
                         .category(category)
                         .organization(organization)
                         .createdBy(currentUser)
@@ -146,6 +158,9 @@ public class ProductServiceImpl
 
         Product savedProduct =
                 productRepository.save(product);
+        if (!sizes.isEmpty()) {
+            sizeWriter().replace(savedProduct, sizes);
+        }
 
         if (notificationWriter != null) notificationWriter.low(savedProduct, "create");
         return productMapper.toResponse(savedProduct);
@@ -342,9 +357,27 @@ public class ProductServiceImpl
                 request.getDiscountPrice()
         );
         Integer notificationPreviousStock = product.getStock();
-        product.setStock(request.getStock());
+        com.omnia.backend.enums.CategoryKind previousKind =
+                com.omnia.backend.catalog.ListingRules.kindOf(product);
+        List<com.omnia.backend.catalog.ProductSizes.SizeInput> sizes =
+                sizesForUpdate(product, previousKind, targetKind, request);
+        if (sizes != null && sizes.isEmpty()) {
+            requireStock(request);
+        }
         product.setCategory(targetCategory);
         product.setOrganization(targetOrganization);
+        if (sizes != null) {
+            // Sizes change: hold the product row like checkout does while stock moves.
+            productRepository.findByIdForUpdate(product.getId());
+            sizeWriter().replace(product, sizes);
+        }
+        if (com.omnia.backend.catalog.ProductSizes.sizesOf(product).isEmpty()) {
+            requireStock(request);
+            product.setStock(request.getStock());
+        } else {
+            // Product stock is the sum of its sizes; a stock sent by the client is ignored.
+            com.omnia.backend.catalog.SizeStock.syncProductStock(product);
+        }
 
         Product updatedProduct =
                 productRepository.save(product);
@@ -354,6 +387,53 @@ public class ProductServiceImpl
         return productMapper.toResponse(
                 updatedProduct
         );
+    }
+
+    private static List<com.omnia.backend.catalog.ProductSizes.SizeInput> sizeInputs(
+            ProductRequest request) {
+        if (request.getSizes() == null) return null;
+        return request.getSizes().stream()
+                .map(size -> size == null ? null
+                        : new com.omnia.backend.catalog.ProductSizes.SizeInput(
+                                size.getValue(), size.getStock()))
+                .toList();
+    }
+
+    private static void requireStock(ProductRequest request) {
+        if (request.getStock() == null) {
+            throw new IllegalArgumentException("Stock is required for a product without sizes");
+        }
+    }
+
+    /**
+     * The sizes an update writes, or null to leave them as they are.
+     * Sent sizes replace the current ones. Moving to a category without sizes
+     * drops them. Moving between clothing and shoes needs the new sizes, since
+     * "M" is not a shoe number.
+     */
+    private List<com.omnia.backend.catalog.ProductSizes.SizeInput> sizesForUpdate(
+            Product product,
+            com.omnia.backend.enums.CategoryKind previousKind,
+            com.omnia.backend.enums.CategoryKind targetKind,
+            ProductRequest request) {
+        boolean hasSizes = product.getVariants().stream()
+                .anyMatch(com.omnia.backend.catalog.ProductSizes::isSize);
+        if (request.getSizes() != null) {
+            List<com.omnia.backend.catalog.ProductSizes.SizeInput> sizes =
+                    com.omnia.backend.catalog.ProductSizes.normalize(targetKind, sizeInputs(request));
+            return sizes.isEmpty() && !hasSizes ? null : sizes;
+        }
+        if (!hasSizes) return null;
+        if (!com.omnia.backend.catalog.ProductSizes.supportsSizes(targetKind)) return List.of();
+        if (previousKind != targetKind) {
+            throw new IllegalArgumentException("Dërgo masat për kategorinë e re");
+        }
+        return null;
+    }
+
+    private ProductSizeWriter sizeWriter() {
+        if (sizeWriter == null) throw new IllegalStateException("Product sizes are not available");
+        return sizeWriter;
     }
 
     @Override

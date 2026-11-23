@@ -31,6 +31,6 @@ public class ProductVariant {
     @Column(name = "price_adjustment", precision = 10, scale = 2)
     private BigDecimal priceAdjustment;
 
-    @Column(name = "stock")
+    @Column(name = "stock", nullable = false)
     private Integer stock;
 }

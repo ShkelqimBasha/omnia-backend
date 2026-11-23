@@ -7,6 +7,8 @@ import com.omnia.backend.dto.response.CartResponse;
 import com.omnia.backend.entity.Cart;
 import com.omnia.backend.entity.CartItem;
 import com.omnia.backend.entity.Product;
+import com.omnia.backend.entity.ProductVariant;
+import com.omnia.backend.catalog.SizeStock;
 import com.omnia.backend.entity.User;
 import com.omnia.backend.mapper.CartMapper;
 import com.omnia.backend.repository.CartItemRepository;
@@ -67,6 +69,9 @@ public class CartServiceImpl implements CartService {
         com.omnia.backend.catalog.PurchaseGuard.requirePurchasable(
                 product, com.omnia.backend.catalog.CatalogSettings.carOnline(catalogSettings));
 
+        // Sized products (clothing, shoes): one size per line, at most that size's stock.
+        ProductVariant size = SizeStock.chosenSize(product, request.getVariantId());
+
         BigDecimal price = product.getDiscountPrice() != null
                 ? product.getDiscountPrice()
                 : product.getPrice();
@@ -79,16 +84,24 @@ public class CartServiceImpl implements CartService {
                 )
                 .orElse(null);
 
+        int quantity = cartItem == null
+                ? request.getQuantity()
+                : Math.addExact(cartItem.getQuantity(), request.getQuantity());
+        if (size != null) {
+            SizeStock.requireAvailable(product, size, quantity);
+        }
+
         if (cartItem == null) {
             cartItem = CartItem.builder()
                     .cart(cart)
                     .product(product)
                     .variantId(request.getVariantId())
-                    .quantity(request.getQuantity())
+                    .variant(size)
+                    .quantity(quantity)
                     .price(price)
                     .build();
         } else {
-            cartItem.setQuantity(cartItem.getQuantity() + request.getQuantity());
+            cartItem.setQuantity(quantity);
             cartItem.setPrice(price);
         }
 
@@ -115,6 +128,10 @@ public class CartServiceImpl implements CartService {
                 == com.omnia.backend.enums.CategoryKind.CAR
                 && request.getQuantity() != null && request.getQuantity() > 1) {
             throw new IllegalArgumentException("A car must be bought on its own, one per order");
+        }
+        if (item.getVariantId() != null && request.getQuantity() != null) {
+            ProductVariant size = SizeStock.chosenSize(item.getProduct(), item.getVariantId());
+            SizeStock.requireAvailable(item.getProduct(), size, request.getQuantity());
         }
         item.setQuantity(request.getQuantity());
         cartItemRepository.save(item);

@@ -113,11 +113,24 @@ public class CheckoutServiceImpl
         this.eventPublisher = eventPublisher;
     }
 
+    /** Cash on delivery; overridden so the call goes through the transactional proxy. */
     @Override
     @Transactional
     public CheckoutResponse checkout(
             CreateOrderRequest request
     ) {
+        return checkout(request, PaymentMethod.CASH_ON_DELIVERY);
+    }
+
+    @Override
+    @Transactional
+    public CheckoutResponse checkout(
+            CreateOrderRequest request,
+            PaymentMethod paymentMethod
+    ) {
+        if (paymentMethod != PaymentMethod.CASH_ON_DELIVERY
+                && paymentMethod != PaymentMethod.PAYPAL)
+            throw new IllegalArgumentException("Kjo mënyrë pagese nuk ofrohet.");
         User user = getCurrentUser();
         com.omnia.backend.enums.DeliveryMethod deliveryMethod = request.getDeliveryMethod() == null
                 ? com.omnia.backend.enums.DeliveryMethod.STANDARD : request.getDeliveryMethod();
@@ -271,6 +284,15 @@ public class CheckoutServiceImpl
                     "Checkout must contain at least one product"
             );
         }
+
+        // Only methods every company in the checkout accepts (COD limits on its product value).
+        CheckoutPaymentRules.require(
+                paymentMethod,
+                drafts.values().stream()
+                        .map(draft -> new CheckoutPaymentRules.Part(
+                                draft.organization, draft.subtotal))
+                        .toList()
+        );
 
         List<VendorOrderDraft> vendorDrafts =
                 new ArrayList<>(drafts.values());

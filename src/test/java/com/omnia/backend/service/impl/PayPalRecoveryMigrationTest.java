@@ -125,10 +125,16 @@ class PayPalRecoveryMigrationTest {
     }
 
     /** Migration files by version. Parallel branches add migrations, so no test pins the newest one. */
-    private static TreeMap<Integer, List<String>> migrationVersions() throws Exception {
+    private static TreeMap<Integer, List<String>> migrationVersions() {
         Pattern name = Pattern.compile("V(\\d+)__.+\\.sql");
         TreeMap<Integer, List<String>> versions = new TreeMap<>();
-        for (Resource resource : new PathMatchingResourcePatternResolver().getResources("classpath*:db/migration/*.sql")) {
+        Resource[] resources;
+        try {
+            resources = new PathMatchingResourcePatternResolver().getResources("classpath*:db/migration/*.sql");
+        } catch (java.io.IOException e) {
+            throw new java.io.UncheckedIOException(e);
+        }
+        for (Resource resource : resources) {
             Matcher m = name.matcher(Objects.requireNonNull(resource.getFilename()));
             if (m.matches()) versions.computeIfAbsent(Integer.parseInt(m.group(1)), v -> new ArrayList<>()).add(resource.getFilename());
         }

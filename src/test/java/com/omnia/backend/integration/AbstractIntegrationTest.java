@@ -56,4 +56,34 @@ public abstract class AbstractIntegrationTest {
 
     @Autowired
     protected ObjectMapper objectMapper;
+
+    @Autowired
+    private javax.sql.DataSource dataSource;
+
+    /**
+     * Removes order, checkout and payment rows left by other test classes. They reference products
+     * and users, so a test that deletes those would otherwise depend on the order the test classes run
+     * in (which differs between Windows and Linux CI).
+     */
+    protected void deleteOrderData() {
+        try (java.sql.Connection connection = dataSource.getConnection();
+             java.sql.Statement statement = connection.createStatement()) {
+            java.util.List<String> tables = new java.util.ArrayList<>();
+            try (java.sql.ResultSet rows = statement.executeQuery(
+                    "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() "
+                            + "AND table_type = 'BASE TABLE' AND (table_name LIKE 'order%' "
+                            + "OR table_name LIKE 'checkout%' OR table_name LIKE 'payment%' "
+                            + "OR table_name LIKE 'paypal%')")) {
+                while (rows.next()) tables.add(rows.getString(1));
+            }
+            statement.execute("SET FOREIGN_KEY_CHECKS = 0");
+            try {
+                for (String table : tables) statement.executeUpdate("DELETE FROM `" + table + "`");
+            } finally {
+                statement.execute("SET FOREIGN_KEY_CHECKS = 1");
+            }
+        } catch (java.sql.SQLException e) {
+            throw new IllegalStateException("Could not clear order data", e);
+        }
+    }
 }

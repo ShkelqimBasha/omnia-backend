@@ -162,6 +162,7 @@ class ProductImageControllerIntegrationTest
     @BeforeEach
     void setUp() throws IOException {
 
+        deleteOrderData();
         cleanDatabase();
         deletePhysicalFiles();
 

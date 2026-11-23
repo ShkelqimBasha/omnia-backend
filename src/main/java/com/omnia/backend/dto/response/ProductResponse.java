@@ -37,6 +37,9 @@ public class ProductResponse {
 
     private String organizationName;
 
+    /** "Shitës i verifikuar" badge. */
+    private boolean organizationVerified;
+
     private Long createdByUserId;
 
     private String status;

@@ -7,4 +7,10 @@ public interface PublicCatalogMediaService {
      * organization, i.e. something any guest browsing the catalog may see.
      */
     boolean isPublicCatalogFile(Long fileId);
+
+    /**
+     * True for private documents (seller verification) that only platform admins may
+     * read; everyone else gets 404 from /api/files.
+     */
+    boolean isPrivateDocument(Long fileId);
 }

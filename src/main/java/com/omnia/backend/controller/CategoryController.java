@@ -28,6 +28,7 @@ public class CategoryController {
     public ResponseEntity<CategoryResponse> createCategory(
             @Valid @RequestBody CategoryRequest request
     ) {
+        com.omnia.backend.service.impl.AdminAudit.note("Kategoria: " + request.getName());
         return ResponseEntity
                 .status(HttpStatus.CREATED)
                 .body(categoryService.createCategory(request));
@@ -53,6 +54,7 @@ public class CategoryController {
             @PathVariable Long id,
             @Valid @RequestBody CategoryRequest request
     ) {
+        com.omnia.backend.service.impl.AdminAudit.note("Kategoria: " + request.getName());
         return ResponseEntity.ok(
                 categoryService.updateCategory(id, request)
         );

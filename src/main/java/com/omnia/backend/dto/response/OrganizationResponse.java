@@ -23,6 +23,9 @@ public class OrganizationResponse {
 
     private String status;
 
+    /** "Shitës i verifikuar" badge. */
+    private boolean verified;
+
     private Long createdByUserId;
 
     private LocalDateTime createdAt;

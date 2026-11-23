@@ -29,6 +29,7 @@ public class ProductController {
     public ResponseEntity<ProductResponse> createProduct(
             @Valid @RequestBody ProductRequest request
     ) {
+        com.omnia.backend.service.impl.AdminAudit.note("Produkti: " + request.getName());
         return ResponseEntity
                 .status(HttpStatus.CREATED)
                 .body(productService.createProduct(request));
@@ -80,6 +81,7 @@ public class ProductController {
             @PathVariable Long id,
             @Valid @RequestBody ProductRequest request
     ) {
+        com.omnia.backend.service.impl.AdminAudit.note("Produkti: " + request.getName());
         return ResponseEntity.ok(productService.updateProduct(id, request));
     }
 

@@ -40,5 +40,13 @@ public class NotificationWriter {
   if(i==null||i.getId()==null||i.getProduct()==null)return;Long org=i.getOrganization()==null?null:i.getOrganization().getId();
   write("inquiry:"+i.getId(),"INQUIRY_"+i.getType().name(),"USER","PRODUCT",i.getProduct().getId(),org,i.getProduct().getName(),i.getType().name(),null,null,null);}
  public void user(User u){write("user:"+u.getId(),"USER_REGISTERED","SYSTEM","USER",u.getId(),null,u.getUsername(),null,null,null,null);}
+ /** "Shitës i verifikuar" decision, for the company's owners/admins (and platform admins). */
+ public void verification(OrganizationVerification v){
+  if(v==null||v.getId()==null||v.getOrganization()==null)return;Organization o=v.getOrganization();
+  write("verification:"+v.getId()+":"+v.getStatus().name(),"VERIFICATION_"+v.getStatus().name(),"USER","COMPANY",o.getId(),o.getId(),o.getName(),v.getStatus().name(),null,null,null);}
+ /** Moderation warning after "Raporto njoftimin": the company's owners/admins see which listing and why. */
+ public void productWarning(ProductReport r){
+  if(r==null||r.getId()==null||r.getProduct()==null)return;Long org=r.getOrganization()==null?null:r.getOrganization().getId();
+  write("product-warning:"+r.getId(),"PRODUCT_WARNING","USER","PRODUCT",r.getProduct().getId(),org,r.getProduct().getName(),r.getReason().name(),null,null,null);}
  public void company(Organization o){write("company:"+o.getId(),"COMPANY_CREATED","SYSTEM","COMPANY",o.getId(),null,o.getName(),null,null,null,null);}
 }

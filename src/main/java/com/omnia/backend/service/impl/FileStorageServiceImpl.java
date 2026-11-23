@@ -97,6 +97,21 @@ public class FileStorageServiceImpl
     public UploadedFile storeFile(
             MultipartFile file
     ) {
+        return store(file, false);
+    }
+
+    @Override
+    @Transactional
+    public UploadedFile storePrivateDocument(
+            MultipartFile file
+    ) {
+        return store(file, true);
+    }
+
+    private UploadedFile store(
+            MultipartFile file,
+            boolean allowPdf
+    ) {
         validateBasicFileProperties(file);
 
         User currentUser = getCurrentUser();
@@ -113,7 +128,7 @@ public class FileStorageServiceImpl
                 readFileBytes(file);
 
         DetectedImageType detectedType =
-                detectImageType(fileBytes);
+                detectImageType(fileBytes, allowPdf);
 
         validateDeclaredContentType(
                 file.getContentType(),
@@ -437,6 +452,9 @@ public class FileStorageServiceImpl
 
                     case WEBP ->
                             ".webp".equals(extension);
+
+                    case PDF ->
+                            ".pdf".equals(extension);
                 };
 
         if (!validExtension) {
@@ -447,8 +465,13 @@ public class FileStorageServiceImpl
     }
 
     private DetectedImageType detectImageType(
-            byte[] bytes
+            byte[] bytes,
+            boolean allowPdf
     ) {
+        if (allowPdf && isPdf(bytes)) {
+            return DetectedImageType.PDF;
+        }
+
         if (isJpeg(bytes)) {
             return DetectedImageType.JPEG;
         }
@@ -462,8 +485,20 @@ public class FileStorageServiceImpl
         }
 
         throw new InvalidFileException(
-                "Only valid JPEG, PNG and WEBP images are allowed"
+                allowPdf
+                        ? "Only valid PDF, JPEG, PNG and WEBP files are allowed"
+                        : "Only valid JPEG, PNG and WEBP images are allowed"
         );
+    }
+
+    /** "%PDF-" header; the file is only ever served as an attachment to platform admins. */
+    private boolean isPdf(byte[] bytes) {
+        return bytes.length >= 5
+                && bytes[0] == '%'
+                && bytes[1] == 'P'
+                && bytes[2] == 'D'
+                && bytes[3] == 'F'
+                && bytes[4] == '-';
     }
 
     private boolean isJpeg(byte[] bytes) {
@@ -681,7 +716,8 @@ public class FileStorageServiceImpl
 
         JPEG("image/jpeg", ".jpg"),
         PNG("image/png", ".png"),
-        WEBP("image/webp", ".webp");
+        WEBP("image/webp", ".webp"),
+        PDF("application/pdf", ".pdf");
 
         private final String contentType;
         private final String canonicalExtension;

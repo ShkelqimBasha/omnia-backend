@@ -10,5 +10,7 @@ public class UserSettingsRequest {
     @NotNull @Pattern(regexp="sq|en|it") private String language;
     @NotNull @Pattern(regexp="EUR|USD|ALL") private String currency;
     @NotNull private Boolean notifications;
+    /** Optional so older clients (Android) that do not send it keep the saved palette. */
+    @Pattern(regexp="omnia|orange|emerald|pink|graphite") private String accentColor;
     @NotNull @Min(-1) private Long revision;
 }

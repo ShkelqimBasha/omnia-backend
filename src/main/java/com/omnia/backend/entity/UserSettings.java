@@ -11,5 +11,6 @@ public class UserSettings {
     @Column(name="language_code",nullable=false,length=2) private String language;
     @Column(name="currency_code",nullable=false,length=3) private String currency;
     @Column(name="notifications_enabled",nullable=false) private boolean notifications;
+    @Column(name="accent_color",nullable=false,length=16) private String accentColor;
     @Version private Long revision;
 }

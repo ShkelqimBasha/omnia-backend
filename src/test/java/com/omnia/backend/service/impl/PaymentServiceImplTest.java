@@ -11,6 +11,9 @@ import com.omnia.backend.enums.PaymentMethod;
 import com.omnia.backend.enums.PaymentStatus;
 import com.omnia.backend.repository.OrderRepository;
 import com.omnia.backend.repository.PaymentRepository;
+import com.omnia.backend.entity.User;
+import com.omnia.backend.security.service.CurrentUserService;
+import org.springframework.security.access.AccessDeniedException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -36,6 +39,11 @@ class PaymentServiceImplTest {
     @Mock
     private OrderRepository orderRepository;
 
+    @Mock
+    private CurrentUserService currentUserService;
+
+    private User owner;
+
     @InjectMocks
     private PaymentServiceImpl paymentService;
 
@@ -46,8 +54,11 @@ class PaymentServiceImplTest {
     @BeforeEach
     void setUp() {
 
+        owner = User.builder().id(7L).build();
+
         order = Order.builder()
                 .id(1L)
+                .user(owner)
                 .addressId(10L)
                 .totalAmount(new BigDecimal("1500.00"))
                 .status(OrderStatus.PENDING)
@@ -159,10 +170,59 @@ class PaymentServiceImplTest {
     }
 
     @Test
+    void createPayment_shouldRejectNonAdmin() {
+
+        doThrow(new AccessDeniedException("Platform administrator access is required"))
+                .when(currentUserService).requirePlatformAdmin();
+
+        assertThrows(
+                AccessDeniedException.class,
+                () -> paymentService.createPayment(request)
+        );
+
+        verifyNoInteractions(paymentRepository, orderRepository);
+    }
+
+    @Test
+    void getPaymentByOrder_shouldHidePaymentFromOtherUsers() {
+
+        when(paymentRepository.findByOrderId(1L))
+                .thenReturn(Optional.of(payment));
+        when(currentUserService.hasCurrentPlatformAdminAuthority())
+                .thenReturn(false);
+        when(currentUserService.requireCurrentUser())
+                .thenReturn(User.builder().id(99L).build());
+
+        ResourceNotFoundException exception =
+                assertThrows(
+                        ResourceNotFoundException.class,
+                        () -> paymentService.getPaymentByOrder(1L)
+                );
+
+        assertEquals("Payment not found", exception.getMessage());
+    }
+
+    @Test
+    void getPaymentByOrder_shouldAllowPlatformAdmin() {
+
+        when(paymentRepository.findByOrderId(1L))
+                .thenReturn(Optional.of(payment));
+        when(currentUserService.hasCurrentPlatformAdminAuthority())
+                .thenReturn(true);
+
+        assertEquals(20L, paymentService.getPaymentByOrder(1L).getId());
+        verify(currentUserService, never()).requireCurrentUser();
+    }
+
+    @Test
     void getPaymentByOrder_shouldReturnPayment() {
 
         when(paymentRepository.findByOrderId(1L))
                 .thenReturn(Optional.of(payment));
+        when(currentUserService.hasCurrentPlatformAdminAuthority())
+                .thenReturn(false);
+        when(currentUserService.requireCurrentUser())
+                .thenReturn(owner);
 
         PaymentResponse result =
                 paymentService.getPaymentByOrder(1L);

@@ -76,6 +76,9 @@ public class CouponServiceImpl implements CouponService {
                         .findByCodeIgnoreCase(
                                 normalizedCode
                         )
+                        // Buyers preview coupons through this lookup, so only
+                        // currently usable ones are visible (same rules as checkout).
+                        .filter(this::isCurrentlyUsable)
                         .orElseThrow(
                                 () ->
                                         new ResourceNotFoundException(
@@ -84,6 +87,26 @@ public class CouponServiceImpl implements CouponService {
                         );
 
         return CouponMapper.toResponse(coupon);
+    }
+
+    private boolean isCurrentlyUsable(
+            Coupon coupon
+    ) {
+        if (coupon.getStatus()
+                != com.omnia.backend.enums.CouponStatus.ACTIVE) {
+            return false;
+        }
+
+        LocalDateTime now =
+                LocalDateTime.now();
+
+        if (coupon.getStartDate() != null
+                && now.isBefore(coupon.getStartDate())) {
+            return false;
+        }
+
+        return coupon.getEndDate() == null
+                || !now.isAfter(coupon.getEndDate());
     }
 
     @Override

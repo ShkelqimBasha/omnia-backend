@@ -649,8 +649,11 @@ public class FileStorageServiceImpl
                         .map(
                                 GrantedAuthority::getAuthority
                         )
-                        .anyMatch(
-                                "ROLE_ADMIN"::equals
+                        // SUPER_ADMIN is the platform admin role since V14;
+                        // ROLE_ADMIN is kept for older accounts.
+                        .anyMatch(authority ->
+                                "ROLE_SUPER_ADMIN".equals(authority)
+                                        || "ROLE_ADMIN".equals(authority)
                         );
 
         if (!owner && !admin) {

@@ -1074,6 +1074,62 @@ class FileStorageServiceImplTest {
     }
 
     @Test
+    void deleteFile_AsSuperAdmin_ShouldDeleteAnotherUsersFile()
+            throws Exception {
+
+        User owner = User.builder()
+                .id(2L)
+                .username("owner")
+                .email("owner@example.com")
+                .build();
+
+        User admin = User.builder()
+                .id(99L)
+                .username("admin")
+                .email("admin@example.com")
+                .build();
+
+        String storedName = "super-admin-delete.jpg";
+
+        Path physicalFile =
+                tempDirectory.resolve(storedName);
+
+        Files.write(
+                physicalFile,
+                JPEG_BYTES
+        );
+
+        UploadedFile uploadedFile =
+                createUploadedFile(
+                        10L,
+                        storedName,
+                        owner
+                );
+
+        when(uploadedFileRepository.findById(10L))
+                .thenReturn(Optional.of(uploadedFile));
+
+        authenticate(
+                "admin@example.com",
+                "ROLE_SUPER_ADMIN"
+        );
+
+        when(userRepository.findByEmail(
+                "admin@example.com"
+        )).thenReturn(Optional.of(admin));
+
+        fileStorageService.deleteFile(10L);
+
+        assertFalse(Files.exists(physicalFile));
+
+        verify(uploadedFileRepository)
+                .delete(uploadedFile);
+
+        verify(uploadedFileRepository)
+                .flush();
+    }
+
+    @Test
     void deleteFile_AsDifferentUser_ShouldThrowAccessDenied() {
 
         User owner = User.builder()

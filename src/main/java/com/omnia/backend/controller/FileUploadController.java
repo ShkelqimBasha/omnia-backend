@@ -3,13 +3,18 @@ package com.omnia.backend.controller;
 import com.omnia.backend.dto.response.UploadedFileResponse;
 import com.omnia.backend.entity.UploadedFile;
 import com.omnia.backend.service.interfaces.FileStorageService;
+import com.omnia.backend.service.interfaces.PublicCatalogMediaService;
 import jakarta.validation.constraints.Positive;
 import org.springframework.core.io.Resource;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -32,11 +37,16 @@ public class FileUploadController {
 
     private final FileStorageService fileStorageService;
 
+    private final PublicCatalogMediaService publicCatalogMediaService;
+
     public FileUploadController(
-            FileStorageService fileStorageService
+            FileStorageService fileStorageService,
+            PublicCatalogMediaService publicCatalogMediaService
     ) {
         this.fileStorageService =
                 fileStorageService;
+        this.publicCatalogMediaService =
+                publicCatalogMediaService;
     }
 
     @PostMapping(
@@ -76,6 +86,14 @@ public class FileUploadController {
             )
             Long fileId
     ) {
+        // Guests may only download photos of ACTIVE products and logos of ACTIVE organizations.
+        if (isGuest()
+                && !publicCatalogMediaService.isPublicCatalogFile(fileId)) {
+            return ResponseEntity
+                    .status(HttpStatus.UNAUTHORIZED)
+                    .build();
+        }
+
         UploadedFile metadata =
                 fileStorageService
                         .getFileMetadata(fileId);
@@ -151,5 +169,16 @@ public class FileUploadController {
         return ResponseEntity
                 .noContent()
                 .build();
+    }
+
+    private static boolean isGuest() {
+        Authentication authentication =
+                SecurityContextHolder
+                        .getContext()
+                        .getAuthentication();
+
+        return authentication == null
+                || authentication instanceof AnonymousAuthenticationToken
+                || !authentication.isAuthenticated();
     }
 }

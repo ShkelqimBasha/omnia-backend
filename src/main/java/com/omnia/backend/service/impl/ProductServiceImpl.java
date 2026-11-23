@@ -33,6 +33,9 @@ public class ProductServiceImpl
     @org.springframework.beans.factory.annotation.Autowired
     private NotificationWriter notificationWriter;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.omnia.backend.catalog.CatalogSettings catalogSettings;
+
 
     private static final int MAX_PAGE_SIZE = 100;
 
@@ -87,6 +90,7 @@ public class ProductServiceImpl
     ) {
         Category category =
                 findCategory(request.getCategoryId());
+        requireActiveCategory(category);
 
         User currentUser =
                 currentUserService
@@ -113,13 +117,22 @@ public class ProductServiceImpl
             );
         }
 
+        com.omnia.backend.enums.CategoryKind kind =
+                com.omnia.backend.enums.CategoryKind.fromNullable(category.getKind());
+        com.omnia.backend.catalog.ListingRules.NormalizedListing listing =
+                com.omnia.backend.catalog.ListingRules.normalize(
+                        kind, request.getAttributes(), request.getBrand());
+
         Product product =
                 Product.builder()
                         .name(request.getName())
                         .description(
                                 request.getDescription()
                         )
-                        .brand(request.getBrand())
+                        .brand(listing.brand())
+                        .attributes(listing.attributes())
+                        .saleMode(com.omnia.backend.catalog.ListingRules.resolveSaleMode(
+                                kind, request.getSaleMode(), carOnline()))
                         .price(request.getPrice())
                         .discountPrice(
                                 request.getDiscountPrice()
@@ -162,6 +175,26 @@ public class ProductServiceImpl
             BigDecimal minPrice,
             BigDecimal maxPrice
     ) {
+        return getAllProducts(page, size, sortBy, sortDir, keyword, categoryId,
+                organizationId, brand, status, minPrice, maxPrice, List.of());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PagedResponse<ProductResponse> getAllProducts(
+            int page,
+            int size,
+            String sortBy,
+            String sortDir,
+            String keyword,
+            Long categoryId,
+            Long organizationId,
+            String brand,
+            ProductStatus status,
+            BigDecimal minPrice,
+            BigDecimal maxPrice,
+            List<com.omnia.backend.catalog.AttributeFilter> attributeFilters
+    ) {
         validatePagination(page, size);
         validatePriceRange(minPrice, maxPrice);
 
@@ -194,7 +227,8 @@ public class ProductServiceImpl
                                                 status,
                                                 minPrice,
                                                 maxPrice
-                                        ),
+                                        ).and(ProductSpecification
+                                        .hasAttributes(attributeFilters)),
                                 pageable
                         )
                         .map(productMapper::toResponse);
@@ -268,11 +302,41 @@ public class ProductServiceImpl
             );
         }
 
+        if (!Objects.equals(
+                product.getCategory().getId(),
+                targetCategory.getId()
+        )) {
+            requireActiveCategory(targetCategory);
+        }
+
+        com.omnia.backend.enums.CategoryKind targetKind =
+                com.omnia.backend.enums.CategoryKind.fromNullable(targetCategory.getKind());
+        boolean sameCategory = Objects.equals(
+                product.getCategory().getId(), targetCategory.getId());
+        /*
+         * Older clients do not send attributes or a sale mode: keep the
+         * stored ones instead of wiping them.
+         */
+        java.util.Map<String, Object> rawAttributes =
+                request.getAttributes() == null && sameCategory
+                        ? product.getAttributes()
+                        : request.getAttributes();
+        String requestedSaleMode =
+                request.getSaleMode() == null && sameCategory && product.getSaleMode() != null
+                        ? product.getSaleMode().name()
+                        : request.getSaleMode();
+        com.omnia.backend.catalog.ListingRules.NormalizedListing listing =
+                com.omnia.backend.catalog.ListingRules.normalize(
+                        targetKind, rawAttributes, request.getBrand());
+
         product.setName(request.getName());
         product.setDescription(
                 request.getDescription()
         );
-        product.setBrand(request.getBrand());
+        product.setBrand(listing.brand());
+        product.setAttributes(listing.attributes());
+        product.setSaleMode(com.omnia.backend.catalog.ListingRules.resolveSaleMode(
+                targetKind, requestedSaleMode, carOnline()));
         product.setPrice(request.getPrice());
         product.setDiscountPrice(
                 request.getDiscountPrice()
@@ -354,6 +418,18 @@ public class ProductServiceImpl
                                 "Category not found"
                         )
                 );
+    }
+
+    private void requireActiveCategory(Category category) {
+        if (category.getStatus() == com.omnia.backend.enums.CategoryStatus.INACTIVE) {
+            throw new IllegalArgumentException(
+                    "New listings are not accepted in this category"
+            );
+        }
+    }
+
+    private boolean carOnline() {
+        return com.omnia.backend.catalog.CatalogSettings.carOnline(catalogSettings);
     }
 
     private Organization findRequestedOrganization(

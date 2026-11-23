@@ -31,6 +31,28 @@ public interface ProductService {
             BigDecimal maxPrice
     );
 
+    /** Same as above, plus filters on category-specific listing fields. */
+    default PagedResponse<ProductResponse> getAllProducts(
+            int page,
+            int size,
+            String sortBy,
+            String sortDir,
+            String keyword,
+            Long categoryId,
+            Long organizationId,
+            String brand,
+            ProductStatus status,
+            BigDecimal minPrice,
+            BigDecimal maxPrice,
+            java.util.List<com.omnia.backend.catalog.AttributeFilter> attributeFilters
+    ) {
+        if (attributeFilters != null && !attributeFilters.isEmpty()) {
+            throw new UnsupportedOperationException("Attribute filters are not supported");
+        }
+        return getAllProducts(page, size, sortBy, sortDir, keyword, categoryId,
+                organizationId, brand, status, minPrice, maxPrice);
+    }
+
     ProductResponse updateProduct(
             Long id,
             ProductRequest request

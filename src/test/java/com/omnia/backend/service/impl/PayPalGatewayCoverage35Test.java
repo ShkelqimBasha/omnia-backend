@@ -59,6 +59,31 @@ class PayPalGatewayCoverage35Test {
         assertEquals("TESTMERCHANT1",unit.at("/payee/merchant_id").asText());assertEquals("local-reference",unit.path("custom_id").asText());
         assertEquals("https://api.example.com/api/paypal/return?checkout=local-reference",payload.at("/payment_source/paypal/experience_context/return_url").asText());
     }
+    String returnUrlOf(boolean web) throws Exception {
+        responses(tokenResponse(),response(201,"{\"id\":\"ORDER123\"}"));
+        gateway.create("local-reference",new BigDecimal("38.50"),web);
+        return json.readTree(body(requests(2).get(1))).at("/payment_source/paypal/experience_context/return_url").asText();
+    }
+    @Test void webCheckoutKeepsAppReturnWhenNoWebPageIsConfigured() throws Exception {
+        assertEquals("https://api.example.com/api/paypal/return?checkout=local-reference",returnUrlOf(true));
+    }
+    @Test void webCheckoutReturnUrlCarriesClientWhenWebPageIsConfigured() throws Exception {
+        ReflectionTestUtils.setField(gateway,"webReturnUrl","https://shop.example.com/pagesa/paypal/");
+        assertEquals("https://api.example.com/api/paypal/return?checkout=local-reference&client=web",returnUrlOf(true));
+    }
+    @Test void appCheckoutNeverCarriesWebClient() throws Exception {
+        ReflectionTestUtils.setField(gateway,"webReturnUrl","https://shop.example.com/pagesa/paypal");
+        assertEquals("https://api.example.com/api/paypal/return?checkout=local-reference",returnUrlOf(false));
+    }
+    @Test void webReturnUrlAcceptsOnlyPlainHttpsOrLocalhost() {
+        ReflectionTestUtils.setField(gateway,"webReturnUrl","https://shop.example.com:8443/pagesa/paypal/");
+        assertEquals("https://shop.example.com:8443/pagesa/paypal",gateway.webReturnUrl());
+        ReflectionTestUtils.setField(gateway,"webReturnUrl","http://localhost:3001/pagesa/paypal");
+        assertEquals("http://localhost:3001/pagesa/paypal",gateway.webReturnUrl());
+        for (String bad : List.of("","http://myomniaapp.com/x","https://evil.example/x?y=1","javascript:alert(1)","https://a.example/x'onmouseover=1","//evil.example")) {
+            ReflectionTestUtils.setField(gateway,"webReturnUrl",bad);assertNull(gateway.webReturnUrl(),bad);
+        }
+    }
     @Test void getAndCaptureReuseTokenAndCaptureRetainsIdempotencyKey() throws Exception {
         responses(tokenResponse(),response(200,"{}"),response(201,"{\"status\":\"COMPLETED\"}"));
         gateway.get("ORDER123");assertEquals("COMPLETED",gateway.capture("ORDER123","checkout-key").path("status").asText());
@@ -177,6 +202,18 @@ class PayPalGatewayCoverage35Test {
         assertFalse(PayPalGateway.serves(null,"sandbox"));assertFalse(PayPalGateway.serves(null,null));assertFalse(PayPalGateway.serves("live",null));
     }
 
+    @Test void sandboxMayReturnToLocalhostOverHttpButLiveNever() throws Exception {
+        for (String local : List.of("http://localhost:8081","http://127.0.0.1:8081","http://localhost")) {
+            ReflectionTestUtils.setField(gateway,"publicBase",local);assertTrue(gateway.ready(),local);
+        }
+        for (String bad : List.of("http://api.example.com","http://localhost.evil.example","http://localhost:8081/x","http://user@localhost")) {
+            ReflectionTestUtils.setField(gateway,"publicBase",bad);assertFalse(gateway.ready(),bad);
+        }
+        json.writeValue(credentials.toFile(),Map.of("clientId","live-client","clientSecret","fake-live-secret","merchantId","LIVEMERCHANT1","webhookId","WH-LIVE","environment","live"));
+        setting(PayPalGateway.LIVE);
+        ReflectionTestUtils.setField(gateway,"publicBase","https://api.example.com");assertTrue(gateway.ready());
+        ReflectionTestUtils.setField(gateway,"publicBase","http://localhost:8081");assertFalse(gateway.ready());
+    }
     @Test void configurationMustBeExplicitValidAndSandboxReady() throws Exception {
         assertTrue(gateway.ready());ReflectionTestUtils.setField(gateway,"enabled",false);assertFalse(gateway.ready());
         ReflectionTestUtils.setField(gateway,"enabled",true);

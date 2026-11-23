@@ -128,7 +128,11 @@ public class SecurityConfig {
                                 "/api/products/**",
                                 "/api/categories",
                                 "/api/categories/**",
-                                "/api/organizations/catalog"
+                                "/api/organizations/catalog",
+                                // Catalog media for guest buyers (web). FileUploadController
+                                // only serves files of ACTIVE products/organizations to guests.
+                                "/api/files/*",
+                                "/api/product-images/product/*"
                         )
                         .permitAll()
 

@@ -44,6 +44,8 @@ public class CategoryServiceImpl implements CategoryService {
                 .description(request.getDescription())
                 .imageUrl(request.getImageUrl())
                 .status(CategoryStatus.ACTIVE)
+                .kind(com.omnia.backend.enums.CategoryKind.fromNullable(request.getKind()))
+                .sortOrder(request.getSortOrder())
                 .build();
 
         Category savedCategory = categoryRepository.save(category);
@@ -67,6 +69,11 @@ public class CategoryServiceImpl implements CategoryService {
 
         return categoryRepository.findAll()
                 .stream()
+                .sorted(java.util.Comparator
+                        .comparing(Category::getSortOrder,
+                                java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()))
+                        .thenComparing(Category::getId,
+                                java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
                 .map(categoryMapper::toResponse)
                 .toList();
     }
@@ -89,6 +96,12 @@ public class CategoryServiceImpl implements CategoryService {
         category.setName(request.getName());
         category.setDescription(request.getDescription());
         category.setImageUrl(request.getImageUrl());
+        if (request.getKind() != null) {
+            category.setKind(request.getKind());
+        }
+        if (request.getSortOrder() != null) {
+            category.setSortOrder(request.getSortOrder());
+        }
 
         Category updatedCategory = categoryRepository.save(category);
 

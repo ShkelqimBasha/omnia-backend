@@ -38,4 +38,10 @@ public class ProductRequest {
     private Long organizationId;
 
     private String brand;
+
+    /** Category-specific fields, e.g. {"size":"M"} or {"year":2018}. */
+    private java.util.Map<String, Object> attributes;
+
+    /** Cars only: CONTACT_ONLY (default) or CONTACT_AND_BUY. */
+    private String saleMode;
 }

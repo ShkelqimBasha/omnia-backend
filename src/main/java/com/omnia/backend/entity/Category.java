@@ -36,6 +36,14 @@ public class Category {
     @Column(nullable = false)
     private CategoryStatus status;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    @Builder.Default
+    private com.omnia.backend.enums.CategoryKind kind = com.omnia.backend.enums.CategoryKind.GENERAL;
+
+    @Column(name = "sort_order")
+    private Integer sortOrder;
+
     @Column(name = "created_at", insertable = false, updatable = false)
     private LocalDateTime createdAt;
 

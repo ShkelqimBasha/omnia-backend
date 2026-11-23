@@ -36,6 +36,9 @@ public class ProductInquiryService {
     private final OrganizationAccessService accessService;
     private final Clock clock;
 
+    @Autowired(required = false)
+    private NotificationWriter notificationWriter;
+
     @Autowired
     public ProductInquiryService(ProductInquiryRepository inquiryRepository,
                                  ProductRepository productRepository,
@@ -82,6 +85,7 @@ public class ProductInquiryService {
                 .preferredDate(request.getType() == InquiryType.VISIT
                         ? request.getPreferredDate() : null)
                 .build());
+        if (notificationWriter != null) notificationWriter.inquiry(saved);
         return toResponse(saved);
     }
 

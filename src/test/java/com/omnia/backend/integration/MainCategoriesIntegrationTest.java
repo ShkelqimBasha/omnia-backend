@@ -124,6 +124,11 @@ class MainCategoriesIntegrationTest extends AbstractIntegrationTest {
     void setUp() {
         String suffix = UUID.randomUUID().toString().substring(0, 8);
         Role role = roleRepository.findByName("USER").orElseThrow();
+        if (userRepository.findByEmail("categories-admin@example.com").isEmpty()) {
+            userRepository.saveAndFlush(User.builder().firstName("Admin").lastName("Test")
+                    .username("categories_admin").email("categories-admin@example.com").passwordHash("hash")
+                    .role(roleRepository.findByName("ADMIN").orElseThrow()).emailVerified(true).build());
+        }
         if (userRepository.findByEmail(EMAIL).isEmpty()) {
             userRepository.saveAndFlush(User.builder().firstName("Blerës").lastName("Test")
                     .username("categories_buyer").email(EMAIL).passwordHash("hash")
@@ -152,6 +157,9 @@ class MainCategoriesIntegrationTest extends AbstractIntegrationTest {
 
     @AfterEach
     void tearDown() {
+        jdbcTemplate.update("DELETE FROM push_outbox WHERE notification_id IN "
+                + "(SELECT id FROM notification_inbox WHERE event_key LIKE 'inquiry:%')");
+        jdbcTemplate.update("DELETE FROM notification_inbox WHERE event_key LIKE 'inquiry:%'");
         jdbcTemplate.update("DELETE FROM product_inquiries WHERE organization_id = ?", seller.getId());
         jdbcTemplate.update("DELETE FROM cart_items WHERE product_id IN (?, ?, ?)",
                 golf.getId(), audi.getId(), flat.getId());
@@ -243,6 +251,12 @@ class MainCategoriesIntegrationTest extends AbstractIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"type\":\"CONTACT\",\"name\":\"Ana\",\"phone\":\"0691112233\"}"))
                 .andExpect(status().isCreated());
+        Long adminId = userRepository.findByEmail("categories-admin@example.com").orElseThrow().getId();
+        Long buyerId = userRepository.findByEmail(EMAIL).orElseThrow().getId();
+        assertEquals(1, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM notification_inbox WHERE recipient_id = ? "
+                + "AND kind = 'INQUIRY_VISIT' AND target_id = ?", Integer.class, adminId, flat.getId()));
+        assertEquals(0, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM notification_inbox WHERE recipient_id = ? "
+                + "AND kind LIKE 'INQUIRY_%'", Integer.class, buyerId), "the buyer is not notified of their own request");
         mockMvc.perform(get("/api/inquiries/mine"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(2));

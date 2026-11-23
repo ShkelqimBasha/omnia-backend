@@ -50,6 +50,11 @@ public class ReviewController {
         );
     }
 
+    @GetMapping("/product/{productId}/eligibility")
+    public ResponseEntity<ReviewService.ReviewEligibility> eligibility(@PathVariable Long productId) {
+        return ResponseEntity.ok(reviewService.getEligibility(productId));
+    }
+
     @GetMapping("/my")
     public ResponseEntity<List<ReviewResponse>>
     getMyReviews() {

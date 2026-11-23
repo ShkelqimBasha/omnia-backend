@@ -46,6 +46,11 @@ public class Review {
 
     private LocalDateTime repliedAt;
 
+    /** The author had a DELIVERED order of this product when the review was written ("Blerje e verifikuar"). */
+    @Builder.Default
+    @Column(name = "verified_purchase", nullable = false)
+    private boolean verifiedPurchase = false;
+
     @Column(name = "created_at", insertable = false, updatable = false)
     private LocalDateTime createdAt;
 }

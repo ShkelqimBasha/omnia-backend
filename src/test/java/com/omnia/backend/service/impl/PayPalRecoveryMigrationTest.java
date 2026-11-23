@@ -107,8 +107,8 @@ class PayPalRecoveryMigrationTest {
         String columns = "id,user_id,request_key,request_hash,checkout_group_id,amount,paypal_order_id,approval_url,state,created_at,updated_at,paypal_create_attempted_at";
         List<Map<String, Object>> beforeV39 = jdbc.queryForList("SELECT " + columns + " FROM paypal_checkouts ORDER BY id");
         flyway(null).migrate();
-        // V40 (main categories), V41 (accent colour), V42 (product sizes) and V43 (inquiry workflow) do not touch PayPal tables.
-        assertEquals("43", flyway(null).info().current().getVersion().getVersion());
+        // Migrations after V39 do not touch PayPal tables; the database ends at the newest migration file.
+        assertEquals(String.valueOf(latestMigrationVersion()), flyway(null).info().current().getVersion().getVersion());
         flyway(null).validate();
         assertEquals(List.of("sandbox", "sandbox", "sandbox"),
                 jdbc.queryForList("SELECT environment FROM paypal_checkouts ORDER BY id", String.class));
@@ -124,7 +124,7 @@ class PayPalRecoveryMigrationTest {
         assertEquals("live", jdbc.queryForObject("SELECT environment FROM paypal_checkouts WHERE id=?", String.class, ordinary));
     }
 
-    @Test void migrationVersionsAreUniqueAndV43IsTheLatest() throws Exception {
+    @Test void migrationVersionsAreUniqueAndContiguous() throws Exception {
         Pattern name = Pattern.compile("V(\\d+)__.+\\.sql");
         Map<Integer, List<String>> versions = new TreeMap<>();
         for (Resource resource : new PathMatchingResourcePatternResolver().getResources("classpath*:db/migration/*.sql")) {
@@ -138,8 +138,19 @@ class PayPalRecoveryMigrationTest {
         assertEquals(List.of("V40__add_main_categories.sql"), versions.get(40));
         assertEquals(List.of("V41__add_user_settings_accent_color.sql"), versions.get(41));
         assertEquals(List.of("V42__add_product_sizes.sql"), versions.get(42));
-        assertEquals(List.of("V43__inquiry_workflow_and_visit_slots.sql"), versions.get(43));
-        assertEquals(43, ((TreeMap<Integer, List<String>>) versions).lastKey());
-        for (int v = 1; v <= 43; v++) assertTrue(versions.containsKey(v), "missing V" + v);
+        int latest = ((TreeMap<Integer, List<String>>) versions).lastKey();
+        assertEquals(latestMigrationVersion(), latest);
+        for (int v = 1; v <= latest; v++) assertTrue(versions.containsKey(v), "missing V" + v);
+    }
+
+    /** The highest V<n>__*.sql on the classpath, so parallel feature branches need not edit this test. */
+    private static int latestMigrationVersion() throws Exception {
+        Pattern name = Pattern.compile("V(\d+)__.+\.sql");
+        int latest = 0;
+        for (Resource resource : new PathMatchingResourcePatternResolver().getResources("classpath*:db/migration/*.sql")) {
+            Matcher m = name.matcher(Objects.requireNonNull(resource.getFilename()));
+            if (m.matches()) latest = Math.max(latest, Integer.parseInt(m.group(1)));
+        }
+        return latest;
     }
 }

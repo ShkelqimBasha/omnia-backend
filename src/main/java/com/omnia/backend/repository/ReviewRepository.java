@@ -24,6 +24,16 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
 
     boolean existsByUserIdAndProductId(Long userId, Long productId);
 
+    /** The user has a DELIVERED order that contains this product. */
+    @Query("""
+            select count(item) > 0
+            from OrderItem item
+            where item.productId = :productId
+              and item.order.user.id = :userId
+              and item.order.status = com.omnia.backend.enums.OrderStatus.DELIVERED
+            """)
+    boolean hasDeliveredPurchase(@Param("userId") Long userId, @Param("productId") Long productId);
+
     @Query("""
             select avg(review.rating)
             from Review review

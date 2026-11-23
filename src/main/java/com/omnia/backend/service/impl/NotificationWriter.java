@@ -39,6 +39,25 @@ public class NotificationWriter {
  public void inquiry(com.omnia.backend.entity.ProductInquiry i){
   if(i==null||i.getId()==null||i.getProduct()==null)return;Long org=i.getOrganization()==null?null:i.getOrganization().getId();
   write("inquiry:"+i.getId(),"INQUIRY_"+i.getType().name(),"USER","PRODUCT",i.getProduct().getId(),org,i.getProduct().getName(),i.getType().name(),null,null,null);}
+ /** A buyer notice (saved-search alert, price drop) for one account; category BUYER, never sent to sellers or admins. */
+ private boolean buyer(long user,String key,String kind,String type,long id,String label,java.math.BigDecimal amount,java.math.BigDecimal previous,Integer quantity){
+  if(jdbc.queryForObject("SELECT COUNT(*) FROM users u WHERE u.id=? AND u.deleted_at IS NULL AND u.status='ACTIVE'",Long.class,user)==0)return false;
+  // The driver reports a matched duplicate as 1 row, so check the event key first; the unique key still guards races.
+  if(jdbc.queryForObject("SELECT COUNT(*) FROM notification_inbox WHERE recipient_id=? AND event_key=?",Long.class,user,key)>0)return false;
+  int added=jdbc.update("INSERT INTO notification_inbox (recipient_id,event_key,kind,category,target_type,target_id,organization_id,label,status,amount,previous_amount,quantity,created_at) VALUES (?,?,?,'BUYER',?,?,NULL,?,NULL,?,?,?,UTC_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE id=id",user,key,kind,type,id,label==null?"":label.substring(0,Math.min(200,label.length())),amount,previous,quantity);
+  if(added!=1)return false;
+  jdbc.update("INSERT INTO push_outbox(notification_id,available_at) SELECT id,UTC_TIMESTAMP(6) FROM notification_inbox WHERE recipient_id=? AND event_key=? ON DUPLICATE KEY UPDATE notification_id=notification_id",user,key);
+  return true;
+ }
+ /** New products match a saved search: one notice per search and newest product, with the number of new matches. */
+ public boolean savedSearch(long user,long searchId,String name,long newestProductId,int count){
+  em.flush();return buyer(user,"search:"+searchId+":"+newestProductId,"SAVED_SEARCH","SEARCH",searchId,name,null,null,count);}
+ /** A favourited product got cheaper: notify everyone who has it in favourites. Returns the number of notices written. */
+ public int priceDrop(Product p,java.math.BigDecimal before,java.math.BigDecimal after){
+  if(p==null||p.getId()==null||before==null||after==null||after.compareTo(before)>=0)return 0;
+  em.flush();int written=0;String key="price:"+p.getId()+":"+before.stripTrailingZeros().toPlainString()+">"+after.stripTrailingZeros().toPlainString();
+  for(long user:jdbc.queryForList("SELECT f.user_id FROM favorites f WHERE f.product_id=? ORDER BY f.user_id",Long.class,p.getId()))if(buyer(user,key,"PRICE_DROP","PRODUCT",p.getId(),p.getName(),after,before,null))written++;
+  return written;}
  public void user(User u){write("user:"+u.getId(),"USER_REGISTERED","SYSTEM","USER",u.getId(),null,u.getUsername(),null,null,null,null);}
  public void company(Organization o){write("company:"+o.getId(),"COMPANY_CREATED","SYSTEM","COMPANY",o.getId(),null,o.getName(),null,null,null,null);}
 }

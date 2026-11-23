@@ -395,4 +395,35 @@ class EmailServiceImplTest {
         );
     }
 
+
+    @Test
+    void sendInquiryEmail_titlesTheVisitWithTheListingAndListsTheBuyer() {
+        emailService.sendInquiryEmail("zyra@example.com", new com.omnia.backend.event.InquiryCreatedEvent(
+                7L, java.util.List.of("zyra@example.com"), "Prona Shpk", "Apartament 2+1", 42L, "VISIT",
+                "Ana", "+355691112233", "Të shtunën?", java.time.LocalDate.of(2026, 12, 5),
+                java.time.LocalDateTime.of(2026, 12, 5, 10, 30)));
+
+        ArgumentCaptor<SimpleMailMessage> captor = ArgumentCaptor.forClass(SimpleMailMessage.class);
+        verify(mailSender).send(captor.capture());
+        SimpleMailMessage message = captor.getValue();
+        assertEquals("Kërkesë e re për vizitë: Apartament 2+1", message.getSubject());
+        assertArrayEquals(new String[]{"zyra@example.com"}, message.getTo());
+        assertTrue(message.getText().contains("Emri: Ana"));
+        assertTrue(message.getText().contains("Telefoni: +355691112233"));
+        assertTrue(message.getText().contains("Orari i zgjedhur: 05.12.2026 10:30"));
+        assertTrue(message.getText().contains("Mesazhi: Të shtunën?"));
+    }
+
+    @Test
+    void sendInquiryEmail_contactUsesTheContactTitleAndThePreferredDateIsOptional() {
+        emailService.sendInquiryEmail("zyra@example.com", new com.omnia.backend.event.InquiryCreatedEvent(
+                8L, java.util.List.of("zyra@example.com"), null, "Golf 7", 43L, "CONTACT",
+                "Beni", "0692223344", null, null, null));
+
+        ArgumentCaptor<SimpleMailMessage> captor = ArgumentCaptor.forClass(SimpleMailMessage.class);
+        verify(mailSender).send(captor.capture());
+        assertEquals("Kërkesë e re për kontakt: Golf 7", captor.getValue().getSubject());
+        assertFalse(captor.getValue().getText().contains("Mesazhi"));
+        assertFalse(captor.getValue().getText().contains("Data e dëshiruar"));
+    }
 }

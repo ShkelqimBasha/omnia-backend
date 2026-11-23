@@ -7,6 +7,13 @@ import java.util.List;
 
 public interface ReviewService {
 
+    /** Whether the signed-in user may review a product: only with a DELIVERED order of it, once. */
+    record ReviewEligibility(boolean canReview, boolean verifiedBuyer, boolean alreadyReviewed) {
+    }
+
+    ReviewEligibility getEligibility(Long productId);
+
+
     ReviewResponse createReview(
             Long productId,
             ReviewRequest request

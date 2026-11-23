@@ -21,6 +21,7 @@ public class ReviewMapper {
                 .repliedBy(review.getRepliedBy())
                 .repliedAt(review.getRepliedAt())
                 .productImageUrl(ProductMapper.primaryImageUrl(review.getProduct()))
+                .verifiedPurchase(review.isVerifiedPurchase())
                 .build();
     }
 

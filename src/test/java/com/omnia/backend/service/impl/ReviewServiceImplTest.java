@@ -125,6 +125,9 @@ class ReviewServiceImplTest {
                 10L
         )).thenReturn(false);
 
+        when(reviewRepository.hasDeliveredPurchase(1L, 10L))
+                .thenReturn(true);
+
         when(reviewRepository.save(any(Review.class)))
                 .thenReturn(review);
 
@@ -156,6 +159,7 @@ class ReviewServiceImplTest {
 
         assertEquals(currentUser, savedReview.getUser());
         assertEquals(product, savedReview.getProduct());
+        assertTrue(savedReview.isVerifiedPurchase());
         assertEquals(5, savedReview.getRating());
         assertEquals(
                 "Excellent product",
@@ -222,6 +226,32 @@ class ReviewServiceImplTest {
 
         verify(reviewRepository, never())
                 .save(any(Review.class));
+    }
+
+    @Test
+    void createReview_shouldRejectBuyerWithoutDeliveredOrder() {
+        when(userRepository.findByEmail("shkelqim@example.com")).thenReturn(Optional.of(currentUser));
+        when(productRepository.findById(10L)).thenReturn(Optional.of(product));
+        when(reviewRepository.existsByUserIdAndProductId(1L, 10L)).thenReturn(false);
+        when(reviewRepository.hasDeliveredPurchase(1L, 10L)).thenReturn(false);
+
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                () -> reviewService.createReview(10L, request));
+        verify(reviewRepository, never()).save(any(Review.class));
+    }
+
+    @Test
+    void getEligibility_reportsDeliveredBuyerWhoHasNotReviewed() {
+        when(productRepository.existsById(10L)).thenReturn(true);
+        when(userRepository.findByEmail("shkelqim@example.com")).thenReturn(Optional.of(currentUser));
+        when(reviewRepository.existsByUserIdAndProductId(1L, 10L)).thenReturn(false);
+        when(reviewRepository.hasDeliveredPurchase(1L, 10L)).thenReturn(true);
+
+        var eligibility = reviewService.getEligibility(10L);
+
+        assertTrue(eligibility.canReview());
+        assertTrue(eligibility.verifiedBuyer());
+        assertFalse(eligibility.alreadyReviewed());
     }
 
     @Test

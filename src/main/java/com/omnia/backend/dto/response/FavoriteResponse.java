@@ -26,4 +26,6 @@ public class FavoriteResponse {
     private String category;
 
     private String status;
+
+    private String imageUrl;
 }

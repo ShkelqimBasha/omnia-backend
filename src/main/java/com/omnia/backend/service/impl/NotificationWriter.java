@@ -39,6 +39,21 @@ public class NotificationWriter {
  public void inquiry(com.omnia.backend.entity.ProductInquiry i){
   if(i==null||i.getId()==null||i.getProduct()==null)return;Long org=i.getOrganization()==null?null:i.getOrganization().getId();
   write("inquiry:"+i.getId(),"INQUIRY_"+i.getType().name(),"USER","PRODUCT",i.getProduct().getId(),org,i.getProduct().getName(),i.getType().name(),null,null,null);}
+ /**
+  * A new chat message: one notice for the other side only (the buyer, or the company's active owners/admins),
+  * never the sender. While a recipient still has an unread notice for this chat, no new notice or push is added.
+  */
+ public void chat(long conversationId,long messageId,long organizationId,String productName,boolean fromBuyer,long buyerId,long senderId){
+  em.flush();
+  List<Long> users=fromBuyer
+   ?jdbc.queryForList("SELECT u.id FROM users u JOIN organization_members m ON m.user_id=u.id JOIN organizations g ON g.id=m.organization_id WHERE m.organization_id=? AND m.status='ACTIVE' AND m.membership_role IN ('OWNER','ADMIN') AND g.status='ACTIVE' AND u.deleted_at IS NULL AND u.status='ACTIVE' AND u.id<>?",Long.class,organizationId,senderId)
+   :jdbc.queryForList("SELECT u.id FROM users u WHERE u.id=? AND u.id<>? AND u.deleted_at IS NULL AND u.status='ACTIVE'",Long.class,buyerId,senderId);
+  String label=productName==null?"":productName.substring(0,Math.min(200,productName.length()));String key="chat:"+messageId;
+  for(long user:new TreeSet<>(users)){
+   int added=jdbc.update("INSERT INTO notification_inbox (recipient_id,event_key,kind,category,target_type,target_id,organization_id,label,status,created_at) SELECT ?,?,'CHAT_MESSAGE','USER','CHAT',?,?,?,?,UTC_TIMESTAMP(6) FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM notification_inbox x WHERE x.recipient_id=? AND x.target_type='CHAT' AND x.target_id=? AND x.read_at IS NULL)",user,key,conversationId,organizationId,label,fromBuyer?"BUYER":"SELLER",user,conversationId);
+   if(added>0)jdbc.update("INSERT INTO push_outbox(notification_id,available_at) SELECT id,UTC_TIMESTAMP(6) FROM notification_inbox WHERE recipient_id=? AND event_key=? ON DUPLICATE KEY UPDATE notification_id=notification_id",user,key);
+  }
+ }
  public void user(User u){write("user:"+u.getId(),"USER_REGISTERED","SYSTEM","USER",u.getId(),null,u.getUsername(),null,null,null,null);}
  public void company(Organization o){write("company:"+o.getId(),"COMPANY_CREATED","SYSTEM","COMPANY",o.getId(),null,o.getName(),null,null,null,null);}
 }

@@ -23,11 +23,11 @@ public class PushDispatcher {
  private void deliver(long id){try{
   var rows=jdbc.queryForList("SELECT n.*,u.role_id,r.name AS role_name,o.user_id AS buyer_id FROM notification_inbox n JOIN users u ON u.id=n.recipient_id JOIN roles r ON r.id=u.role_id LEFT JOIN orders o ON n.target_type='ORDER' AND o.id=n.target_id WHERE n.id=? AND n.read_at IS NULL AND n.created_at>=DATE_SUB(UTC_TIMESTAMP(6),INTERVAL 15 MINUTE) AND u.deleted_at IS NULL AND u.status='ACTIVE'",id);
   if(rows.isEmpty()){done(id);return;}var notice=rows.get(0);long user=((Number)notice.get("recipient_id")).longValue();String role=String.valueOf(notice.get("role_name"));boolean admin=role.equals("ADMIN")||role.equals("SUPER_ADMIN");
-  List<Object> args=new ArrayList<>(List.of(user,user,admin?1:0,user,admin?1:0,user,admin?1:0,admin?1:0));args.add(id);
+  List<Object> args=NotificationInbox.visibleArgs(user,admin);args.add(id);
   if(jdbc.queryForObject("SELECT COUNT(*) FROM notification_inbox n WHERE "+NotificationInbox.VISIBLE+" AND n.id=?",Long.class,args.toArray())==0){done(id);return;}
   var prefRows=jdbc.queryForList("SELECT user_id FROM push_preferences WHERE user_id=?",user);if(prefRows.isEmpty()){done(id);return;}var p=prefs.values(user);String kind=String.valueOf(notice.get("kind"));
   boolean own=notice.get("buyer_id")!=null&&((Number)notice.get("buyer_id")).longValue()==user;
-  boolean allowed=switch(kind){case "ORDER_CREATED" -> own?p.orders():p.adminOrders();case "ORDER_STATUS" -> own?p.orders():p.adminOrders();case "LOW_STOCK" -> p.stock();case "INQUIRY_CONTACT","INQUIRY_VISIT" -> p.adminOrders();case "USER_REGISTERED","COMPANY_CREATED" -> role.equals("SUPER_ADMIN")&&p.audit();case "PAYPAL_REVIEW" -> role.equals("SUPER_ADMIN");default -> false;};
+  boolean allowed=switch(kind){case "ORDER_CREATED" -> own?p.orders():p.adminOrders();case "ORDER_STATUS" -> own?p.orders():p.adminOrders();case "LOW_STOCK" -> p.stock();case "INQUIRY_CONTACT","INQUIRY_VISIT" -> p.adminOrders();case "USER_REGISTERED","COMPANY_CREATED" -> role.equals("SUPER_ADMIN")&&p.audit();case "PAYPAL_REVIEW" -> role.equals("SUPER_ADMIN");case "CHAT_MESSAGE" -> true;default -> false;};
   if(!p.enabled()||!allowed||PushRules.quiet(p.quiet(),p.quietStart(),p.quietEnd(),p.timeZone(),Instant.now())){done(id);return;}
   boolean retry=false;var devices=jdbc.queryForList("SELECT * FROM push_devices WHERE user_id=? AND enabled=TRUE AND last_seen>=DATE_SUB(UTC_TIMESTAMP(6),INTERVAL 45 DAY)",user);
   for(var d:devices){String installation=String.valueOf(d.get("installation_id"));long version=((Number)d.get("binding_version")).longValue();

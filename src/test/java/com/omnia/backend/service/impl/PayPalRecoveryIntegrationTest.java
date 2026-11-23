@@ -243,6 +243,48 @@ class PayPalRecoveryIntegrationTest extends AbstractIntegrationTest {
         assertEquals(7 + 1, stock(productB));
     }
 
+    @Test void refusedCheckoutIsListedAndCanOnlyBeAbandonedWhenNoMoneyMoved() throws Exception {
+        // PayPal refused the capture (COMPLIANCE_VIOLATION): the checkout is BLOCKED, the order APPROVED, nothing captured.
+        jdbc.update("UPDATE paypal_checkouts SET state='BLOCKED' WHERE id=?", checkoutId);
+        MvcResult list = mockMvc.perform(as(get(BASE), superAdmin, "SUPER_ADMIN")).andReturn();
+        assertTrue(list.getResponse().getContentAsString().contains(checkoutId), "refused checkout is listed for the admin");
+        JsonNode detail = detail();
+        assertEquals("BLOCKED", detail.path("state").asText());
+        assertEquals("[\"ABANDON\"]", detail.path("allowedActions").toString());
+        String fingerprint = detail.path("evidenceFingerprint").asText();
+
+        // Any other action on a refused checkout is refused and changes nothing.
+        assertEquals(409, resolve(superAdmin, UUID.randomUUID().toString(), "CONFIRM_PAID", "BLOCKED", fingerprint,
+                "Trying to mark a refused payment as paid").getResponse().getStatus());
+        assertEquals(409, resolve(superAdmin, UUID.randomUUID().toString(), "FLAG_MANUAL", "BLOCKED", fingerprint,
+                "Trying to flag a refused payment manually").getResponse().getStatus());
+        assertEquals("BLOCKED", state());
+        assertEquals(5, stock(productA));
+
+        MvcResult done = resolve(superAdmin, UUID.randomUUID().toString(), "ABANDON", "BLOCKED", fingerprint,
+                "PayPal refused the capture (COMPLIANCE_VIOLATION); close the unpaid order");
+        assertEquals(200, done.getResponse().getStatus(), done.getResponse().getContentAsString());
+        assertEquals("ABANDONED", state());
+        assertEquals(List.of("CANCELLED", "CANCELLED"), orderStatuses());
+        assertEquals(5 + 3, stock(productA));
+        assertEquals(7 + 1, stock(productB));
+        assertEquals(2, count("SELECT COUNT(*) FROM payments p JOIN orders o ON o.id=p.order_id WHERE o.checkout_group_id=? AND p.status='FAILED'", groupId));
+        assertEquals(1, count("SELECT COUNT(*) FROM paypal_recovery_events WHERE checkout_id=? AND event_type='RESOLVED_ABANDONED' AND from_state='BLOCKED'", checkoutId));
+        verify(gateway, never()).capture(anyString(), anyString());
+    }
+
+    @Test void refusedCheckoutWithACaptureAtPayPalIsNeverAbandoned() throws Exception {
+        jdbc.update("UPDATE paypal_checkouts SET state='EXHAUSTED' WHERE id=?", checkoutId);
+        evidence("COMPLETED", "COMPLETED", "CAPTURE1");
+        JsonNode detail = detail();
+        assertEquals("[]", detail.path("allowedActions").toString(), "money moved: nothing may be abandoned");
+        assertEquals(409, resolve(superAdmin, UUID.randomUUID().toString(), "ABANDON", "EXHAUSTED",
+                detail.path("evidenceFingerprint").asText(), "Must not abandon a captured payment").getResponse().getStatus());
+        assertEquals("EXHAUSTED", state());
+        assertEquals(List.of("PENDING", "PENDING"), orderStatuses());
+        assertEquals(5, stock(productA));
+    }
+
     @Test void abandonedCheckoutBlocksEveryCapturePath() throws Exception {
         JsonNode detail = detail();
         assertEquals(200, resolve(superAdmin, UUID.randomUUID().toString(), "ABANDON", "RECOVERY_REQUIRED",

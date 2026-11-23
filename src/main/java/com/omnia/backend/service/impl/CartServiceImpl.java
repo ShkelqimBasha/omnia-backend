@@ -27,6 +27,9 @@ import java.util.List;
 @Service
 public class CartServiceImpl implements CartService {
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private ProductActivityCounter activityCounter;
+
     private final CartRepository cartRepository;
     private final CartItemRepository cartItemRepository;
     private final ProductRepository productRepository;
@@ -106,6 +109,9 @@ public class CartServiceImpl implements CartService {
         }
 
         cartItemRepository.save(cartItem);
+        if (activityCounter != null) {
+            activityCounter.record(product.getId(), ProductActivityCounter.Metric.CART_ADD);
+        }
 
         List<CartItem> items = cartItemRepository.findByCartId(cart.getId());
         return CartMapper.toResponse(cart, items);

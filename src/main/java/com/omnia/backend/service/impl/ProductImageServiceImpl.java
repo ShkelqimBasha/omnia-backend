@@ -1,5 +1,6 @@
 package com.omnia.backend.service.impl;
 
+import com.omnia.backend.catalog.ProductImageLimits;
 import com.omnia.backend.common.exception.ResourceNotFoundException;
 import com.omnia.backend.dto.request.ProductImageRequest;
 import com.omnia.backend.dto.response.ProductImageResponse;
@@ -19,8 +20,11 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 @Service
 public class ProductImageServiceImpl
@@ -65,7 +69,7 @@ public class ProductImageServiceImpl
 
         Product product =
                 productRepository
-                        .findById(productId)
+                        .findByIdForUpdate(productId)
                         .orElseThrow(() ->
                                 new ResourceNotFoundException(
                                         "Product not found"
@@ -73,6 +77,20 @@ public class ProductImageServiceImpl
                         );
 
         requireCanManageProduct(product);
+
+        long existingImages =
+                imageRepository.countByProductId(productId);
+        int maxImages = ProductImageLimits.maxFor(
+                product.getCategory() == null
+                        ? null
+                        : product.getCategory().getKind()
+        );
+        if (existingImages >= maxImages) {
+            throw new IllegalArgumentException(
+                    "Të shumtën " + maxImages
+                            + " foto për këtë listim"
+            );
+        }
 
         UploadedFile uploadedFile =
                 getUploadedFile(
@@ -90,8 +108,10 @@ public class ProductImageServiceImpl
             );
         }
 
+        // The first photo of a listing is its cover.
         boolean primary =
-                Boolean.TRUE.equals(
+                existingImages == 0
+                        || Boolean.TRUE.equals(
                         request.getIsPrimary()
                 );
 
@@ -108,10 +128,13 @@ public class ProductImageServiceImpl
                         .uploadedFile(uploadedFile)
                         .legacyImageUrl(null)
                         .isPrimary(primary)
+                        .sortOrder((int) existingImages)
                         .build();
 
         ProductImage saved =
                 imageRepository.saveAndFlush(image);
+
+        renumber(product.getId());
 
         return ProductImageMapper.toResponse(saved);
     }
@@ -133,7 +156,7 @@ public class ProductImageServiceImpl
         }
 
         return imageRepository
-                .findByProductIdOrderByIsPrimaryDescIdAsc(
+                .findByProductIdOrderByIsPrimaryDescSortOrderAscIdAsc(
                         productId
                 )
                 .stream()
@@ -202,6 +225,8 @@ public class ProductImageServiceImpl
         ProductImage updated =
                 imageRepository.saveAndFlush(image);
 
+        renumber(image.getProduct().getId());
+
         return ProductImageMapper.toResponse(updated);
     }
 
@@ -232,8 +257,165 @@ public class ProductImageServiceImpl
          * The uploaded file remains stored and can be
          * removed separately through /api/files/{fileId}.
          */
+        Long productId = image.getProduct().getId();
+        boolean wasCover =
+                Boolean.TRUE.equals(image.getIsPrimary());
+
         imageRepository.delete(image);
         imageRepository.flush();
+
+        // Removing the cover promotes the next photo in the gallery.
+        if (wasCover) {
+            imageRepository
+                    .findByProductIdOrderByIsPrimaryDescSortOrderAscIdAsc(
+                            productId
+                    )
+                    .stream()
+                    .findFirst()
+                    .ifPresent(next -> {
+                        next.setIsPrimary(true);
+                        imageRepository.saveAndFlush(next);
+                    });
+        }
+
+        renumber(productId);
+    }
+
+    @Override
+    @Transactional
+    public List<ProductImageResponse> reorderImages(
+            Long productId,
+            List<Long> imageIds
+    ) {
+        validatePositiveId(
+                productId,
+                "Product id"
+        );
+
+        Product product =
+                productRepository
+                        .findByIdForUpdate(productId)
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException(
+                                        "Product not found"
+                                )
+                        );
+
+        requireCanManageProduct(product);
+
+        List<ProductImage> images =
+                imageRepository
+                        .findByProductIdOrderByIsPrimaryDescSortOrderAscIdAsc(
+                                productId
+                        );
+
+        Set<Long> current = new HashSet<>();
+        images.forEach(image -> current.add(image.getId()));
+
+        if (imageIds == null
+                || imageIds.size() != images.size()
+                || !current.equals(new HashSet<>(imageIds))) {
+            throw new IllegalArgumentException(
+                    "Renditja duhet të përmbajë të gjitha fotot "
+                            + "e listimit, secilën një herë"
+            );
+        }
+
+        applyOrder(product.getId(), images, imageIds);
+
+        return getProductImages(productId);
+    }
+
+    @Override
+    @Transactional
+    public List<ProductImageResponse> setCover(Long imageId) {
+
+        validatePositiveId(
+                imageId,
+                "Image id"
+        );
+
+        ProductImage image =
+                imageRepository
+                        .findById(imageId)
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException(
+                                        "Image not found"
+                                )
+                        );
+
+        Long productId = image.getProduct().getId();
+
+        productRepository
+                .findByIdForUpdate(productId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "Product not found"
+                        )
+                );
+
+        requireCanManageProduct(image.getProduct());
+
+        List<ProductImage> images =
+                imageRepository
+                        .findByProductIdOrderByIsPrimaryDescSortOrderAscIdAsc(
+                                productId
+                        );
+
+        List<Long> order = new ArrayList<>();
+        order.add(imageId);
+        images.stream()
+                .map(ProductImage::getId)
+                .filter(id -> !Objects.equals(id, imageId))
+                .forEach(order::add);
+
+        applyOrder(productId, images, order);
+
+        return getProductImages(productId);
+    }
+
+    /* Positions follow the given ids; the first one becomes the cover. */
+    private void applyOrder(
+            Long productId,
+            List<ProductImage> images,
+            List<Long> orderedIds
+    ) {
+        if (orderedIds.isEmpty()) {
+            return;
+        }
+
+        Long coverId = orderedIds.get(0);
+
+        clearExistingPrimary(productId, coverId);
+
+        for (ProductImage image : images) {
+            image.setSortOrder(orderedIds.indexOf(image.getId()));
+            image.setIsPrimary(Objects.equals(image.getId(), coverId));
+        }
+
+        imageRepository.saveAllAndFlush(images);
+    }
+
+    /* Rewrites positions as 0..n-1 in gallery order (cover first). */
+    private void renumber(Long productId) {
+        List<ProductImage> images =
+                imageRepository
+                        .findByProductIdOrderByIsPrimaryDescSortOrderAscIdAsc(
+                                productId
+                        );
+
+        boolean changed = false;
+        for (int position = 0; position < images.size(); position++) {
+            ProductImage image = images.get(position);
+            if (!Objects.equals(image.getSortOrder(), position)) {
+                image.setSortOrder(position);
+                changed = true;
+            }
+        }
+
+        if (changed) {
+            imageRepository.saveAllAndFlush(images);
+        }
     }
 
     private UploadedFile getUploadedFile(

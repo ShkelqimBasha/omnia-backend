@@ -16,6 +16,7 @@ public class FavoriteMapper {
                 .discountPrice(favorite.getProduct().getDiscountPrice())
                 .category(favorite.getProduct().getCategory().getName())
                 .status(favorite.getProduct().getStatus().name())
+                .imageUrl(ProductMapper.primaryImageUrl(favorite.getProduct()))
                 .build();
     }
 

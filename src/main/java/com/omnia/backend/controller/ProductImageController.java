@@ -1,5 +1,6 @@
 package com.omnia.backend.controller;
 
+import com.omnia.backend.dto.request.ProductImageOrderRequest;
 import com.omnia.backend.dto.request.ProductImageRequest;
 import com.omnia.backend.dto.response.ProductImageResponse;
 import com.omnia.backend.service.interfaces.ProductImageService;
@@ -90,6 +91,38 @@ public class ProductImageController {
                         imageId,
                         request
                 )
+        );
+    }
+
+    /* The product's image ids in the new order; the first one becomes the cover. */
+    @PutMapping("/product/{productId}/order")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<List<ProductImageResponse>> reorderImages(
+            @PathVariable
+            @Positive(message = "Product id must be positive")
+            Long productId,
+
+            @Valid
+            @RequestBody
+            ProductImageOrderRequest request
+    ) {
+        return ResponseEntity.ok(
+                productImageService.reorderImages(
+                        productId,
+                        request.getImageIds()
+                )
+        );
+    }
+
+    @PutMapping("/{imageId}/cover")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<List<ProductImageResponse>> setCover(
+            @PathVariable
+            @Positive(message = "Image id must be positive")
+            Long imageId
+    ) {
+        return ResponseEntity.ok(
+                productImageService.setCover(imageId)
         );
     }
 

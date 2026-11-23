@@ -352,6 +352,7 @@ public class ProductServiceImpl
         product.setAttributes(listing.attributes());
         product.setSaleMode(com.omnia.backend.catalog.ListingRules.resolveSaleMode(
                 targetKind, requestedSaleMode, carOnline()));
+        BigDecimal previousBuyerPrice = buyerPrice(product);
         product.setPrice(request.getPrice());
         product.setDiscountPrice(
                 request.getDiscountPrice()
@@ -384,9 +385,25 @@ public class ProductServiceImpl
 
         if (notificationWriter != null && !Objects.equals(notificationPreviousStock, updatedProduct.getStock()))
             notificationWriter.low(updatedProduct, java.util.UUID.randomUUID().toString());
+        BigDecimal newBuyerPrice = buyerPrice(updatedProduct);
+        if (notificationWriter != null && updatedProduct.getStatus() == ProductStatus.ACTIVE
+                && previousBuyerPrice != null && newBuyerPrice != null
+                && newBuyerPrice.compareTo(previousBuyerPrice) < 0) {
+            notificationWriter.priceDrop(updatedProduct, previousBuyerPrice, newBuyerPrice);
+        }
         return productMapper.toResponse(
                 updatedProduct
         );
+    }
+
+    /** The price a buyer pays: the discount price when it is set and lower than the price. */
+    static BigDecimal buyerPrice(Product product) {
+        BigDecimal price = product.getPrice();
+        BigDecimal discount = product.getDiscountPrice();
+        if (discount != null && discount.signum() > 0 && (price == null || discount.compareTo(price) < 0)) {
+            return discount;
+        }
+        return price;
     }
 
     private static List<com.omnia.backend.catalog.ProductSizes.SizeInput> sizeInputs(

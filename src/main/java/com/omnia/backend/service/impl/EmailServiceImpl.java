@@ -243,6 +243,55 @@ public class EmailServiceImpl implements EmailService {
         };
     }
 
+    @Override
+    public void sendInquiryEmail(
+            String recipientEmail,
+            com.omnia.backend.event.InquiryCreatedEvent inquiry
+    ) {
+        boolean visit = "VISIT".equals(inquiry.type());
+        String product = inquiry.productName() == null ? "" : inquiry.productName().strip();
+        String subject = inquiryTitle(visit, product);
+
+        StringBuilder body = new StringBuilder()
+                .append("Përshëndetje")
+                .append(inquiry.companyName() == null || inquiry.companyName().isBlank()
+                        ? "" : " " + inquiry.companyName().strip())
+                .append(",\n\n")
+                .append(visit
+                        ? "Një blerës kërkon të vizitojë pronën tuaj në Omnia.\n\n"
+                        : "Një blerës kërkon t'ju kontaktojë për njoftimin tuaj në Omnia.\n\n")
+                .append("Njoftimi: ").append(product)
+                .append(" (#").append(inquiry.productId()).append(")\n")
+                .append("Emri: ").append(inquiry.contactName()).append("\n")
+                .append("Telefoni: ").append(inquiry.contactPhone()).append("\n");
+        if (inquiry.visitAt() != null) {
+            body.append("Orari i zgjedhur: ")
+                    .append(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")
+                            .format(inquiry.visitAt()))
+                    .append("\n");
+        } else if (inquiry.preferredDate() != null) {
+            body.append("Data e dëshiruar: ")
+                    .append(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy")
+                            .format(inquiry.preferredDate()))
+                    .append("\n");
+        }
+        if (inquiry.message() != null && !inquiry.message().isBlank()) {
+            body.append("Mesazhi: ").append(inquiry.message().strip()).append("\n");
+        }
+        body.append("\nKërkesën e gjeni te paneli i kompanisë → Kërkesat e blerësve, ")
+                .append("ku mund t'i ndryshoni edhe statusin.\n\n")
+                .append("Ekipi Omnia");
+
+        sendSimpleEmail(recipientEmail, subject, body.toString());
+    }
+
+    /** "Kërkesë e re për vizitë: <titulli>" / "Kërkesë e re për kontakt: <titulli>". */
+    static String inquiryTitle(boolean visit, String productName) {
+        String title = (visit ? "Kërkesë e re për vizitë: " : "Kërkesë e re për kontakt: ")
+                + (productName == null ? "" : productName.strip());
+        return title.length() > 150 ? title.substring(0, 149) + "…" : title;
+    }
+
     private void sendSimpleEmail(
             String recipientEmail,
             String subject,

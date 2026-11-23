@@ -31,4 +31,5 @@
         private String repliedBy;
         private LocalDateTime repliedAt;
         private String productImageUrl;
+        private boolean verifiedPurchase;
     }

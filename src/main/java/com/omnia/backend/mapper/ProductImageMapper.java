@@ -38,6 +38,7 @@ public final class ProductImageMapper {
                                 image.getIsPrimary()
                         )
                 )
+                .sortOrder(image.getSortOrder())
                 .createdAt(image.getCreatedAt())
                 .build();
     }

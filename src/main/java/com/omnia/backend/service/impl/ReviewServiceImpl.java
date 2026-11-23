@@ -47,11 +47,18 @@ public class ReviewServiceImpl implements ReviewService {
             throw new ResourceAlreadyExistsException("You have already reviewed this product");
         }
 
+        // Only buyers who received the product can review it.
+        if (!reviewRepository.hasDeliveredPurchase(user.getId(), productId)) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "Only buyers with a delivered order of this product can review it");
+        }
+
         Review review = Review.builder()
                 .user(user)
                 .product(product)
                 .rating(request.getRating())
                 .comment(request.getComment())
+                .verifiedPurchase(true)
                 .build();
 
         Review saved = reviewRepository.save(review);
@@ -72,6 +79,18 @@ public class ReviewServiceImpl implements ReviewService {
                 .filter(review -> !review.isHidden())
                 .map(ReviewMapper::toResponse)
                 .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ReviewEligibility getEligibility(Long productId) {
+        if (!productRepository.existsById(productId)) {
+            throw new ResourceNotFoundException("Product not found");
+        }
+        User user = getCurrentUser();
+        boolean reviewed = reviewRepository.existsByUserIdAndProductId(user.getId(), productId);
+        boolean delivered = reviewRepository.hasDeliveredPurchase(user.getId(), productId);
+        return new ReviewEligibility(delivered && !reviewed, delivered, reviewed);
     }
 
     @Override

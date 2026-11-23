@@ -46,7 +46,7 @@ class PayPalCheckoutIntegrationTest extends AbstractIntegrationTest {
         order=Order.builder().user(user).checkoutGroup(group).status(OrderStatus.PENDING).totalAmount(new BigDecimal("12.30")).build();em.persist(order);
         em.persist(Payment.builder().order(order).method(PaymentMethod.CASH_ON_DELIVERY).status(PaymentStatus.PENDING).build());em.flush();
         when(current.requireCurrentUser()).thenReturn(user);
-        when(checkout.checkout(any())).thenReturn(CheckoutResponse.builder().checkoutReference(group.getCheckoutReference()).totalAmount(new BigDecimal("12.30")).build());
+        when(checkout.checkout(any(),any())).thenReturn(CheckoutResponse.builder().checkoutReference(group.getCheckoutReference()).totalAmount(new BigDecimal("12.30")).build());
         orderService=mock(OrderService.class);service=new PayPalCheckoutService(jdbc,current,checkout,transitions,gateway,json,em,manager,ledger);key=UUID.randomUUID().toString();
         when(gateway.create(anyString(),any(),anyBoolean())).thenAnswer(inv->{attempt=inv.getArgument(0);return json.readTree("{\"id\":\"PROVIDER123\",\"links\":[{\"rel\":\"approve\",\"href\":\"https://www.sandbox.paypal.com/checkoutnow?token=PROVIDER123\"}]}");});
         when(gateway.get("PROVIDER123")).thenAnswer(inv->evidence("CREATED",null));
@@ -61,7 +61,7 @@ class PayPalCheckoutIntegrationTest extends AbstractIntegrationTest {
     }
     @Test void retryUsesSameOrdersAndProviderRequest()throws Exception{
         var first=service.create(key,request());var second=service.create(key,request());
-        assertEquals(first.id(),second.id());verify(checkout,times(1)).checkout(any());verify(gateway,times(1)).create(anyString(),any(),anyBoolean());
+        assertEquals(first.id(),second.id());verify(checkout,times(1)).checkout(any(),eq(com.omnia.backend.enums.PaymentMethod.PAYPAL));verify(gateway,times(1)).create(anyString(),any(),anyBoolean());
         assertEquals("PAYPAL",jdbc.queryForObject("SELECT method FROM payments WHERE order_id=?",String.class,order.getId()));
         assertThrows(IllegalArgumentException.class,()->guard.check(order,false));
     }
@@ -78,7 +78,7 @@ class PayPalCheckoutIntegrationTest extends AbstractIntegrationTest {
         Order second=Order.builder().user(user).checkoutGroup(group).status(OrderStatus.PENDING).totalAmount(new BigDecimal("12.30")).build();em.persist(second);
         em.persist(Payment.builder().order(second).method(PaymentMethod.CASH_ON_DELIVERY).status(PaymentStatus.PENDING).build());
         group.setTotalAmount(new BigDecimal("24.60"));em.flush();
-        when(checkout.checkout(any())).thenReturn(CheckoutResponse.builder().checkoutReference(group.getCheckoutReference()).totalAmount(new BigDecimal("24.60")).build());
+        when(checkout.checkout(any(),any())).thenReturn(CheckoutResponse.builder().checkoutReference(group.getCheckoutReference()).totalAmount(new BigDecimal("24.60")).build());
         var first=service.create(key,request());when(gateway.get("PROVIDER123")).thenReturn(evidence("APPROVED",null),evidence("COMPLETED","COMPLETED"));
         assertEquals("PAID",service.sync(first.id(),true).state());
         assertEquals(2L,jdbc.queryForObject("SELECT COUNT(*) FROM payments p JOIN orders o ON o.id=p.order_id WHERE o.checkout_group_id=? AND p.status='SUCCESS'",Long.class,group.getId()));

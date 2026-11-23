@@ -94,6 +94,11 @@ public class FileUploadController {
                     .build();
         }
 
+        // Seller verification documents: platform admins only, everyone else sees nothing.
+        if (isHiddenPrivateDocument(fileId)) {
+            return ResponseEntity.notFound().build();
+        }
+
         UploadedFile metadata =
                 fileStorageService
                         .getFileMetadata(fileId);
@@ -145,6 +150,10 @@ public class FileUploadController {
             )
             Long fileId
     ) {
+        if (isHiddenPrivateDocument(fileId)) {
+            return ResponseEntity.notFound().build();
+        }
+
         UploadedFile uploadedFile =
                 fileStorageService
                         .getFileMetadata(fileId);
@@ -164,11 +173,34 @@ public class FileUploadController {
             )
             Long fileId
     ) {
+        if (isHiddenPrivateDocument(fileId)) {
+            return ResponseEntity.notFound().build();
+        }
+
         fileStorageService.deleteFile(fileId);
 
         return ResponseEntity
                 .noContent()
                 .build();
+    }
+
+    private boolean isHiddenPrivateDocument(Long fileId) {
+        return publicCatalogMediaService.isPrivateDocument(fileId)
+                && !isPlatformAdmin();
+    }
+
+    private static boolean isPlatformAdmin() {
+        Authentication authentication =
+                SecurityContextHolder
+                        .getContext()
+                        .getAuthentication();
+
+        return authentication != null
+                && authentication.getAuthorities()
+                .stream()
+                .anyMatch(authority ->
+                        "ROLE_SUPER_ADMIN".equals(authority.getAuthority())
+                                || "ROLE_ADMIN".equals(authority.getAuthority()));
     }
 
     private static boolean isGuest() {

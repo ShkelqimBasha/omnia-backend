@@ -74,15 +74,34 @@ public class Organization {
     private User primaryAdministrator;
     @Column private Double latitude;
     @Column private Double longitude;
+    /** "Shitës i verifikuar": set when the platform admin approves the NIPT and document. */
+    @Column(name = "verified_at")
+    private LocalDateTime verifiedAt;
     @Column(name="editor_name_key",length=150,unique=true)
     private String editorNameKey;
     @PreUpdate
     private void synchronizeEditorName() {
         if(editorNameKey!=null&&name!=null)editorNameKey=name.trim().replaceAll("\\s+"," ").toLowerCase(java.util.Locale.ROOT);
     }
+    /** Payment methods this company accepts (V49); at least one is on. */
+    @Builder.Default
+    @Column(name="accepts_cash_on_delivery",nullable=false)
+    private boolean acceptsCashOnDelivery=true;
+    @Builder.Default
+    @Column(name="accepts_paypal",nullable=false)
+    private boolean acceptsPaypal=true;
+    /** Optional COD limits on this company's product value in a checkout. */
+    @Column(name="cod_min_order_amount",precision=10,scale=2)
+    private java.math.BigDecimal codMinOrderAmount;
+    @Column(name="cod_max_order_amount",precision=10,scale=2)
+    private java.math.BigDecimal codMaxOrderAmount;
     @Version @Builder.Default
     @Column(name="editor_revision",nullable=false)
     private Long editorRevision=0L;
+
+    public boolean isVerified() {
+        return verifiedAt != null;
+    }
 
     public boolean isActive() {
         return OrganizationStatus.ACTIVE.equals(status);

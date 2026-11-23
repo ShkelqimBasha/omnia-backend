@@ -140,6 +140,12 @@ public class SecurityConfig {
                         .permitAll()
 
                         .requestMatchers(
+                                HttpMethod.POST,
+                                "/api/products/*/view"
+                        )
+                        .permitAll()
+
+                        .requestMatchers(
                                 "/api/roles/**"
                         )
                         .hasAnyRole(

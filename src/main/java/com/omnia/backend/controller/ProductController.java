@@ -19,9 +19,12 @@ import java.math.BigDecimal;
 public class ProductController {
 
     private final ProductService productService;
+    private final com.omnia.backend.service.impl.CategoryViews categoryViews;
 
-    public ProductController(ProductService productService) {
+    public ProductController(ProductService productService,
+                             com.omnia.backend.service.impl.CategoryViews categoryViews) {
         this.productService = productService;
+        this.categoryViews = categoryViews;
     }
 
     @PostMapping
@@ -29,6 +32,7 @@ public class ProductController {
     public ResponseEntity<ProductResponse> createProduct(
             @Valid @RequestBody ProductRequest request
     ) {
+        com.omnia.backend.service.impl.AdminAudit.note("Produkti: " + request.getName());
         return ResponseEntity
                 .status(HttpStatus.CREATED)
                 .body(productService.createProduct(request));
@@ -38,7 +42,9 @@ public class ProductController {
     public ResponseEntity<ProductResponse> getProductById(
             @PathVariable Long id
     ) {
-        return ResponseEntity.ok(productService.getProductById(id));
+        ProductResponse product = productService.getProductById(id);
+        categoryViews.recordCurrent(id);
+        return ResponseEntity.ok(product);
     }
 
     @GetMapping
@@ -80,6 +86,7 @@ public class ProductController {
             @PathVariable Long id,
             @Valid @RequestBody ProductRequest request
     ) {
+        com.omnia.backend.service.impl.AdminAudit.note("Produkti: " + request.getName());
         return ResponseEntity.ok(productService.updateProduct(id, request));
     }
 

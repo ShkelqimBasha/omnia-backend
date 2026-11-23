@@ -4,6 +4,7 @@ import com.omnia.backend.enums.InquiryType;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import lombok.*;
 
@@ -31,6 +32,10 @@ public class ProductInquiryRequest {
     @Size(max = 1000)
     private String message;
 
-    /** VISIT only: the day the buyer would like to visit. */
+    /** VISIT only: the day the buyer would like to visit (free entry when the seller set no slots). */
     private LocalDate preferredDate;
+
+    /** VISIT only: one of the seller's free visit slots (GET /api/products/{id}/visit-slots). */
+    @Positive
+    private Long visitSlotId;
 }

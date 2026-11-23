@@ -107,8 +107,9 @@ class PayPalRecoveryMigrationTest {
         String columns = "id,user_id,request_key,request_hash,checkout_group_id,amount,paypal_order_id,approval_url,state,created_at,updated_at,paypal_create_attempted_at";
         List<Map<String, Object>> beforeV39 = jdbc.queryForList("SELECT " + columns + " FROM paypal_checkouts ORDER BY id");
         flyway(null).migrate();
-        // V40 (main categories), V41 (accent colour) and V42 (product sizes) do not touch PayPal tables.
-        assertEquals("42", flyway(null).info().current().getVersion().getVersion());
+        // V40 (main categories), V41 (accent colour), V42 (product sizes) and V45 (seller tools)
+        // do not touch PayPal tables.
+        assertEquals("45", flyway(null).info().current().getVersion().getVersion());
         flyway(null).validate();
         assertEquals(List.of("sandbox", "sandbox", "sandbox"),
                 jdbc.queryForList("SELECT environment FROM paypal_checkouts ORDER BY id", String.class));
@@ -124,7 +125,7 @@ class PayPalRecoveryMigrationTest {
         assertEquals("live", jdbc.queryForObject("SELECT environment FROM paypal_checkouts WHERE id=?", String.class, ordinary));
     }
 
-    @Test void migrationVersionsAreUniqueAndV42IsTheLatest() throws Exception {
+    @Test void migrationVersionsAreUniqueAndV45IsTheLatest() throws Exception {
         Pattern name = Pattern.compile("V(\\d+)__.+\\.sql");
         Map<Integer, List<String>> versions = new TreeMap<>();
         for (Resource resource : new PathMatchingResourcePatternResolver().getResources("classpath*:db/migration/*.sql")) {
@@ -138,7 +139,9 @@ class PayPalRecoveryMigrationTest {
         assertEquals(List.of("V40__add_main_categories.sql"), versions.get(40));
         assertEquals(List.of("V41__add_user_settings_accent_color.sql"), versions.get(41));
         assertEquals(List.of("V42__add_product_sizes.sql"), versions.get(42));
-        assertEquals(42, ((TreeMap<Integer, List<String>>) versions).lastKey());
+        assertEquals(List.of("V45__product_gallery_order_and_daily_stats.sql"), versions.get(45));
+        assertEquals(45, ((TreeMap<Integer, List<String>>) versions).lastKey());
+        // V43 and V44 are reserved for packages developed in parallel; they may land later.
         for (int v = 1; v <= 42; v++) assertTrue(versions.containsKey(v), "missing V" + v);
     }
 }

@@ -14,4 +14,10 @@ public interface ProductImageService {
     ProductImageResponse updateImage(Long imageId, ProductImageRequest request);
 
     void deleteImage(Long imageId);
+
+    /** Puts the images in the given order; the first becomes the cover. */
+    List<ProductImageResponse> reorderImages(Long productId, List<Long> imageIds);
+
+    /** Makes the image the cover and moves it to the front of the gallery. */
+    List<ProductImageResponse> setCover(Long imageId);
 }

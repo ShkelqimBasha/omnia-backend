@@ -39,6 +39,9 @@ public class ProductInquiryService {
     @Autowired(required = false)
     private NotificationWriter notificationWriter;
 
+    @Autowired(required = false)
+    private ProductActivityCounter activityCounter;
+
     @Autowired
     public ProductInquiryService(ProductInquiryRepository inquiryRepository,
                                  ProductRepository productRepository,
@@ -86,6 +89,9 @@ public class ProductInquiryService {
                         ? request.getPreferredDate() : null)
                 .build());
         if (notificationWriter != null) notificationWriter.inquiry(saved);
+        if (activityCounter != null) {
+            activityCounter.record(product.getId(), ProductActivityCounter.Metric.INQUIRY);
+        }
         return toResponse(saved);
     }
 

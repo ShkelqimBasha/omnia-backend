@@ -67,6 +67,10 @@ class ProductImageServiceImplTest {
                                 .hasCurrentPlatformAdminAuthority()
                 )
                 .thenReturn(true);
+        // The product already has a photo, so a new one is not the cover by default.
+        lenient()
+                .when(imageRepository.countByProductId(anyLong()))
+                .thenReturn(1L);
 
         product = Product.builder()
                 .id(1L)
@@ -92,7 +96,7 @@ class ProductImageServiceImplTest {
     @Test
     void addImage_WithValidRequest_ShouldCreateImage() {
 
-        when(productRepository.findById(1L))
+        when(productRepository.findByIdForUpdate(1L))
                 .thenReturn(Optional.of(product));
 
         when(uploadedFileRepository.findById(10L))
@@ -189,7 +193,7 @@ class ProductImageServiceImplTest {
                 product.getId()
         );
 
-        when(productRepository.findById(1L))
+        when(productRepository.findByIdForUpdate(1L))
                 .thenReturn(Optional.of(product));
 
         when(uploadedFileRepository.findById(10L))
@@ -246,7 +250,7 @@ class ProductImageServiceImplTest {
 
         request.setIsPrimary(true);
 
-        when(productRepository.findById(1L))
+        when(productRepository.findByIdForUpdate(1L))
                 .thenReturn(Optional.of(product));
 
         when(uploadedFileRepository.findById(10L))
@@ -285,7 +289,7 @@ class ProductImageServiceImplTest {
     @Test
     void addImage_WhenProductDoesNotExist_ShouldThrowException() {
 
-        when(productRepository.findById(999L))
+        when(productRepository.findByIdForUpdate(999L))
                 .thenReturn(Optional.empty());
 
         ResourceNotFoundException exception =
@@ -315,7 +319,7 @@ class ProductImageServiceImplTest {
     @Test
     void addImage_WhenUploadedFileDoesNotExist_ShouldThrowException() {
 
-        when(productRepository.findById(1L))
+        when(productRepository.findByIdForUpdate(1L))
                 .thenReturn(Optional.of(product));
 
         when(uploadedFileRepository.findById(10L))
@@ -344,7 +348,7 @@ class ProductImageServiceImplTest {
     @Test
     void addImage_WhenFileIsAlreadyAttached_ShouldThrowException() {
 
-        when(productRepository.findById(1L))
+        when(productRepository.findByIdForUpdate(1L))
                 .thenReturn(Optional.of(product));
 
         when(uploadedFileRepository.findById(10L))
@@ -397,7 +401,7 @@ class ProductImageServiceImplTest {
 
         request.setUploadedFileId(0L);
 
-        when(productRepository.findById(1L))
+        when(productRepository.findByIdForUpdate(1L))
                 .thenReturn(Optional.of(product));
 
         assertThrows(
@@ -458,7 +462,7 @@ class ProductImageServiceImplTest {
                 .thenReturn(true);
 
         when(imageRepository
-                .findByProductIdOrderByIsPrimaryDescIdAsc(
+                .findByProductIdOrderByIsPrimaryDescSortOrderAscIdAsc(
                         1L
                 ))
                 .thenReturn(
@@ -502,7 +506,7 @@ class ProductImageServiceImplTest {
         );
 
         verify(imageRepository, never())
-                .findByProductIdOrderByIsPrimaryDescIdAsc(
+                .findByProductIdOrderByIsPrimaryDescSortOrderAscIdAsc(
                         anyLong()
                 );
     }

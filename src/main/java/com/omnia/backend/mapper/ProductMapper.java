@@ -52,6 +52,7 @@ public class ProductMapper {
                 .id(product.getId())
                 .name(product.getName())
                 .imageUrl(primaryImageUrl(product))
+                .imageUrls(galleryImageUrls(product))
                 .organizationLogoUrl(organization == null || organization.getLogoFile() == null
                         ? null : "/api/files/" + organization.getLogoFile().getId())
                 .description(product.getDescription())
@@ -130,15 +131,25 @@ public class ProductMapper {
     }
 
     public static String primaryImageUrl(Product product) {
-        if (product == null || product.getImages() == null) return null;
+        java.util.List<String> urls = galleryImageUrls(product);
+        return urls.isEmpty() ? null : urls.get(0);
+    }
+
+    /** Every photo of the listing in gallery order: the cover first, then by position. */
+    public static java.util.List<String> galleryImageUrls(Product product) {
+        if (product == null || product.getImages() == null) return java.util.List.of();
         return product.getImages().stream()
                 .filter(image -> image.getUploadedFile() != null || image.isLegacyUrlBacked())
-                .sorted(java.util.Comparator
-                        .comparing((com.omnia.backend.entity.ProductImage image) ->
-                                !Boolean.TRUE.equals(image.getIsPrimary()))
-                        .thenComparing(com.omnia.backend.entity.ProductImage::getId,
-                                java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
+                .sorted(GALLERY_ORDER)
                 .map(image -> ProductImageMapper.toResponse(image).getImageUrl())
-                .findFirst().orElse(null);
+                .toList();
     }
+
+    public static final java.util.Comparator<com.omnia.backend.entity.ProductImage> GALLERY_ORDER =
+            java.util.Comparator
+                    .comparing((com.omnia.backend.entity.ProductImage image) ->
+                            !Boolean.TRUE.equals(image.getIsPrimary()))
+                    .thenComparing(image -> image.getSortOrder() == null ? 0 : image.getSortOrder())
+                    .thenComparing(com.omnia.backend.entity.ProductImage::getId,
+                            java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()));
 }

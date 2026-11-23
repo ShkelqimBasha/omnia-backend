@@ -21,9 +21,11 @@ public interface ProductImageRepository
             }
     )
     List<ProductImage>
-    findByProductIdOrderByIsPrimaryDescIdAsc(
+    findByProductIdOrderByIsPrimaryDescSortOrderAscIdAsc(
             Long productId
     );
+
+    long countByProductId(Long productId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""

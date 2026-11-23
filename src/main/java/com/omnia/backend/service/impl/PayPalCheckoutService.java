@@ -75,7 +75,7 @@ public class PayPalCheckoutService {
             // the other environment cannot be resumed or checked here, so it does not block a new purchase.
             Integer pending=jdbc.queryForObject("SELECT COUNT(*) FROM paypal_checkouts WHERE user_id=? AND environment=? AND state NOT IN ('PAID','REFUNDED','ABANDONED','RECOVERY_REQUIRED')",Integer.class,owner,environment);
             if(pending!=null && pending>0) throw new IllegalArgumentException("Resume or cancel your existing PayPal checkout first");
-            var result=checkout.checkout(request);em.flush();
+            var result=checkout.checkout(request,com.omnia.backend.enums.PaymentMethod.PAYPAL);em.flush();
             long group=jdbc.queryForObject("SELECT id FROM checkout_groups WHERE checkout_reference=? AND user_id=?",Long.class,result.getCheckoutReference(),owner);
             BigDecimal total=result.getTotalAmount();
             if(total==null || total.signum()<=0 || total.scale()>2)throw new IllegalArgumentException("PayPal amount must be positive EUR");

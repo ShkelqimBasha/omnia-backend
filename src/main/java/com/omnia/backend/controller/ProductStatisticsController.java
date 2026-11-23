@@ -19,19 +19,25 @@ public class ProductStatisticsController {
 
     private final ProductActivityCounter counter;
 
+    private final com.omnia.backend.service.impl.CategoryViews categoryViews;
+
     public ProductStatisticsController(ProductStatisticsService statistics,
-                                       ProductActivityCounter counter) {
+                                       ProductActivityCounter counter,
+                                       com.omnia.backend.service.impl.CategoryViews categoryViews) {
         this.statistics = statistics;
         this.counter = counter;
+        this.categoryViews = categoryViews;
     }
 
     /**
      * Counts one view of a listing. Called by the product page (web, Android)
-     * once per visit; open to guests and answered without touching the database.
+     * once per visit; open to guests. The view counter itself does not touch the database.
      */
     @PostMapping("/api/products/{productId}/view")
     public ResponseEntity<Void> view(@PathVariable @Positive Long productId) {
         counter.record(productId, ProductActivityCounter.Metric.VIEW);
+        // Signed-in callers also count towards their viewed categories (push campaign segments).
+        categoryViews.recordCurrent(productId);
         return ResponseEntity.noContent().build();
     }
 

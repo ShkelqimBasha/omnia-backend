@@ -47,14 +47,6 @@ public class ProductController {
         return ResponseEntity.ok(product);
     }
 
-    /** Signed-in web visits (the web renders product pages without the buyer's token). */
-    @PostMapping("/{id}/view")
-    @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<Void> recordView(@PathVariable Long id) {
-        categoryViews.recordCurrent(id);
-        return ResponseEntity.noContent().build();
-    }
-
     @GetMapping
     public ResponseEntity<PagedResponse<ProductResponse>> getAllProducts(
             @RequestParam(defaultValue = "0") int page,

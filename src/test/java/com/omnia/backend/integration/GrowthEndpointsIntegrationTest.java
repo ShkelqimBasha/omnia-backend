@@ -30,7 +30,8 @@ class GrowthEndpointsIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void recordingAViewNeedsLogin() throws Exception {
-        mockMvc.perform(post("/api/products/1/view")).andExpect(status().isUnauthorized());
+    void guestsCanCountAViewWithoutRecordingACategory() throws Exception {
+        // One endpoint for both: the seller's view statistics (guests too) and, when signed in, the category view.
+        mockMvc.perform(post("/api/products/1/view")).andExpect(status().isNoContent());
     }
 }

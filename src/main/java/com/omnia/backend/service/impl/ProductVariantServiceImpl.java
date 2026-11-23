@@ -8,6 +8,10 @@ import com.omnia.backend.entity.Product;
 import com.omnia.backend.entity.ProductVariant;
 import com.omnia.backend.entity.User;
 import com.omnia.backend.mapper.ProductVariantMapper;
+import com.omnia.backend.catalog.ListingRules;
+import com.omnia.backend.catalog.ProductSizes;
+import com.omnia.backend.catalog.SizeStock;
+import com.omnia.backend.repository.CartItemRepository;
 import com.omnia.backend.repository.ProductRepository;
 import com.omnia.backend.repository.ProductVariantRepository;
 import com.omnia.backend.security.service.CurrentUserService;
@@ -26,24 +30,28 @@ public class ProductVariantServiceImpl implements ProductVariantService {
     private final ProductVariantRepository variantRepository;
     private final OrganizationAccessService accessService;
     private final CurrentUserService currentUserService;
+    private final CartItemRepository cartItemRepository;
 
     public ProductVariantServiceImpl(
             ProductRepository productRepository,
             ProductVariantRepository variantRepository,
             OrganizationAccessService accessService,
-            CurrentUserService currentUserService
+            CurrentUserService currentUserService,
+            CartItemRepository cartItemRepository
     ) {
         this.productRepository = productRepository;
         this.variantRepository = variantRepository;
         this.accessService = accessService;
         this.currentUserService = currentUserService;
+        this.cartItemRepository = cartItemRepository;
     }
 
     @Override
     @Transactional
     public ProductVariantResponse addVariant(Long productId, ProductVariantRequest request) {
 
-        Product product = productRepository.findById(productId)
+        // Locked like checkout: size stock and the product's sum change together.
+        Product product = productRepository.findByIdForUpdate(productId)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
 
         requireCanManageProduct(product);
@@ -52,9 +60,11 @@ public class ProductVariantServiceImpl implements ProductVariantService {
                 .product(product)
                 .build();
 
-        applyRequest(variant, request);
+        applyRequest(product, variant, request);
 
         ProductVariant saved = variantRepository.save(variant);
+        product.getVariants().add(saved);
+        SizeStock.syncProductStock(product);
 
         return ProductVariantMapper.toResponse(saved);
     }
@@ -75,12 +85,14 @@ public class ProductVariantServiceImpl implements ProductVariantService {
 
         ProductVariant variant = variantRepository.findById(variantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Variant not found"));
+        Product product = lockedProductOf(variant);
 
-        requireCanManageProduct(variant.getProduct());
+        requireCanManageProduct(product);
 
-        applyRequest(variant, request);
+        applyRequest(product, variant, request);
 
         ProductVariant updated = variantRepository.save(variant);
+        SizeStock.syncProductStock(product);
 
         return ProductVariantMapper.toResponse(updated);
     }
@@ -91,23 +103,56 @@ public class ProductVariantServiceImpl implements ProductVariantService {
 
         ProductVariant variant = variantRepository.findById(variantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Variant not found"));
+        Product product = lockedProductOf(variant);
 
-        requireCanManageProduct(variant.getProduct());
+        requireCanManageProduct(product);
 
-        variantRepository.delete(variant);
+        // A size chosen in an open cart stays, sold out, so that cart line keeps working.
+        if (cartItemRepository.existsByVariantId(variant.getId())) {
+            variant.setStock(0);
+            variantRepository.save(variant);
+        } else {
+            product.getVariants().remove(variant);
+            variantRepository.delete(variant);
+        }
+        SizeStock.syncProductStock(product);
     }
 
+    private Product lockedProductOf(ProductVariant variant) {
+        Long productId = variant.getProduct().getId();
+        return productRepository.findByIdForUpdate(productId)
+                .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
+    }
+
+    /*
+     * Variants are sizes (see ProductSizes): name "SIZE", a value allowed for
+     * the product's category (clothing or shoes), one row per value, no
+     * per-size price yet.
+     */
     private void applyRequest(
+            Product product,
             ProductVariant variant,
             ProductVariantRequest request
     ) {
-        variant.setVariantName(request.getVariantName().trim());
-        variant.setVariantValue(request.getVariantValue().trim());
-        variant.setPriceAdjustment(
-                request.getPriceAdjustment() == null
-                        ? BigDecimal.ZERO
-                        : request.getPriceAdjustment()
-        );
+        if (!ProductSizes.VARIANT_NAME.equalsIgnoreCase(request.getVariantName().trim())) {
+            throw new IllegalArgumentException("Only SIZE variants are supported");
+        }
+        String value = ProductSizes.normalizeValue(
+                ListingRules.kindOf(product), request.getVariantValue());
+        boolean duplicate = product.getVariants().stream()
+                .anyMatch(other -> other != variant
+                        && !java.util.Objects.equals(other.getId(), variant.getId())
+                        && ProductSizes.isSize(other)
+                        && value.equals(other.getVariantValue()));
+        if (duplicate) {
+            throw new IllegalArgumentException("Masa ekziston tashmë: " + ProductSizes.label(value));
+        }
+        if (request.getPriceAdjustment() != null && request.getPriceAdjustment().signum() != 0) {
+            throw new IllegalArgumentException("Sizes cannot change the price");
+        }
+        variant.setVariantName(ProductSizes.VARIANT_NAME);
+        variant.setVariantValue(value);
+        variant.setPriceAdjustment(BigDecimal.ZERO);
         variant.setStock(request.getStock());
     }
 

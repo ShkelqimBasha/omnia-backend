@@ -15,6 +15,8 @@ import com.omnia.backend.enums.OrganizationMemberRole;
 import com.omnia.backend.enums.OrganizationMemberStatus;
 import com.omnia.backend.enums.OrganizationPermissionStatus;
 import com.omnia.backend.enums.OrganizationStatus;
+import com.omnia.backend.enums.CategoryKind;
+import com.omnia.backend.repository.CartItemRepository;
 import com.omnia.backend.repository.OrganizationCategoryPermissionRepository;
 import com.omnia.backend.repository.OrganizationMemberRepository;
 import com.omnia.backend.repository.ProductRepository;
@@ -65,6 +67,9 @@ class ProductVariantServiceImplTest {
     private ProductVariantRepository variantRepository;
 
     @Mock
+    private CartItemRepository cartItemRepository;
+
+    @Mock
     private UserRepository userRepository;
 
     @Mock
@@ -98,7 +103,8 @@ class ProductVariantServiceImplTest {
                 productRepository,
                 variantRepository,
                 accessService,
-                currentUserService
+                currentUserService,
+                cartItemRepository
         );
 
         organization = Organization.builder()
@@ -112,24 +118,29 @@ class ProductVariantServiceImplTest {
                 .id(PRODUCT_ID)
                 .name("Samsung Galaxy S24")
                 .organization(organization)
-                .category(Category.builder().id(CATEGORY_ID).name("Phones").build())
+                .category(Category.builder().id(CATEGORY_ID).name("Veshje")
+                        .kind(CategoryKind.CLOTHING).build())
+                .stock(15)
                 .build();
 
         request = ProductVariantRequest.builder()
-                .variantName("Color")
-                .variantValue("Black")
-                .priceAdjustment(new BigDecimal("50.00"))
-                .stock(15)
+                .variantName("SIZE")
+                .variantValue("S")
+                .stock(4)
                 .build();
 
         variant = ProductVariant.builder()
                 .id(VARIANT_ID)
                 .product(product)
-                .variantName("Color")
-                .variantValue("Black")
-                .priceAdjustment(new BigDecimal("50.00"))
+                .variantName("SIZE")
+                .variantValue("M")
+                .priceAdjustment(BigDecimal.ZERO)
                 .stock(15)
                 .build();
+        product.getVariants().add(variant);
+
+        lenient().when(productRepository.findByIdForUpdate(PRODUCT_ID))
+                .thenReturn(Optional.of(product));
     }
 
     @AfterEach
@@ -151,7 +162,7 @@ class ProductVariantServiceImplTest {
     ) {
         loginAsMember(role);
         grantCategory(true);
-        when(productRepository.findById(PRODUCT_ID))
+        when(productRepository.findByIdForUpdate(PRODUCT_ID))
                 .thenReturn(Optional.of(product));
         when(variantRepository.save(any(ProductVariant.class)))
                 .thenAnswer(invocation -> {
@@ -165,10 +176,11 @@ class ProductVariantServiceImplTest {
 
         assertEquals(VARIANT_ID, result.getId());
         assertEquals(PRODUCT_ID, result.getProductId());
-        assertEquals("Color", result.getVariantName());
-        assertEquals("Black", result.getVariantValue());
-        assertEquals(new BigDecimal("50.00"), result.getPriceAdjustment());
-        assertEquals(15, result.getStock());
+        assertEquals("SIZE", result.getVariantName());
+        assertEquals("S", result.getVariantValue());
+        assertEquals(0, BigDecimal.ZERO.compareTo(result.getPriceAdjustment()));
+        assertEquals(4, result.getStock());
+        assertEquals(19, product.getStock(), "product stock is the sum of its sizes");
 
         ArgumentCaptor<ProductVariant> captor =
                 ArgumentCaptor.forClass(ProductVariant.class);
@@ -179,7 +191,7 @@ class ProductVariantServiceImplTest {
     @Test
     void addVariant_Staff_ShouldBeDenied() {
         loginAsMember(OrganizationMemberRole.STAFF);
-        when(productRepository.findById(PRODUCT_ID))
+        when(productRepository.findByIdForUpdate(PRODUCT_ID))
                 .thenReturn(Optional.of(product));
 
         assertThrows(
@@ -193,7 +205,7 @@ class ProductVariantServiceImplTest {
     @Test
     void addVariant_Stranger_ShouldBeDenied() {
         loginAsStranger();
-        when(productRepository.findById(PRODUCT_ID))
+        when(productRepository.findByIdForUpdate(PRODUCT_ID))
                 .thenReturn(Optional.of(product));
 
         assertThrows(
@@ -212,7 +224,7 @@ class ProductVariantServiceImplTest {
                 CATEGORY_ID,
                 OrganizationPermissionStatus.ACTIVE
         )).thenReturn(Optional.empty());
-        when(productRepository.findById(PRODUCT_ID))
+        when(productRepository.findByIdForUpdate(PRODUCT_ID))
                 .thenReturn(Optional.of(product));
 
         assertThrows(
@@ -227,7 +239,7 @@ class ProductVariantServiceImplTest {
     void addVariant_OwnerWhoseGrantForbidsUpdate_ShouldBeDenied() {
         loginAsMember(OrganizationMemberRole.OWNER);
         grantCategory(false);
-        when(productRepository.findById(PRODUCT_ID))
+        when(productRepository.findByIdForUpdate(PRODUCT_ID))
                 .thenReturn(Optional.of(product));
 
         assertThrows(
@@ -242,7 +254,7 @@ class ProductVariantServiceImplTest {
     void addVariant_OwnerOfInactiveOrganization_ShouldBeDenied() {
         organization.setStatus(OrganizationStatus.INACTIVE);
         loginAsMember(OrganizationMemberRole.OWNER);
-        when(productRepository.findById(PRODUCT_ID))
+        when(productRepository.findByIdForUpdate(PRODUCT_ID))
                 .thenReturn(Optional.of(product));
 
         assertThrows(
@@ -256,7 +268,7 @@ class ProductVariantServiceImplTest {
     @Test
     void addVariant_PlatformAdmin_ShouldSaveWithoutMembership() {
         loginAsPlatformAdmin();
-        when(productRepository.findById(PRODUCT_ID))
+        when(productRepository.findByIdForUpdate(PRODUCT_ID))
                 .thenReturn(Optional.of(product));
         when(variantRepository.save(any(ProductVariant.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -271,7 +283,7 @@ class ProductVariantServiceImplTest {
     void addVariant_ProductWithoutOrganization_ShouldOnlyAllowPlatformAdmin() {
         product.setOrganization(null);
         loginAsStranger();
-        when(productRepository.findById(PRODUCT_ID))
+        when(productRepository.findByIdForUpdate(PRODUCT_ID))
                 .thenReturn(Optional.of(product));
 
         assertThrows(
@@ -285,10 +297,10 @@ class ProductVariantServiceImplTest {
     @Test
     void addVariant_ShouldTrimTextAndDefaultMissingPriceAdjustment() {
         loginAsPlatformAdmin();
-        request.setVariantName("  Size ");
-        request.setVariantValue(" XL  ");
+        request.setVariantName("  size ");
+        request.setVariantValue(" xl  ");
         request.setPriceAdjustment(null);
-        when(productRepository.findById(PRODUCT_ID))
+        when(productRepository.findByIdForUpdate(PRODUCT_ID))
                 .thenReturn(Optional.of(product));
         when(variantRepository.save(any(ProductVariant.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -296,14 +308,14 @@ class ProductVariantServiceImplTest {
         ProductVariantResponse result =
                 variantService.addVariant(PRODUCT_ID, request);
 
-        assertEquals("Size", result.getVariantName());
+        assertEquals("SIZE", result.getVariantName());
         assertEquals("XL", result.getVariantValue());
         assertEquals(0, BigDecimal.ZERO.compareTo(result.getPriceAdjustment()));
     }
 
     @Test
     void addVariant_shouldThrowWhenProductDoesNotExist() {
-        when(productRepository.findById(99L))
+        when(productRepository.findByIdForUpdate(99L))
                 .thenReturn(Optional.empty());
 
         ResourceNotFoundException exception = assertThrows(
@@ -337,7 +349,7 @@ class ProductVariantServiceImplTest {
                 variantService.getProductVariants(PRODUCT_ID);
 
         assertEquals(2, result.size());
-        assertEquals("Color", result.get(0).getVariantName());
+        assertEquals("SIZE", result.get(0).getVariantName());
         assertEquals("256GB", result.get(1).getVariantValue());
         verifyNoInteractions(userRepository, memberRepository, permissionRepository);
     }
@@ -373,10 +385,11 @@ class ProductVariantServiceImplTest {
                 updateRequest()
         );
 
-        assertEquals("Storage", result.getVariantName());
-        assertEquals("512GB", result.getVariantValue());
-        assertEquals(new BigDecimal("200.00"), result.getPriceAdjustment());
+        assertEquals("SIZE", result.getVariantName());
+        assertEquals("L", result.getVariantValue());
+        assertEquals(0, BigDecimal.ZERO.compareTo(result.getPriceAdjustment()));
         assertEquals(6, result.getStock());
+        assertEquals(6, product.getStock());
         verify(variantRepository).save(variant);
     }
 
@@ -389,7 +402,7 @@ class ProductVariantServiceImplTest {
 
         variantService.updateVariant(VARIANT_ID, updateRequest());
 
-        assertEquals("Storage", variant.getVariantName());
+        assertEquals("L", variant.getVariantValue());
         verifyNoInteractions(memberRepository, permissionRepository);
     }
 
@@ -404,7 +417,7 @@ class ProductVariantServiceImplTest {
                 () -> variantService.updateVariant(VARIANT_ID, updateRequest())
         );
 
-        assertEquals("Color", variant.getVariantName());
+        assertEquals("M", variant.getVariantValue());
         assertEquals(15, variant.getStock());
         verify(variantRepository, never()).save(any());
     }
@@ -420,7 +433,7 @@ class ProductVariantServiceImplTest {
                 () -> variantService.updateVariant(VARIANT_ID, updateRequest())
         );
 
-        assertEquals("Color", variant.getVariantName());
+        assertEquals("M", variant.getVariantValue());
         verify(variantRepository, never()).save(any());
     }
 
@@ -514,14 +527,96 @@ class ProductVariantServiceImplTest {
     }
 
     // ------------------------------------------------------------------
+    // size rules
+    // ------------------------------------------------------------------
+
+    @Test
+    void addVariant_ShouldRefuseNamesOtherThanSize() {
+        loginAsPlatformAdmin();
+        request.setVariantName("Color");
+
+        assertThrows(IllegalArgumentException.class,
+                () -> variantService.addVariant(PRODUCT_ID, request));
+        verify(variantRepository, never()).save(any());
+    }
+
+    @Test
+    void addVariant_ShouldRefuseValuesNotAllowedForTheCategory() {
+        loginAsPlatformAdmin();
+        request.setVariantValue("42");
+
+        assertThrows(IllegalArgumentException.class,
+                () -> variantService.addVariant(PRODUCT_ID, request));
+        verify(variantRepository, never()).save(any());
+    }
+
+    @Test
+    void addVariant_ShouldRefuseCategoriesWithoutSizes() {
+        loginAsPlatformAdmin();
+        product.getCategory().setKind(CategoryKind.GENERAL);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> variantService.addVariant(PRODUCT_ID, request));
+        verify(variantRepository, never()).save(any());
+    }
+
+    @Test
+    void addVariant_ShouldRefuseADuplicateSize() {
+        loginAsPlatformAdmin();
+        request.setVariantValue("m");
+
+        assertThrows(IllegalArgumentException.class,
+                () -> variantService.addVariant(PRODUCT_ID, request));
+        verify(variantRepository, never()).save(any());
+    }
+
+    @Test
+    void addVariant_ShouldRefuseAPriceAdjustment() {
+        loginAsPlatformAdmin();
+        request.setPriceAdjustment(new BigDecimal("5.00"));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> variantService.addVariant(PRODUCT_ID, request));
+        verify(variantRepository, never()).save(any());
+    }
+
+    @Test
+    void deleteVariant_InAnOpenCart_ShouldKeepTheSizeSoldOut() {
+        loginAsPlatformAdmin();
+        when(variantRepository.findById(VARIANT_ID))
+                .thenReturn(Optional.of(variant));
+        when(cartItemRepository.existsByVariantId(VARIANT_ID)).thenReturn(true);
+
+        variantService.deleteVariant(VARIANT_ID);
+
+        verify(variantRepository, never()).delete(any());
+        assertEquals(0, variant.getStock());
+        assertEquals(0, product.getStock());
+    }
+
+    @Test
+    void deleteVariant_ShouldResumTheProductStock() {
+        loginAsPlatformAdmin();
+        ProductVariant large = ProductVariant.builder().id(101L).product(product)
+                .variantName("SIZE").variantValue("L").stock(3).build();
+        product.getVariants().add(large);
+        when(variantRepository.findById(VARIANT_ID))
+                .thenReturn(Optional.of(variant));
+
+        variantService.deleteVariant(VARIANT_ID);
+
+        verify(variantRepository).delete(variant);
+        assertEquals(3, product.getStock());
+    }
+
+    // ------------------------------------------------------------------
     // helpers
     // ------------------------------------------------------------------
 
     private ProductVariantRequest updateRequest() {
         return ProductVariantRequest.builder()
-                .variantName("Storage")
-                .variantValue("512GB")
-                .priceAdjustment(new BigDecimal("200.00"))
+                .variantName("SIZE")
+                .variantValue("L")
                 .stock(6)
                 .build();
     }

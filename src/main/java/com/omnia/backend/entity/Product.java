@@ -56,6 +56,12 @@ public class Product {
     @Builder.Default
     private java.util.List<ProductImage> images = new java.util.ArrayList<>();
 
+    /** Variant rows; the "SIZE" ones are the sizes of clothing and shoes (see ProductSizes). */
+    @OneToMany(mappedBy = "product", fetch = FetchType.LAZY)
+    @org.hibernate.annotations.BatchSize(size = 50)
+    @Builder.Default
+    private java.util.List<ProductVariant> variants = new java.util.ArrayList<>();
+
     @Column(columnDefinition = "TEXT")
     private String description;
 

@@ -1,5 +1,6 @@
 package com.omnia.backend.service.impl;
 
+import com.omnia.backend.catalog.ProductSizes;
 import com.omnia.backend.common.exception.ConflictException;
 import com.omnia.backend.entity.Order;
 import com.omnia.backend.event.OrderStatusChangedEvent;
@@ -196,23 +197,40 @@ public class PayPalRecoveryTransitions {
         // PayPalLockOrderConcurrencyTest).
         lockUsers(referencedUsers(checkoutId, orderIds, actor));
 
-        // Aggregate per product, then lock products in ID order: one stock increment per product.
+        // Aggregate per product and size, then lock products in ID order: one stock increment per
+        // product (or per size of a sized product). Size rows are only written under their product's lock.
         List<Map<String, Object>> lines = jdbc.queryForList(
-                "SELECT product_id, SUM(quantity) AS quantity FROM order_items WHERE order_id IN (" + marks(orderIds.size()) + ") AND product_id IS NOT NULL GROUP BY product_id ORDER BY product_id",
+                "SELECT product_id, variant_id, SUM(quantity) AS quantity FROM order_items WHERE order_id IN (" + marks(orderIds.size()) + ") AND product_id IS NOT NULL GROUP BY product_id, variant_id ORDER BY product_id, variant_id",
                 orderIds.toArray());
-        List<Long> productIds = lines.stream().map(l -> ((Number) l.get("product_id")).longValue()).toList();
+        List<Long> productIds = lines.stream().map(l -> ((Number) l.get("product_id")).longValue()).distinct().toList();
         if (!productIds.isEmpty()) {
             String marks = marks(productIds.size());
             jdbc.queryForList("SELECT id FROM products WHERE id IN (" + marks + ") ORDER BY id FOR UPDATE",
                     Long.class, productIds.toArray());
         }
         List<String> restored = new ArrayList<>();
+        Set<Long> sized = new java.util.LinkedHashSet<>();
         for (Map<String, Object> line : lines) {
             long product = ((Number) line.get("product_id")).longValue();
+            Long variant = line.get("variant_id") == null ? null : ((Number) line.get("variant_id")).longValue();
             int quantity = ((Number) line.get("quantity")).intValue();
             // order_items.product_id references products, so the row exists and is locked above.
-            jdbc.update("UPDATE products SET stock=COALESCE(stock,0)+? WHERE id=?", quantity, product);
-            restored.add(product + "+" + quantity);
+            Long size = restoreSize(product, variant);
+            if (size != null) {
+                jdbc.update("UPDATE product_variants SET stock=stock+? WHERE id=?", quantity, size);
+                sized.add(product);
+                restored.add(product + "/" + size + "+" + quantity);
+            } else if (!hasSizes(product)) {
+                jdbc.update("UPDATE products SET stock=COALESCE(stock,0)+? WHERE id=?", quantity, product);
+                restored.add(product + "+" + quantity);
+            } else {
+                // The size was deleted and the product has several: nothing to put it back on.
+                restored.add(product + "+0");
+            }
+        }
+        for (Long product : sized) {
+            jdbc.update("UPDATE products SET stock=(SELECT COALESCE(SUM(stock),0) FROM product_variants WHERE product_id=? AND variant_name='" + ProductSizes.VARIANT_NAME + "') WHERE id=?",
+                    product, product);
         }
 
         // Driven by the locked primary keys, so no group-index gap lock is taken here either.
@@ -233,6 +251,27 @@ public class PayPalRecoveryTransitions {
                 "orders=" + ids(orders) + "; stock=" + restored);
         notifyCancelled(orders);
         return event;
+    }
+
+    /**
+     * Same rule as SizeStock.restore: the line's size when it still exists, else the only size of a
+     * product with exactly one, else none. Products of other kinds have no sizes (ProductSizes.sizesOf).
+     */
+    private Long restoreSize(long product, Long variant) {
+        List<Long> sizes = sizeIds(product);
+        if (sizes.isEmpty()) return null;
+        if (variant != null && sizes.contains(variant)) return variant;
+        return sizes.size() == 1 ? sizes.get(0) : null;
+    }
+
+    private boolean hasSizes(long product) {
+        return !sizeIds(product).isEmpty();
+    }
+
+    private List<Long> sizeIds(long product) {
+        return jdbc.queryForList("SELECT v.id FROM product_variants v JOIN products p ON p.id=v.product_id JOIN categories c ON c.id=p.category_id "
+                        + "WHERE v.product_id=? AND v.variant_name='" + ProductSizes.VARIANT_NAME + "' AND c.kind IN ('CLOTHING','SHOES') ORDER BY v.id",
+                Long.class, product);
     }
 
     /** The checkout owner, the actor and every recipient NotificationWriter will write for these orders. */

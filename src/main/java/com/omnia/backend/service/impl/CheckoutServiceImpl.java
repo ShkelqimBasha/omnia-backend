@@ -139,10 +139,28 @@ public class CheckoutServiceImpl
         Coupon coupon =
                 findCouponForCheckout(couponCode);
 
-        Map<Long, Integer> requestedQuantities =
+        // One line per (product, size); a product without sizes has a null size.
+        Map<LineKey, Integer> requestedLines =
                 mergeRequestedQuantities(
                         request.getItems()
                 );
+
+        Map<Long, Integer> requestedQuantities =
+                new HashMap<>();
+        Map<Long, List<LineKey>> linesByProduct =
+                new HashMap<>();
+        for (Map.Entry<LineKey, Integer> line
+                : requestedLines.entrySet()) {
+            requestedQuantities.merge(
+                    line.getKey().productId(),
+                    line.getValue(),
+                    Math::addExact
+            );
+            linesByProduct.computeIfAbsent(
+                    line.getKey().productId(),
+                    ignored -> new ArrayList<>()
+            ).add(line.getKey());
+        }
 
         List<Long> productIds =
                 new ArrayList<>(
@@ -188,35 +206,10 @@ public class CheckoutServiceImpl
                 );
             }
 
-            int requestedQuantity =
-                    requestedQuantities.get(productId);
-
-            int availableStock =
-                    product.getStock() == null
-                            ? 0
-                            : product.getStock();
-
-            if (requestedQuantity > availableStock) {
-                throw new IllegalArgumentException(
-                        "Insufficient stock for product: "
-                                + product.getName()
-                );
-            }
-
             BigDecimal unitPrice =
                     product.getDiscountPrice() != null
                             ? product.getDiscountPrice()
                             : product.getPrice();
-
-            BigDecimal itemSubtotal =
-                    unitPrice.multiply(
-                            BigDecimal.valueOf(
-                                    requestedQuantity
-                            )
-                    ).setScale(
-                            2,
-                            RoundingMode.HALF_UP
-                    );
 
             VendorOrderDraft draft =
                     drafts.computeIfAbsent(
@@ -227,24 +220,50 @@ public class CheckoutServiceImpl
                                     )
                     );
 
-            draft.items.add(
-                    new PreparedItem(
-                            product,
-                            requestedQuantity,
-                            unitPrice,
-                            itemSubtotal
-                    )
-            );
-
-            draft.subtotal =
-                    draft.subtotal.add(
-                            itemSubtotal
+            List<LineKey> lines =
+                    new ArrayList<>(
+                            linesByProduct.get(productId)
                     );
+            lines.sort(LineKey.ORDER);
 
-            product.setStock(
-                    availableStock
-                            - requestedQuantity
-            );
+            for (LineKey line : lines) {
+                int requestedQuantity =
+                        requestedLines.get(line);
+
+                // Checks and takes stock per size (product stock stays the sum),
+                // or on the product itself when it has no sizes.
+                ProductVariant size =
+                        com.omnia.backend.catalog.SizeStock.reserve(
+                                product,
+                                line.variantId(),
+                                requestedQuantity
+                        );
+
+                BigDecimal itemSubtotal =
+                        unitPrice.multiply(
+                                BigDecimal.valueOf(
+                                        requestedQuantity
+                                )
+                        ).setScale(
+                                2,
+                                RoundingMode.HALF_UP
+                        );
+
+                draft.items.add(
+                        new PreparedItem(
+                                product,
+                                size,
+                                requestedQuantity,
+                                unitPrice,
+                                itemSubtotal
+                        )
+                );
+
+                draft.subtotal =
+                        draft.subtotal.add(
+                                itemSubtotal
+                        );
+            }
         }
 
         if (drafts.isEmpty()) {
@@ -574,16 +593,19 @@ public class CheckoutServiceImpl
             throw new IllegalArgumentException("Invalid delivery location");
     }
 
-    private Map<Long, Integer>
+    private Map<LineKey, Integer>
     mergeRequestedQuantities(
             List<CreateOrderItemRequest> items
     ) {
-        Map<Long, Integer> quantities =
+        Map<LineKey, Integer> quantities =
                 new LinkedHashMap<>();
 
         for (CreateOrderItemRequest item : items) {
             quantities.merge(
-                    item.getProductId(),
+                    new LineKey(
+                            item.getProductId(),
+                            item.getVariantId()
+                    ),
                     item.getQuantity(),
                     Math::addExact
             );
@@ -613,7 +635,19 @@ public class CheckoutServiceImpl
                                     product.getName()
                             )
                             .productImage(com.omnia.backend.mapper.ProductMapper.primaryImageUrl(product))
-                            .variantInfo(null)
+                            .variantId(
+                                    prepared.size() == null
+                                            ? null
+                                            : prepared.size().getId()
+                            )
+                            .variantInfo(
+                                    prepared.size() == null
+                                            ? null
+                                            : com.omnia.backend.catalog.ProductSizes.orderInfo(
+                                                    com.omnia.backend.catalog.ListingRules.kindOf(product),
+                                                    prepared.size().getVariantValue()
+                                            )
+                            )
                             .unitPrice(
                                     prepared.unitPrice()
                             )
@@ -986,8 +1020,21 @@ public class CheckoutServiceImpl
                 );
     }
 
+    /** A requested checkout line: product and size (null when the product has no sizes). */
+    private record LineKey(
+            Long productId,
+            Long variantId
+    ) {
+        static final Comparator<LineKey> ORDER =
+                Comparator.comparing(
+                        LineKey::variantId,
+                        Comparator.nullsFirst(Long::compareTo)
+                );
+    }
+
     private record PreparedItem(
             Product product,
+            ProductVariant size,
             int quantity,
             BigDecimal unitPrice,
             BigDecimal subtotal

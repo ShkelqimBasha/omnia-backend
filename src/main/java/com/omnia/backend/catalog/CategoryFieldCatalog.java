@@ -19,11 +19,6 @@ public final class CategoryFieldCatalog {
             new Option("LIKE_NEW", "Si e re"),
             new Option("USED", "E përdorur"));
 
-    private static final List<Option> CLOTHING_SIZES = List.of(
-            new Option("XS", "XS"), new Option("S", "S"), new Option("M", "M"),
-            new Option("L", "L"), new Option("XL", "XL"), new Option("XXL", "XXL"),
-            new Option("XXXL", "3XL"), new Option("ONE_SIZE", "Një masë"));
-
     private static final List<Option> SKINCARE_TYPES = List.of(
             new Option("CLEANSER", "Pastrues"),
             new Option("MOISTURIZER", "Krem hidratues"),
@@ -74,13 +69,12 @@ public final class CategoryFieldCatalog {
 
     static {
         FIELDS.put(CategoryKind.GENERAL, List.of());
+        // Sizes of clothing and shoes are not fields: each size has its own stock (ProductSizes).
         FIELDS.put(CategoryKind.CLOTHING, List.of(
-                select("size", "Masa", false, CLOTHING_SIZES),
                 text("color", "Ngjyra", false),
                 text(CategoryField.BRAND, "Marka", false),
                 select("condition", "Gjendja", false, CONDITION)));
         FIELDS.put(CategoryKind.SHOES, List.of(
-                number("shoeSize", "Numri", false, null, "15", "50"),
                 text(CategoryField.BRAND, "Marka", false),
                 text("color", "Ngjyra", false),
                 select("condition", "Gjendja", false, CONDITION)));

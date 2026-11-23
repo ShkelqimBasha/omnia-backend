@@ -35,6 +35,7 @@ public class ProductMapper {
                 com.omnia.backend.enums.CategoryKind.fromNullable(
                         product.getCategory().getKind());
         boolean contact = kind.allowsContact();
+        java.util.List<ProductResponse.SizeView> sizes = sizeViews(kind, product);
 
         return ProductResponse.builder()
                 .categoryKind(kind.name())
@@ -84,7 +85,22 @@ public class ProductMapper {
                 .status(
                         product.getStatus().name()
                 )
+                .sizes(sizes)
+                .sizeRequired(!sizes.isEmpty())
                 .build();
+    }
+
+    /** Sizes of clothing and shoes; [] for other kinds and for listings without sizes. */
+    static java.util.List<ProductResponse.SizeView> sizeViews(
+            com.omnia.backend.enums.CategoryKind kind, Product product) {
+        return com.omnia.backend.catalog.ProductSizes.sizesOf(product).stream()
+                .map(v -> ProductResponse.SizeView.builder()
+                        .id(v.getId())
+                        .value(v.getVariantValue())
+                        .label(com.omnia.backend.catalog.ProductSizes.label(v.getVariantValue()))
+                        .stock(v.getStock() == null ? 0 : v.getStock())
+                        .build())
+                .toList();
     }
     private static java.util.List<ProductResponse.AttributeView> attributeDetails(
             com.omnia.backend.enums.CategoryKind kind, Product product) {

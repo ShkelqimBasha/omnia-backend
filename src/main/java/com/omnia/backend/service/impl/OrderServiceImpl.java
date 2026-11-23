@@ -163,16 +163,13 @@ public class OrderServiceImpl implements OrderService {
                     );
 
             int requestedQuantity = itemRequest.getQuantity();
-            int availableStock = product.getStock() == null
-                    ? 0
-                    : product.getStock();
-
-            if (requestedQuantity > availableStock) {
-                throw new IllegalArgumentException(
-                        "Insufficient stock for product: "
-                                + product.getName()
-                );
-            }
+            // Checks and takes stock per size, or on the product when it has no sizes.
+            com.omnia.backend.entity.ProductVariant size =
+                    com.omnia.backend.catalog.SizeStock.reserve(
+                            product,
+                            itemRequest.getVariantId(),
+                            requestedQuantity
+                    );
 
             BigDecimal unitPrice = product.getDiscountPrice() != null
                     ? product.getDiscountPrice()
@@ -187,7 +184,11 @@ public class OrderServiceImpl implements OrderService {
                     .productId(product.getId())
                     .productName(product.getName())
                     .productImage(com.omnia.backend.mapper.ProductMapper.primaryImageUrl(product))
-                    .variantInfo(null)
+                    .variantId(size == null ? null : size.getId())
+                    .variantInfo(size == null ? null
+                            : com.omnia.backend.catalog.ProductSizes.orderInfo(
+                                    com.omnia.backend.catalog.ListingRules.kindOf(product),
+                                    size.getVariantValue()))
                     .unitPrice(unitPrice)
                     .quantity(itemRequest.getQuantity())
                     .subtotal(subtotal)
@@ -195,9 +196,6 @@ public class OrderServiceImpl implements OrderService {
 
             totalAmount = totalAmount.add(subtotal);
             orderItems.add(orderItem);
-            product.setStock(
-                    availableStock - requestedQuantity
-            );
         }
 
         orderItemRepository.saveAll(orderItems);
@@ -366,13 +364,12 @@ public class OrderServiceImpl implements OrderService {
                                     )
                             );
 
-            int currentStock =
-                    product.getStock() == null
-                            ? 0
-                            : product.getStock();
-
-            product.setStock(
-                    currentStock + item.getQuantity()
+            // Back to the line's size (product stock stays the sum), or to the
+            // product when it has no sizes.
+            com.omnia.backend.catalog.SizeStock.restore(
+                    product,
+                    item.getVariantId(),
+                    item.getQuantity()
             );
         }
 
@@ -1020,13 +1017,12 @@ public class OrderServiceImpl implements OrderService {
                                     )
                             );
 
-            int currentStock =
-                    product.getStock() == null
-                            ? 0
-                            : product.getStock();
-
-            product.setStock(
-                    currentStock + item.getQuantity()
+            // Back to the line's size (product stock stays the sum), or to the
+            // product when it has no sizes.
+            com.omnia.backend.catalog.SizeStock.restore(
+                    product,
+                    item.getVariantId(),
+                    item.getQuantity()
             );
         }
     }

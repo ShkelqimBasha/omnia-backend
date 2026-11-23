@@ -129,6 +129,7 @@ class UserProfileControllerIntegrationTest
     @BeforeEach
     void setUp() throws IOException {
 
+        deleteOrderData();
         cleanDatabase();
         deletePhysicalFiles();
 

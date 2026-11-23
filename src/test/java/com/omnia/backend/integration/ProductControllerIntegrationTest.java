@@ -55,6 +55,7 @@ class ProductControllerIntegrationTest extends AbstractIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        deleteOrderData();
         productRepository.deleteAll();
         organizationRepository.deleteAll();
         categoryRepository.deleteAll();

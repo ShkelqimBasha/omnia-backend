@@ -17,7 +17,7 @@ import org.testcontainers.utility.DockerImageName;
 @ActiveProfiles("test")
 public abstract class AbstractIntegrationTest {
 
-    private static final MySQLContainer<?> MYSQL_CONTAINER =
+    protected static final MySQLContainer<?> MYSQL_CONTAINER =
             new MySQLContainer<>(
                     DockerImageName.parse("mysql:8.4")
             )

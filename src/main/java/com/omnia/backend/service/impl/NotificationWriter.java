@@ -35,6 +35,10 @@ public class NotificationWriter {
  }
  public void low(Product p,String source){if(p==null||p.getStock()==null||p.getStock()<0||p.getStock()>=5)return;
   write("stock:"+p.getId()+":"+source,"LOW_STOCK","USER","PRODUCT",p.getId(),p.getOrganization()==null?null:p.getOrganization().getId(),p.getName(),null,null,p.getStock(),null);}
+ /** "Kontakto" / "Kërko vizitë": the seller's owners/admins (and platform admins), never the buyer. */
+ public void inquiry(com.omnia.backend.entity.ProductInquiry i){
+  if(i==null||i.getId()==null||i.getProduct()==null)return;Long org=i.getOrganization()==null?null:i.getOrganization().getId();
+  write("inquiry:"+i.getId(),"INQUIRY_"+i.getType().name(),"USER","PRODUCT",i.getProduct().getId(),org,i.getProduct().getName(),i.getType().name(),null,null,null);}
  public void user(User u){write("user:"+u.getId(),"USER_REGISTERED","SYSTEM","USER",u.getId(),null,u.getUsername(),null,null,null,null);}
  public void company(Organization o){write("company:"+o.getId(),"COMPANY_CREATED","SYSTEM","COMPANY",o.getId(),null,o.getName(),null,null,null,null);}
 }

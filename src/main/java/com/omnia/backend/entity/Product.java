@@ -62,6 +62,16 @@ public class Product {
     @Column(length = 100)
     private String brand;
 
+    /** Category-specific listing fields (size, year, area …); see CategoryFieldCatalog. */
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
+    @Column(columnDefinition = "json")
+    private java.util.Map<String, Object> attributes;
+
+    /** Cars only: CONTACT_ONLY or CONTACT_AND_BUY. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "sale_mode", length = 20)
+    private com.omnia.backend.enums.SaleMode saleMode;
+
     @Column(
             nullable = false,
             precision = 10,

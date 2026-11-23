@@ -30,6 +30,9 @@ public class CartServiceImpl implements CartService {
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.omnia.backend.catalog.CatalogSettings catalogSettings;
+
     public CartServiceImpl(
             CartRepository cartRepository,
             CartItemRepository cartItemRepository,
@@ -60,6 +63,9 @@ public class CartServiceImpl implements CartService {
 
         Product product = productRepository.findById(request.getProductId())
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
+
+        com.omnia.backend.catalog.PurchaseGuard.requirePurchasable(
+                product, com.omnia.backend.catalog.CatalogSettings.carOnline(catalogSettings));
 
         BigDecimal price = product.getDiscountPrice() != null
                 ? product.getDiscountPrice()
@@ -105,6 +111,11 @@ public class CartServiceImpl implements CartService {
             throw new RuntimeException("You are not allowed to update this cart item");
         }
 
+        if (com.omnia.backend.catalog.ListingRules.kindOf(item.getProduct())
+                == com.omnia.backend.enums.CategoryKind.CAR
+                && request.getQuantity() != null && request.getQuantity() > 1) {
+            throw new IllegalArgumentException("A car must be bought on its own, one per order");
+        }
         item.setQuantity(request.getQuantity());
         cartItemRepository.save(item);
 

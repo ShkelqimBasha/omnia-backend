@@ -19,9 +19,12 @@ import java.math.BigDecimal;
 public class ProductController {
 
     private final ProductService productService;
+    private final com.omnia.backend.service.impl.CategoryViews categoryViews;
 
-    public ProductController(ProductService productService) {
+    public ProductController(ProductService productService,
+                             com.omnia.backend.service.impl.CategoryViews categoryViews) {
         this.productService = productService;
+        this.categoryViews = categoryViews;
     }
 
     @PostMapping
@@ -39,7 +42,17 @@ public class ProductController {
     public ResponseEntity<ProductResponse> getProductById(
             @PathVariable Long id
     ) {
-        return ResponseEntity.ok(productService.getProductById(id));
+        ProductResponse product = productService.getProductById(id);
+        categoryViews.recordCurrent(id);
+        return ResponseEntity.ok(product);
+    }
+
+    /** Signed-in web visits (the web renders product pages without the buyer's token). */
+    @PostMapping("/{id}/view")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<Void> recordView(@PathVariable Long id) {
+        categoryViews.recordCurrent(id);
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping

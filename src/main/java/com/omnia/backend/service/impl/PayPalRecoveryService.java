@@ -74,6 +74,13 @@ public class PayPalRecoveryService {
     public record CloseResult(long caseId, String checkoutId, String kind, String status, String outcome,
                               long auditEventId) {}
 
+    /**
+     * Checkouts whose capture PayPal refused (for example COMPLIANCE_VIOLATION). The buyer can abandon
+     * them from the payment screen; a SUPER_ADMIN may close them here with ABANDON only, and only when
+     * fresh PayPal evidence shows that no money moved.
+     */
+    static final Set<String> REFUSED = Set.of("BLOCKED", "EXHAUSTED");
+
     /** Resolution consumes the evidence these cases recorded, so a successful resolution closes them. */
     static final Set<String> CLOSED_BY_RESOLUTION = Set.of("RECOVERY_EVIDENCE");
 
@@ -83,7 +90,7 @@ public class PayPalRecoveryService {
 
     public List<Summary> list() {
         requireSuperAdmin();
-        return jdbc.query("SELECT p.id,p.state,p.amount,p.created_at,p.checkout_group_id,(SELECT COUNT(*) FROM paypal_review_cases c WHERE c.checkout_id=p.id AND c.status='OPEN') AS open_cases FROM paypal_checkouts p WHERE p.state='RECOVERY_REQUIRED' OR EXISTS (SELECT 1 FROM paypal_review_cases c WHERE c.checkout_id=p.id AND c.status='OPEN') ORDER BY p.created_at",
+        return jdbc.query("SELECT p.id,p.state,p.amount,p.created_at,p.checkout_group_id,(SELECT COUNT(*) FROM paypal_review_cases c WHERE c.checkout_id=p.id AND c.status='OPEN') AS open_cases FROM paypal_checkouts p WHERE p.state IN ('RECOVERY_REQUIRED','BLOCKED','EXHAUSTED') OR EXISTS (SELECT 1 FROM paypal_review_cases c WHERE c.checkout_id=p.id AND c.status='OPEN') ORDER BY p.created_at",
                 (r, n) -> new Summary(r.getString("id"), r.getString("state"), r.getBigDecimal("amount"),
                         r.getTimestamp("created_at").toInstant(), orderIds(r.getLong("checkout_group_id")),
                         r.getLong("open_cases")));
@@ -107,9 +114,8 @@ public class PayPalRecoveryService {
                 (r, n) -> new OrderLine(r.getLong(1), r.getString(2), r.getBigDecimal(3)), row.group());
         List<PayPalRecoveryTransitions.GroupOrder> group = orders.stream()
                 .map(o -> new PayPalRecoveryTransitions.GroupOrder(o.id(), o.status(), o.total())).toList();
-        List<String> allowed = "RECOVERY_REQUIRED".equals(row.state())
-                ? permitted(evidence, group, row.amount()).stream().map(Enum::name).sorted().toList()
-                : List.of();
+        List<String> allowed = allowedFor(row.state(), evidence, group, row.amount()).stream()
+                .map(Enum::name).sorted().toList();
         return tx.execute(s -> new Detail(row.id(), row.state(), "EUR", row.amount(), row.provider(), row.created(),
                 orders, evidence, evidence.fingerprint(), allowed, ledger.events(row.id()), ledger.cases(row.id())));
     }
@@ -136,15 +142,17 @@ public class PayPalRecoveryService {
             if (replay.isPresent()) return replay.get();
             if (!row.state().equals(request.expectedState()))
                 throw new ConflictException("Checkout state changed to " + row.state() + "; review it again");
-            if (!"RECOVERY_REQUIRED".equals(row.state()))
-                throw new ConflictException("Only RECOVERY_REQUIRED checkouts can be resolved here");
+            if (!"RECOVERY_REQUIRED".equals(row.state()) && !REFUSED.contains(row.state()))
+                throw new ConflictException("Only RECOVERY_REQUIRED, BLOCKED or EXHAUSTED checkouts can be resolved here");
+            if (REFUSED.contains(row.state()) && action != Action.ABANDON)
+                throw new ConflictException("A refused checkout can only be abandoned");
 
             // Fresh provider evidence under the row lock: webhooks for this checkout wait for us.
             Snapshot evidence = PayPalRecoveryEvidence.fetch(gateway, row.environment(), row.provider(), row.createAttempted(), row.id(), row.amount());
             if (!evidence.fingerprint().equals(request.evidenceFingerprint()))
                 throw new ConflictException("PayPal evidence changed; review it again");
             List<PayPalRecoveryTransitions.GroupOrder> orders = transitions.lockGroup(row.id(), row.group());
-            if (!permitted(evidence, orders, row.amount()).contains(action))
+            if (!allowedFor(row.state(), evidence, orders, row.amount()).contains(action))
                 throw new ConflictException("The current evidence does not permit " + action);
 
             long event;
@@ -246,6 +254,15 @@ public class PayPalRecoveryService {
         } catch (Exception ex) {
             throw new IllegalArgumentException("Unknown case outcome");
         }
+    }
+
+    /** RECOVERY_REQUIRED: every action the evidence permits. Refused checkouts: ABANDON at most. */
+    static Set<Action> allowedFor(String state, Snapshot evidence, List<PayPalRecoveryTransitions.GroupOrder> orders,
+                                  BigDecimal amount) {
+        Set<Action> permitted = permitted(evidence, orders, amount);
+        if ("RECOVERY_REQUIRED".equals(state)) return permitted;
+        if (REFUSED.contains(state) && permitted.contains(Action.ABANDON)) return Set.of(Action.ABANDON);
+        return Set.of();
     }
 
     static Set<Action> permitted(Snapshot evidence, List<PayPalRecoveryTransitions.GroupOrder> orders, BigDecimal amount) {

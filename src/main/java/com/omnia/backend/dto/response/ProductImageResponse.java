@@ -29,5 +29,8 @@ public class ProductImageResponse {
 
     private Boolean isPrimary;
 
+    /* Position in the gallery; 0 is the cover. */
+    private Integer sortOrder;
+
     private LocalDateTime createdAt;
 }

@@ -60,6 +60,14 @@ public class ProductImage {
     @Builder.Default
     private Boolean isPrimary = false;
 
+    /* Position in the gallery; the cover (primary) is always 0. */
+    @Column(
+            name = "sort_order",
+            nullable = false
+    )
+    @Builder.Default
+    private Integer sortOrder = 0;
+
     /*
      * Internal database uniqueness key.
      *

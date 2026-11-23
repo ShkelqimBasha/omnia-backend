@@ -21,6 +21,9 @@ import java.util.List;
 @Service
 public class FavoriteServiceImpl implements FavoriteService {
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private ProductActivityCounter activityCounter;
+
     private final FavoriteRepository favoriteRepository;
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
@@ -54,6 +57,9 @@ public class FavoriteServiceImpl implements FavoriteService {
                 .build();
 
         Favorite saved = favoriteRepository.save(favorite);
+        if (activityCounter != null) {
+            activityCounter.record(productId, ProductActivityCounter.Metric.FAVORITE);
+        }
 
         return FavoriteMapper.toResponse(saved);
     }

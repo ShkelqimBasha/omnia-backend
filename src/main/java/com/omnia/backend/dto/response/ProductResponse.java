@@ -17,6 +17,10 @@ public class ProductResponse {
 
     private String imageUrl;
 
+    /** All photos in gallery order (cover first); [] when the listing has none. */
+    @lombok.Builder.Default
+    private java.util.List<String> imageUrls = new java.util.ArrayList<>();
+
     private String organizationLogoUrl;
 
     private String description;

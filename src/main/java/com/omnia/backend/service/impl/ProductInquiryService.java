@@ -58,6 +58,9 @@ public class ProductInquiryService {
     @Autowired(required = false)
     private JdbcTemplate jdbc;
 
+    @Autowired(required = false)
+    private ProductActivityCounter activityCounter;
+
     @Autowired
     public ProductInquiryService(ProductInquiryRepository inquiryRepository,
                                  ProductRepository productRepository,
@@ -124,6 +127,9 @@ public class ProductInquiryService {
             slotRepository.save(slot);
         }
         if (notificationWriter != null) notificationWriter.inquiry(saved);
+        if (activityCounter != null) {
+            activityCounter.record(product.getId(), ProductActivityCounter.Metric.INQUIRY);
+        }
         if (events != null) {
             Organization company = product.getOrganization();
             List<String> recipients = companyEmails(company);

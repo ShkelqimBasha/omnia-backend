@@ -145,7 +145,7 @@ class PayPalRecoveryMigrationTest {
 
     /** The highest V<n>__*.sql on the classpath, so parallel feature branches need not edit this test. */
     private static int latestMigrationVersion() throws Exception {
-        Pattern name = Pattern.compile("V(\d+)__.+\.sql");
+        Pattern name = Pattern.compile("V(\\d+)__.+\\.sql");
         int latest = 0;
         for (Resource resource : new PathMatchingResourcePatternResolver().getResources("classpath*:db/migration/*.sql")) {
             Matcher m = name.matcher(Objects.requireNonNull(resource.getFilename()));

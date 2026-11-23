@@ -9,6 +9,13 @@ import org.springframework.stereotype.Component;
 @Component
 public class ProductMapper {
 
+    private com.omnia.backend.catalog.CatalogSettings catalogSettings;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setCatalogSettings(com.omnia.backend.catalog.CatalogSettings catalogSettings) {
+        this.catalogSettings = catalogSettings;
+    }
+
     public ProductResponse toResponse(
             Product product
     ) {
@@ -24,7 +31,23 @@ public class ProductMapper {
         User createdBy =
                 product.getCreatedBy();
 
+        com.omnia.backend.enums.CategoryKind kind =
+                com.omnia.backend.enums.CategoryKind.fromNullable(
+                        product.getCategory().getKind());
+        boolean contact = kind.allowsContact();
+
         return ProductResponse.builder()
+                .categoryKind(kind.name())
+                .attributes(product.getAttributes())
+                .attributeDetails(attributeDetails(kind, product))
+                .saleMode(product.getSaleMode() == null ? null : product.getSaleMode().name())
+                .purchasable(com.omnia.backend.catalog.ListingRules.isPurchasable(
+                        kind, product.getSaleMode(),
+                        com.omnia.backend.catalog.CatalogSettings.carOnline(catalogSettings)))
+                .contactEnabled(contact)
+                .visitRequestEnabled(kind.allowsVisitRequest())
+                .sellerPhone(contact && organization != null ? organization.getPhone() : null)
+                .sellerEmail(contact && organization != null ? organization.getBusinessEmail() : null)
                 .id(product.getId())
                 .name(product.getName())
                 .imageUrl(primaryImageUrl(product))
@@ -63,6 +86,33 @@ public class ProductMapper {
                 )
                 .build();
     }
+    private static java.util.List<ProductResponse.AttributeView> attributeDetails(
+            com.omnia.backend.enums.CategoryKind kind, Product product) {
+        java.util.List<ProductResponse.AttributeView> views = new java.util.ArrayList<>();
+        java.util.Map<String, Object> values = product.getAttributes() == null
+                ? java.util.Map.of() : product.getAttributes();
+        for (com.omnia.backend.catalog.CategoryField field
+                : com.omnia.backend.catalog.CategoryFieldCatalog.fieldsFor(kind)) {
+            Object value = field.storedAsBrand() ? product.getBrand() : values.get(field.key());
+            if (value == null || String.valueOf(value).isBlank()) continue;
+            String display = field.type() == com.omnia.backend.catalog.CategoryField.FieldType.SELECT
+                    ? field.optionLabel(String.valueOf(value))
+                    : number(value, field.unit() != null) + (field.unit() == null ? "" : " " + field.unit());
+            views.add(ProductResponse.AttributeView.builder()
+                    .key(field.key()).label(field.label()).value(value).displayValue(display).build());
+        }
+        return views;
+    }
+
+    /** "145000" -> "145 000" for measured values (km, m2, ml); years stay "2017". */
+    static String number(Object value, boolean group) {
+        String text = String.valueOf(value);
+        if (!group || !text.matches("[0-9]{4,}")) return text;
+        StringBuilder out = new StringBuilder(text);
+        for (int i = out.length() - 3; i > 0; i -= 3) out.insert(i, ' ');
+        return out.toString();
+    }
+
     public static String primaryImageUrl(Product product) {
         if (product == null || product.getImages() == null) return null;
         return product.getImages().stream()

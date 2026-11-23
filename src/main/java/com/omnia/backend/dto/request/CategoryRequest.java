@@ -18,4 +18,9 @@ public class CategoryRequest {
     private String description;
 
     private String imageUrl;
+
+    /** Optional; keeps the current kind when omitted. */
+    private com.omnia.backend.enums.CategoryKind kind;
+
+    private Integer sortOrder;
 }

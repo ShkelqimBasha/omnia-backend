@@ -37,6 +37,50 @@ public final class ProductSpecification {
         );
     }
 
+    /** Filters on category-specific listing fields stored in {@code products.attributes}. */
+    public static Specification<Product> hasAttributes(
+            List<com.omnia.backend.catalog.AttributeFilter> filters
+    ) {
+        return (root, query, cb) -> {
+            if (filters == null || filters.isEmpty()) {
+                return cb.conjunction();
+            }
+            List<jakarta.persistence.criteria.Predicate> predicates = new java.util.ArrayList<>();
+            for (com.omnia.backend.catalog.AttributeFilter filter : filters) {
+                jakarta.persistence.criteria.Expression<String> path = cb.literal(filter.jsonPath());
+                switch (filter.operator()) {
+                    case MIN, MAX, EQUALS -> {
+                        if (filter.number() != null) {
+                            jakarta.persistence.criteria.Expression<BigDecimal> number = cb.function(
+                                    "json_extract", BigDecimal.class, root.get("attributes"), path);
+                            predicates.add(switch (filter.operator()) {
+                                case MIN -> cb.greaterThanOrEqualTo(number, filter.number());
+                                case MAX -> cb.lessThanOrEqualTo(number, filter.number());
+                                default -> cb.equal(number, filter.number());
+                            });
+                        } else {
+                            predicates.add(cb.equal(text(cb, root, path), filter.text()));
+                        }
+                    }
+                    case CONTAINS -> predicates.add(cb.like(
+                            cb.lower(text(cb, root, path)),
+                            "%" + escapeLikePattern(filter.text()) + "%",
+                            LIKE_ESCAPE_CHARACTER));
+                }
+            }
+            return cb.and(predicates.toArray(jakarta.persistence.criteria.Predicate[]::new));
+        };
+    }
+
+    private static jakarta.persistence.criteria.Expression<String> text(
+            jakarta.persistence.criteria.CriteriaBuilder cb,
+            jakarta.persistence.criteria.Root<Product> root,
+            jakarta.persistence.criteria.Expression<String> path
+    ) {
+        return cb.function("json_unquote", String.class,
+                cb.function("json_extract", String.class, root.get("attributes"), path));
+    }
+
     private static Specification<Product> containsKeyword(
             String keyword
     ) {

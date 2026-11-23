@@ -66,6 +66,9 @@ public class CheckoutServiceImpl
 
     private final ProductRepository productRepository;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.omnia.backend.catalog.CatalogSettings catalogSettings;
+
     private final UserRepository userRepository;
 
     private final CouponRepository couponRepository;
@@ -159,6 +162,13 @@ public class CheckoutServiceImpl
                                     "Product not found"
                             )
                     );
+
+            com.omnia.backend.catalog.PurchaseGuard.requirePurchasable(
+                    product, com.omnia.backend.catalog.CatalogSettings.carOnline(catalogSettings));
+            com.omnia.backend.catalog.ListingRules.requireCarOrderShape(
+                    com.omnia.backend.catalog.ListingRules.kindOf(product),
+                    requestedQuantities.get(productId),
+                    productIds.size());
 
             Organization organization =
                     product.getOrganization();

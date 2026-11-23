@@ -33,7 +33,9 @@ public class NotificationWriter {
    for(Product p:em.createQuery("select p from Product p where p.id in (select i.productId from OrderItem i where i.order.id=:id)",Product.class).setParameter("id",o.getId()).getResultList())low(p,"order:"+o.getId());
   }
  }
+ /** Cars and properties are single listings (stock 1 by design), so they never get a low-stock notice. */
  public void low(Product p,String source){if(p==null||p.getStock()==null||p.getStock()<0||p.getStock()>=5)return;
+  if(com.omnia.backend.catalog.ListingRules.kindOf(p).allowsContact())return;
   write("stock:"+p.getId()+":"+source,"LOW_STOCK","USER","PRODUCT",p.getId(),p.getOrganization()==null?null:p.getOrganization().getId(),p.getName(),null,null,p.getStock(),null);}
  /** "Kontakto" / "Kërko vizitë": the seller's owners/admins (and platform admins), never the buyer. */
  public void inquiry(com.omnia.backend.entity.ProductInquiry i){

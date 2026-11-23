@@ -65,6 +65,12 @@ class NotificationInboxIntegrationTest extends AbstractIntegrationTest {
  }
  @Test void blockedActorIsRejectedBeforeReadingNotificationData(){writer.order(order);buyer.setStatus(UserStatus.BANNED);em.flush();as(buyer);assertThrows(AccessDeniedException.class,()->inbox.list("all",0));}
  @Test void lowStockThresholdIncludesZeroButNotHealthyInventory(){writer.low(product,"edit:4");product.setStock(0);writer.low(product,"edit:5");product.setStock(5);writer.low(product,"edit:6");as(manager);assertEquals(2,inbox.list("all",0).items().size());}
+ @Test void carsAndPropertiesNeverGetLowStockNotices(){
+  for(com.omnia.backend.enums.CategoryKind kind:List.of(com.omnia.backend.enums.CategoryKind.CAR,com.omnia.backend.enums.CategoryKind.PROPERTY)){
+   Category c=Category.builder().name("Single listings "+kind).kind(kind).status(CategoryStatus.ACTIVE).build();em.persist(c);
+   Product single=Product.builder().organization(org).category(c).name("Single "+kind).price(BigDecimal.TEN).stock(1).status(ProductStatus.ACTIVE).build();em.persist(single);em.flush();
+   writer.low(single,"edit:"+kind);}
+  as(manager);assertEquals(0,inbox.list("all",0).items().size());}
  @Test void inboxRowsRollBackWithTheBusinessTransaction(){writer.order(order);as(buyer);long recipient=buyer.getId();assertEquals(1,inbox.list("all",0).items().size());TestTransaction.flagForRollback();TestTransaction.end();assertEquals(0L,jdbc.queryForObject("SELECT COUNT(*) FROM notification_inbox WHERE recipient_id=?",Long.class,recipient));}
  @Test void openingProductUserAndCompanyTargetsReturnsOnlyExplicitSafeFields(){
   writer.low(product,"edit:7");writer.user(other);writer.company(org);

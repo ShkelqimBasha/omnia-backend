@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
+import org.springframework.web.util.UriComponentsBuilder;
 import com.omnia.backend.enums.OrderStatus;
 
 import java.math.BigDecimal;
@@ -24,8 +25,32 @@ public class EmailServiceImpl implements EmailService {
     @Value("${app.frontend.reset-password-url}")
     private String resetPasswordUrl;
 
+    /** Optional web page for resetting the password; empty = app link only. */
+    @Value("${app.web.reset-password-url:}")
+    private String webResetPasswordUrl;
+
     public EmailServiceImpl(JavaMailSender mailSender) {
         this.mailSender = mailSender;
+    }
+
+    private String webResetSection(
+            String token
+    ) {
+        if (webResetPasswordUrl == null
+                || webResetPasswordUrl.isBlank()) {
+            return "";
+        }
+
+        String webLink =
+                UriComponentsBuilder
+                        .fromUriString(webResetPasswordUrl.trim())
+                        .queryParam("token", token)
+                        .encode()
+                        .build()
+                        .toUriString();
+
+        return "\n\nNëse je në kompjuter, rivendose në faqen e Omnia:\n"
+                + webLink;
     }
 
     @Override
@@ -77,6 +102,7 @@ public class EmailServiceImpl implements EmailService {
                         + "Kemi marrë një kërkesë për të rivendosur fjalëkalimin tënd në Omnia.\n\n"
                         + "Për të zgjedhur një fjalëkalim të ri, hap linkun më poshtë:\n\n"
                         + passwordResetLink
+                        + webResetSection(token)
                         + "\n\nKodi për rivendosje manuale:\n"
                         + token
                         + "\n\nLinku skadon pas 30 minutash dhe mund të përdoret vetëm një herë.\n\n"

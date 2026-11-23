@@ -6,6 +6,7 @@ import com.omnia.backend.service.interfaces.PaymentService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -18,7 +19,13 @@ public class PaymentController {
         this.paymentService = paymentService;
     }
 
+    /**
+     * Checkout creates the order payments itself and neither the Android app
+     * nor the web calls this endpoint, so it is restricted to platform admins
+     * (manual recovery only).
+     */
     @PostMapping
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<PaymentResponse> createPayment(
             @Valid @RequestBody PaymentRequest request
     ) {
@@ -27,6 +34,7 @@ public class PaymentController {
                 .body(paymentService.createPayment(request));
     }
 
+    /** Readable by the order owner or a platform admin; anyone else gets 404. */
     @GetMapping("/order/{orderId}")
     public ResponseEntity<PaymentResponse> getPaymentByOrder(
             @PathVariable Long orderId

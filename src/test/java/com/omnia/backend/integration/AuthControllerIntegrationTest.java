@@ -720,6 +720,42 @@ class AuthControllerIntegrationTest
     }
 
     @Test
+    void verifyEmail_FromBrowser_ShouldOfferAppAndWebLinks()
+            throws Exception {
+
+        User unverifiedUser =
+                createUnverifiedUser();
+
+        String rawToken =
+                requestAndCaptureVerificationToken(
+                        unverifiedUser
+                );
+
+        mockMvc.perform(
+                        get("/api/auth/verify-email")
+                                .param("token", rawToken)
+                                .accept(MediaType.TEXT_HTML)
+                )
+                .andExpect(status().isOk())
+                .andExpect(content().string(
+                        org.hamcrest.Matchers.containsString(
+                                "href=\"omnia://email-verified\""
+                        )
+                ))
+                .andExpect(content().string(
+                        org.hamcrest.Matchers.containsString(
+                                "href=\"http://localhost:3000/hyr?verifikuar=1\""
+                        )
+                ));
+
+        assertThat(
+                userRepository.findById(unverifiedUser.getId())
+                        .orElseThrow()
+                        .getEmailVerified()
+        ).isTrue();
+    }
+
+    @Test
     void verifyEmail_WithExpiredToken_ShouldReturnGone()
             throws Exception {
 

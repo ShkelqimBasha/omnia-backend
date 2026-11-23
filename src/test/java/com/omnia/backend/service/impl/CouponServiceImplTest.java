@@ -247,8 +247,51 @@ class CouponServiceImplTest {
     }
 
     @Test
+    void getCouponByCode_shouldHideInactiveCoupon() {
+
+        coupon.setStatus(CouponStatus.INACTIVE);
+        when(couponRepository.findByCodeIgnoreCase("SUMMER20"))
+                .thenReturn(Optional.of(coupon));
+
+        assertThrows(
+                ResourceNotFoundException.class,
+                () -> couponService.getCouponByCode("SUMMER20")
+        );
+    }
+
+    @Test
+    void getCouponByCode_shouldHideExpiredCoupon() {
+
+        coupon.setStartDate(LocalDateTime.now().minusDays(10));
+        coupon.setEndDate(LocalDateTime.now().minusDays(1));
+        when(couponRepository.findByCodeIgnoreCase("SUMMER20"))
+                .thenReturn(Optional.of(coupon));
+
+        assertThrows(
+                ResourceNotFoundException.class,
+                () -> couponService.getCouponByCode("SUMMER20")
+        );
+    }
+
+    @Test
+    void getCouponByCode_shouldHideCouponThatHasNotStarted() {
+
+        coupon.setStartDate(LocalDateTime.now().plusDays(1));
+        coupon.setEndDate(LocalDateTime.now().plusDays(10));
+        when(couponRepository.findByCodeIgnoreCase("SUMMER20"))
+                .thenReturn(Optional.of(coupon));
+
+        assertThrows(
+                ResourceNotFoundException.class,
+                () -> couponService.getCouponByCode("SUMMER20")
+        );
+    }
+
+    @Test
     void getCouponByCode_shouldReturnCoupon() {
 
+        coupon.setStartDate(LocalDateTime.now().minusDays(1));
+        coupon.setEndDate(LocalDateTime.now().plusDays(1));
         when(couponRepository.findByCodeIgnoreCase("SUMMER20"))
                 .thenReturn(Optional.of(coupon));
 

@@ -132,7 +132,10 @@ public class SecurityConfig {
                                 // Catalog media for guest buyers (web). FileUploadController
                                 // only serves files of ACTIVE products/organizations to guests.
                                 "/api/files/*",
-                                "/api/product-images/product/*"
+                                "/api/product-images/product/*",
+                                // Visible product reviews for guests (web). Hidden
+                                // reviews are filtered by ReviewService.
+                                "/api/reviews/product/*"
                         )
                         .permitAll()
 

@@ -86,6 +86,20 @@ class PasswordResetControllerIntegrationTest
     }
 
     @Test
+    void resetPasswordLink_ForWebClient_ShouldRedirectToWebPage() throws Exception {
+        mockMvc.perform(
+                        get("/api/auth/reset-password-link")
+                                .queryParam("token", "abc-123_test")
+                                .queryParam("client", "web")
+                )
+                .andExpect(status().isFound())
+                .andExpect(header().string(
+                        "Location",
+                        "http://localhost:3000/fjalekalimi/rivendos?token=abc-123_test"
+                ));
+    }
+
+    @Test
     void forgotPassword_WithKnownEmail_ShouldStoreHashAndSendRawToken()
             throws Exception {
 

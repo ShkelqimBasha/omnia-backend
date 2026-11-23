@@ -309,6 +309,53 @@ class EmailServiceImplTest {
     }
 
     @Test
+    void sendPasswordResetEmail_shouldAddWebLinkWhenConfigured() {
+
+        ReflectionTestUtils.setField(
+                emailService,
+                "webResetPasswordUrl",
+                "https://myomniaapp.com/fjalekalimi/rivendos"
+        );
+
+        emailService.sendPasswordResetEmail(
+                "user@example.com",
+                "User",
+                "xyz789"
+        );
+
+        ArgumentCaptor<SimpleMailMessage> messageCaptor =
+                ArgumentCaptor.forClass(SimpleMailMessage.class);
+
+        verify(mailSender).send(messageCaptor.capture());
+
+        String text = messageCaptor.getValue().getText();
+
+        assertTrue(text.contains(
+                "http://localhost:3000/reset-password?token=xyz789"
+        ));
+        assertTrue(text.contains(
+                "https://myomniaapp.com/fjalekalimi/rivendos?token=xyz789"
+        ));
+    }
+
+    @Test
+    void sendPasswordResetEmail_withoutWebUrl_shouldOnlyContainAppLink() {
+
+        emailService.sendPasswordResetEmail(
+                "user@example.com",
+                "User",
+                "xyz789"
+        );
+
+        ArgumentCaptor<SimpleMailMessage> messageCaptor =
+                ArgumentCaptor.forClass(SimpleMailMessage.class);
+
+        verify(mailSender).send(messageCaptor.capture());
+
+        assertFalse(messageCaptor.getValue().getText().contains("fjalekalimi"));
+    }
+
+    @Test
     void sendEmailVerification_shouldPropagateMailSenderException() {
 
         doThrow(new RuntimeException("SMTP failure"))

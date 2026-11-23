@@ -10,6 +10,8 @@ import com.omnia.backend.enums.PaymentStatus;
 import com.omnia.backend.mapper.PaymentMapper;
 import com.omnia.backend.repository.OrderRepository;
 import com.omnia.backend.repository.PaymentRepository;
+import com.omnia.backend.security.service.CurrentUserService;
+import com.omnia.backend.entity.User;
 import com.omnia.backend.service.interfaces.PaymentService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,18 +23,24 @@ public class PaymentServiceImpl implements PaymentService {
 
     private final PaymentRepository paymentRepository;
     private final OrderRepository orderRepository;
+    private final CurrentUserService currentUserService;
 
     public PaymentServiceImpl(
             PaymentRepository paymentRepository,
-            OrderRepository orderRepository
+            OrderRepository orderRepository,
+            CurrentUserService currentUserService
     ) {
         this.paymentRepository = paymentRepository;
         this.orderRepository = orderRepository;
+        this.currentUserService = currentUserService;
     }
 
     @Override
     @Transactional
     public PaymentResponse createPayment(PaymentRequest request) {
+
+        // Defence in depth: the controller already requires a platform admin.
+        currentUserService.requirePlatformAdmin();
 
         if (paymentRepository.findByOrderId(request.getOrderId()).isPresent()) {
             throw new ResourceAlreadyExistsException("Payment already exists for this order");
@@ -63,6 +71,29 @@ public class PaymentServiceImpl implements PaymentService {
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Payment not found"));
 
+        if (!canRead(payment.getOrder())) {
+            // Same answer as a missing payment so order ids cannot be probed.
+            throw new ResourceNotFoundException("Payment not found");
+        }
+
         return PaymentMapper.toResponse(payment);
+    }
+
+    private boolean canRead(Order order) {
+
+        if (currentUserService.hasCurrentPlatformAdminAuthority()) {
+            return true;
+        }
+
+        User currentUser = currentUserService.requireCurrentUser();
+
+        if (currentUserService.hasPlatformAdminAccess(currentUser)) {
+            return true;
+        }
+
+        return order != null
+                && order.getUser() != null
+                && order.getUser().getId() != null
+                && order.getUser().getId().equals(currentUser.getId());
     }
 }

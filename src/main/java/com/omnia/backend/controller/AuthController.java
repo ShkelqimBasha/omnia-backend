@@ -12,7 +12,9 @@ import com.omnia.backend.service.interfaces.AuthService;
 import com.omnia.backend.service.interfaces.EmailVerificationService;
 import com.omnia.backend.service.interfaces.PasswordResetService;
 import jakarta.validation.Valid;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.util.HtmlUtils;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -26,15 +28,35 @@ public class AuthController {
     private final AuthService authService;
     private final EmailVerificationService emailVerificationService;
     private final PasswordResetService passwordResetService;
+    private final String webResetPasswordUrl;
+    private final String webLoginUrl;
 
     public AuthController(
             AuthService authService,
             EmailVerificationService emailVerificationService,
-            PasswordResetService passwordResetService
+            PasswordResetService passwordResetService,
+            @Value("${app.web.reset-password-url:}") String webResetPasswordUrl,
+            @Value("${app.web.login-url:}") String webLoginUrl
     ) {
         this.authService = authService;
         this.emailVerificationService = emailVerificationService;
         this.passwordResetService = passwordResetService;
+        this.webResetPasswordUrl = trimToNull(webResetPasswordUrl);
+        this.webLoginUrl = trimToNull(webLoginUrl);
+    }
+
+    private static String trimToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private String webLoginButton() {
+        if (webLoginUrl == null) {
+            return "";
+        }
+
+        return "<p><a href=\""
+                + HtmlUtils.htmlEscape(webLoginUrl)
+                + "\">Hyr në web</a></p>\n";
     }
 
     @PostMapping("/register")
@@ -105,10 +127,10 @@ public class AuthController {
                           <h1>Email-i u verifikua</h1>
                           <p>Tani mund të hysh në llogarinë tënde.</p>
                           <a href="omnia://email-verified">Hap Omnia</a>
-                          <p>Nëse aplikacioni nuk hapet, hape Omnia nga telefoni dhe zgjidh Hyr.</p>
+                          %s<p>Nëse aplikacioni nuk hapet, hape Omnia nga telefoni dhe zgjidh Hyr.</p>
                         </main></body>
                         </html>
-                        """);
+                        """.formatted(webLoginButton()));
     }
 
     @PostMapping("/resend-verification")
@@ -140,8 +162,25 @@ public class AuthController {
 
     @GetMapping("/reset-password-link")
     public ResponseEntity<Void> openResetPassword(
-            @RequestParam String token
+            @RequestParam String token,
+            @RequestParam(required = false) String client
     ) {
+        // ?client=web sends browsers to the web reset page when one is configured;
+        // without it (Android) the app deep link is used exactly as before.
+        if ("web".equalsIgnoreCase(client) && webResetPasswordUrl != null) {
+            URI webLink = UriComponentsBuilder
+                    .fromUriString(webResetPasswordUrl)
+                    .queryParam("token", token)
+                    .encode()
+                    .build()
+                    .toUri();
+
+            return ResponseEntity
+                    .status(HttpStatus.FOUND)
+                    .location(webLink)
+                    .build();
+        }
+
         URI appLink = UriComponentsBuilder
                 .newInstance()
                 .scheme("omnia")

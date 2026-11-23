@@ -107,8 +107,8 @@ class PayPalRecoveryMigrationTest {
         String columns = "id,user_id,request_key,request_hash,checkout_group_id,amount,paypal_order_id,approval_url,state,created_at,updated_at,paypal_create_attempted_at";
         List<Map<String, Object>> beforeV39 = jdbc.queryForList("SELECT " + columns + " FROM paypal_checkouts ORDER BY id");
         flyway(null).migrate();
-        // V40 (main categories), V41 (accent colour), V42 (product sizes) and V47 (chat) do not touch PayPal tables.
-        assertEquals("47", flyway(null).info().current().getVersion().getVersion());
+        // Later migrations (V40 main categories onwards) do not touch PayPal tables; the database ends at the newest file.
+        assertEquals(String.valueOf(migrationVersions().lastKey()), flyway(null).info().current().getVersion().getVersion());
         flyway(null).validate();
         assertEquals(List.of("sandbox", "sandbox", "sandbox"),
                 jdbc.queryForList("SELECT environment FROM paypal_checkouts ORDER BY id", String.class));
@@ -124,13 +124,19 @@ class PayPalRecoveryMigrationTest {
         assertEquals("live", jdbc.queryForObject("SELECT environment FROM paypal_checkouts WHERE id=?", String.class, ordinary));
     }
 
-    @Test void migrationVersionsAreUniqueAndV42IsTheLatest() throws Exception {
+    /** Migration files by version. Parallel branches add migrations, so no test pins the newest one. */
+    private static TreeMap<Integer, List<String>> migrationVersions() throws Exception {
         Pattern name = Pattern.compile("V(\\d+)__.+\\.sql");
-        Map<Integer, List<String>> versions = new TreeMap<>();
+        TreeMap<Integer, List<String>> versions = new TreeMap<>();
         for (Resource resource : new PathMatchingResourcePatternResolver().getResources("classpath*:db/migration/*.sql")) {
             Matcher m = name.matcher(Objects.requireNonNull(resource.getFilename()));
             if (m.matches()) versions.computeIfAbsent(Integer.parseInt(m.group(1)), v -> new ArrayList<>()).add(resource.getFilename());
         }
+        return versions;
+    }
+
+    @Test void migrationVersionsAreUniqueAndKnownOnesAreUnchanged() throws Exception {
+        TreeMap<Integer, List<String>> versions = migrationVersions();
         versions.forEach((version, files) -> assertEquals(1, files.size(), "duplicate version V" + version + ": " + files));
         assertEquals(List.of("V37__add_paypal_recovery.sql"), versions.get(37));
         assertEquals(List.of("V38__record_paypal_create_attempts.sql"), versions.get(38));
@@ -138,7 +144,7 @@ class PayPalRecoveryMigrationTest {
         assertEquals(List.of("V40__add_main_categories.sql"), versions.get(40));
         assertEquals(List.of("V41__add_user_settings_accent_color.sql"), versions.get(41));
         assertEquals(List.of("V42__add_product_sizes.sql"), versions.get(42));
-        assertEquals(47, ((TreeMap<Integer, List<String>>) versions).lastKey());
+        assertTrue(versions.lastKey() >= 42, "V42 or later is the newest migration");
         for (int v = 1; v <= 42; v++) assertTrue(versions.containsKey(v), "missing V" + v);
     }
 }

@@ -63,6 +63,7 @@ public class AdminOrderController {
             @RequestBody
             AdminOrderStatusUpdateRequest request
     ) {
+        com.omnia.backend.service.impl.AdminAudit.note("Statusi: " + request.getStatus());
         return ResponseEntity.ok(
                 orderService.updateOrderStatusForAdmin(
                         id,

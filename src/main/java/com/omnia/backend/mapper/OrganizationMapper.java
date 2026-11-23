@@ -37,6 +37,7 @@ public class OrganizationMapper {
                                 : organization.getCreatedBy()
                                 .getId()
                 )
+                .verified(organization.isVerified())
                 .createdAt(organization.getCreatedAt())
                 .updatedAt(organization.getUpdatedAt())
                 .build();
@@ -60,5 +61,6 @@ public class OrganizationMapper {
                 .description(
                         organization.getDescription()
                 )
+                .verified(organization.isVerified())
                 .build();
     }}

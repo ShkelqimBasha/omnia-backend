@@ -8,6 +8,12 @@ public interface FileStorageService {
 
     UploadedFile storeFile(MultipartFile file);
 
+    /**
+     * Same hardened checks as {@link #storeFile}, but also accepts PDF. For private documents
+     * (seller verification) that are only served to platform admins.
+     */
+    UploadedFile storePrivateDocument(MultipartFile file);
+
     Resource loadFileAsResource(Long fileId);
 
     UploadedFile getFileMetadata(Long fileId);

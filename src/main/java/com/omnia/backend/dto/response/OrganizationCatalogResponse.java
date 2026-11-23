@@ -20,4 +20,7 @@ public class OrganizationCatalogResponse {
     private String slug;
 
     private String description;
+
+    /** "Shitës i verifikuar" badge. */
+    private boolean verified;
 }

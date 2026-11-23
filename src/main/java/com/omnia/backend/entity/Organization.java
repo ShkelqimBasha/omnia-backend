@@ -74,6 +74,9 @@ public class Organization {
     private User primaryAdministrator;
     @Column private Double latitude;
     @Column private Double longitude;
+    /** "Shitës i verifikuar": set when the platform admin approves the NIPT and document. */
+    @Column(name = "verified_at")
+    private LocalDateTime verifiedAt;
     @Column(name="editor_name_key",length=150,unique=true)
     private String editorNameKey;
     @PreUpdate
@@ -83,6 +86,10 @@ public class Organization {
     @Version @Builder.Default
     @Column(name="editor_revision",nullable=false)
     private Long editorRevision=0L;
+
+    public boolean isVerified() {
+        return verifiedAt != null;
+    }
 
     public boolean isActive() {
         return OrganizationStatus.ACTIVE.equals(status);

@@ -115,6 +115,7 @@ public class AdminUserController {
             @RequestBody
             UserStatusUpdateRequest request
     ) {
+        com.omnia.backend.service.impl.AdminAudit.note("Statusi: " + request.getStatus());
         return ResponseEntity.ok(
                 adminUserService.updateUserStatus(
                         userId,
@@ -134,6 +135,7 @@ public class AdminUserController {
             @RequestBody
             UserRoleUpdateRequest request
     ) {
+        com.omnia.backend.service.impl.AdminAudit.note("Roli: " + request.getRole());
         return ResponseEntity.ok(
                 adminUserService.updateUserRole(
                         userId,

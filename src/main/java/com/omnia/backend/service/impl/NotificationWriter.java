@@ -59,5 +59,13 @@ public class NotificationWriter {
   for(long user:jdbc.queryForList("SELECT f.user_id FROM favorites f WHERE f.product_id=? ORDER BY f.user_id",Long.class,p.getId()))if(buyer(user,key,"PRICE_DROP","PRODUCT",p.getId(),p.getName(),after,before,null))written++;
   return written;}
  public void user(User u){write("user:"+u.getId(),"USER_REGISTERED","SYSTEM","USER",u.getId(),null,u.getUsername(),null,null,null,null);}
+ /** "Shitës i verifikuar" decision, for the company's owners/admins (and platform admins). */
+ public void verification(OrganizationVerification v){
+  if(v==null||v.getId()==null||v.getOrganization()==null)return;Organization o=v.getOrganization();
+  write("verification:"+v.getId()+":"+v.getStatus().name(),"VERIFICATION_"+v.getStatus().name(),"USER","COMPANY",o.getId(),o.getId(),o.getName(),v.getStatus().name(),null,null,null);}
+ /** Moderation warning after "Raporto njoftimin": the company's owners/admins see which listing and why. */
+ public void productWarning(ProductReport r){
+  if(r==null||r.getId()==null||r.getProduct()==null)return;Long org=r.getOrganization()==null?null:r.getOrganization().getId();
+  write("product-warning:"+r.getId(),"PRODUCT_WARNING","USER","PRODUCT",r.getProduct().getId(),org,r.getProduct().getName(),r.getReason().name(),null,null,null);}
  public void company(Organization o){write("company:"+o.getId(),"COMPANY_CREATED","SYSTEM","COMPANY",o.getId(),null,o.getName(),null,null,null,null);}
 }

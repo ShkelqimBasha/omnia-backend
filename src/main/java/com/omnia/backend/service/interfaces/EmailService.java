@@ -23,4 +23,10 @@ public interface EmailService {
             OrderStatus status,
             BigDecimal totalAmount
     );
+
+    /** A new "Kontakto" / "Kërko vizitë" request, to the company. */
+    void sendInquiryEmail(
+            String recipientEmail,
+            com.omnia.backend.event.InquiryCreatedEvent inquiry
+    );
 }

@@ -1,5 +1,6 @@
 package com.omnia.backend.entity;
 
+import com.omnia.backend.enums.InquiryStatus;
 import com.omnia.backend.enums.InquiryType;
 import jakarta.persistence.*;
 import lombok.*;
@@ -49,9 +50,17 @@ public class ProductInquiry {
     @Column(name = "preferred_date")
     private LocalDate preferredDate;
 
+    /** The chosen visit slot's time (local, Europe/Tirane), when the buyer picked one. */
+    @Column(name = "visit_at")
+    private LocalDateTime visitAt;
+
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     @Builder.Default
-    private String status = "NEW";
+    private InquiryStatus status = InquiryStatus.NEW;
+
+    @Column(name = "status_updated_at")
+    private LocalDateTime statusUpdatedAt;
 
     @Column(name = "created_at", insertable = false, updatable = false)
     private LocalDateTime createdAt;

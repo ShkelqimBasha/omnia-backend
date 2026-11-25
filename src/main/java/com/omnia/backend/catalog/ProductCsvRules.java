@@ -228,10 +228,9 @@ public final class ProductCsvRules {
             attributes.put(field.key(), field.type() == CategoryField.FieldType.SELECT
                     ? optionCode(field, raw) : raw);
         }
-        try {
-            ListingRules.normalize(k, attributes, brand);
-        } catch (IllegalArgumentException e) {
-            errors.add(albanian(k, e.getMessage()));
+        // All field problems of the row at once, so the seller fixes the file in one go.
+        for (String problem : ListingRules.problems(k, attributes, brand)) {
+            errors.add(albanian(k, problem));
         }
 
         ProductRequest request = ProductRequest.builder()

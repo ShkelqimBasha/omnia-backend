@@ -42,6 +42,9 @@ class AdminActionRulesTest {
         assertEquals("USER", AdminActionRules.targetType("/api/admin/users/{userId}/role"));
         assertEquals("ORDER", AdminActionRules.targetType("/api/admin/orders/{id}/status"));
         assertEquals("PAYMENT", AdminActionRules.targetType("/api/admin/paypal/recovery/checkouts/{id}/resolve"));
+        assertEquals("PAYMENT", AdminActionRules.targetType("/api/admin/payouts"));
+        assertEquals("Regjistroi pagesën për shitësin", AdminActionRules.label("POST", "/api/admin/payouts"));
+        assertTrue(AdminActionRules.audited("POST", "/api/admin/payouts"));
         assertEquals("OTHER", AdminActionRules.targetType("/api/something"));
     }
 

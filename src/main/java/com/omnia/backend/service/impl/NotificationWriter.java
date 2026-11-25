@@ -96,5 +96,13 @@ public class NotificationWriter {
   if(jdbc.queryForObject("SELECT COUNT(*) FROM users u WHERE u.id=? AND u.deleted_at IS NULL AND u.status='ACTIVE'",Long.class,user)==0)return;
   jdbc.update("INSERT INTO notification_inbox (recipient_id,event_key,kind,category,target_type,target_id,organization_id,label,status,created_at) VALUES (?,?,?,'USER','APPLICATION',?,?,?,?,UTC_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE id=id",user,key,"SELLER_APPLICATION_"+status,a.getId(),org,text,status);
   jdbc.update("INSERT INTO push_outbox(notification_id,available_at) SELECT id,UTC_TIMESTAMP(6) FROM notification_inbox WHERE recipient_id=? AND event_key=? ON DUPLICATE KEY UPDATE notification_id=notification_id",user,key);}
+ /** Omnia transferred a payout to the seller: the store's active owners/admins only (target COMPANY, amount = net). */
+ public void payout(long payoutId,long organizationId,String organizationName,java.math.BigDecimal net){
+  em.flush();String key="payout:"+payoutId;String label=organizationName==null?"":organizationName.substring(0,Math.min(200,organizationName.length()));
+  for(long user:new TreeSet<>(jdbc.queryForList("SELECT u.id FROM users u JOIN organization_members m ON m.user_id=u.id WHERE m.organization_id=? AND m.status='ACTIVE' AND m.membership_role IN ('OWNER','ADMIN') AND u.deleted_at IS NULL AND u.status='ACTIVE'",Long.class,organizationId))){
+   jdbc.update("INSERT INTO notification_inbox (recipient_id,event_key,kind,category,target_type,target_id,organization_id,label,status,amount,created_at) VALUES (?,?,'PAYOUT_SENT','USER','COMPANY',?,?,?,NULL,?,UTC_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE id=id",user,key,organizationId,organizationId,label,net);
+   jdbc.update("INSERT INTO push_outbox(notification_id,available_at) SELECT id,UTC_TIMESTAMP(6) FROM notification_inbox WHERE recipient_id=? AND event_key=? ON DUPLICATE KEY UPDATE notification_id=notification_id",user,key);
+  }
+ }
  public void company(Organization o){write("company:"+o.getId(),"COMPANY_CREATED","SYSTEM","COMPANY",o.getId(),null,o.getName(),null,null,null,null);}
 }

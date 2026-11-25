@@ -61,6 +61,7 @@ public final class AdminActionRules {
             Map.entry("PATCH /api/admin/orders/{id}/status", "Ndryshoi statusin e porosisë"),
             Map.entry("POST /api/admin/paypal/recovery/checkouts/{id}/resolve", "Zgjidhi pagesën PayPal"),
             Map.entry("POST /api/admin/paypal/recovery/cases/{caseId}/close", "Mbylli rastin PayPal"),
+            Map.entry("POST /api/admin/payouts", "Regjistroi pagesën për shitësin"),
             Map.entry("POST /api/admin/verifications/{id}/approve", "Miratoi verifikimin e shitësit"),
             Map.entry("POST /api/admin/verifications/{id}/reject", "Refuzoi verifikimin e shitësit"),
             Map.entry("POST /api/admin/organizations/{organizationId}/verification/revoke", "Hoqi verifikimin e shitësit"),
@@ -146,6 +147,9 @@ public final class AdminActionRules {
         }
         if (route.startsWith("/api/admin/orders")) {
             return "ORDER";
+        }
+        if (route.startsWith("/api/admin/payouts")) {
+            return "PAYMENT";
         }
         if (route.startsWith("/api/admin/paypal")) {
             return "PAYMENT";

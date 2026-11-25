@@ -32,6 +32,18 @@ class ProductSizesTest {
     }
 
     @Test
+    void searchSizesAreNormalizedAndJunkIsDropped() {
+        assertEquals(List.of("M", "XXXL", "42", "42.5"),
+                ProductSizes.parseFilter(" m, 3xl ,42.0;42.5,M,XXXXL,abc,99,'1"));
+        assertEquals(List.of("ONE_SIZE"), ProductSizes.parseFilter("one size"));
+        assertTrue(ProductSizes.parseFilter(null).isEmpty());
+        assertTrue(ProductSizes.parseFilter("  ").isEmpty());
+        StringBuilder many = new StringBuilder();
+        for (int i = 15; i <= 50; i++) many.append(i).append(',');
+        assertEquals(ProductSizes.MAX_FILTER_SIZES, ProductSizes.parseFilter(many.toString()).size());
+    }
+
+    @Test
     void clothingValuesAreTheAgreedCodes() {
         assertEquals("M", ProductSizes.normalizeValue(CategoryKind.CLOTHING, " m "));
         assertEquals("XXXL", ProductSizes.normalizeValue(CategoryKind.CLOTHING, "3xl"));

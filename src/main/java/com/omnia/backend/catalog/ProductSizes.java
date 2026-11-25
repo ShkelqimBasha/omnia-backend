@@ -117,6 +117,39 @@ public final class ProductSizes {
         throw new IllegalArgumentException("Kjo kategori nuk ka masa");
     }
 
+    /** Most sizes a catalog search may ask for at once. */
+    public static final int MAX_FILTER_SIZES = 20;
+
+    /**
+     * Sizes for a catalog search, from {@code sizes=M,L} or {@code sizes=42,42.5}:
+     * trimmed, upper-case clothing codes ("3XL" becomes XXXL), shoe numbers
+     * without trailing zeros. Anything that cannot be a size is dropped.
+     */
+    public static java.util.List<String> parseFilter(String raw) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        if (raw == null || raw.isBlank()) return out;
+        for (String part : raw.split("[,;]")) {
+            String text = part.trim().toUpperCase(Locale.ROOT).replace(' ', '_');
+            if (text.isEmpty() || text.length() > 10) continue;
+            if ("3XL".equals(text)) text = "XXXL";
+            String value;
+            if (CLOTHING.containsKey(text)) {
+                value = text;
+            } else {
+                try {
+                    BigDecimal number = new BigDecimal(text.replace(',', '.'));
+                    if (number.compareTo(SHOE_MIN) < 0 || number.compareTo(SHOE_MAX) > 0) continue;
+                    value = number.stripTrailingZeros().toPlainString();
+                } catch (NumberFormatException e) {
+                    continue;
+                }
+            }
+            if (!out.contains(value)) out.add(value);
+            if (out.size() == MAX_FILTER_SIZES) break;
+        }
+        return out;
+    }
+
     /** Display label: "3XL" for XXXL, "Një masë" for ONE_SIZE, the number for shoes. */
     public static String label(String value) {
         if (value == null) return null;

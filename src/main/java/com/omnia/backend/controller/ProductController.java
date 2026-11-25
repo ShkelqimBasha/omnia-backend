@@ -60,6 +60,7 @@ public class ProductController {
             @RequestParam(required = false) ProductStatus status,
             @RequestParam(required = false) BigDecimal minPrice,
             @RequestParam(required = false) BigDecimal maxPrice,
+            @RequestParam(required = false) String sizes,
             @RequestParam java.util.Map<String, String> allParams
     ) {
         return ResponseEntity.ok(
@@ -75,7 +76,8 @@ public class ProductController {
                         status,
                         minPrice,
                         maxPrice,
-                        com.omnia.backend.catalog.AttributeFilter.fromQuery(allParams)
+                        com.omnia.backend.catalog.AttributeFilter.fromQuery(allParams),
+                        com.omnia.backend.catalog.ProductSizes.parseFilter(sizes)
                 )
         );
     }

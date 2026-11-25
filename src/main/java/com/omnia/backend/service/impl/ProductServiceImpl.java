@@ -210,6 +210,27 @@ public class ProductServiceImpl
             BigDecimal maxPrice,
             List<com.omnia.backend.catalog.AttributeFilter> attributeFilters
     ) {
+        return getAllProducts(page, size, sortBy, sortDir, keyword, categoryId,
+                organizationId, brand, status, minPrice, maxPrice, attributeFilters, List.of());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PagedResponse<ProductResponse> getAllProducts(
+            int page,
+            int size,
+            String sortBy,
+            String sortDir,
+            String keyword,
+            Long categoryId,
+            Long organizationId,
+            String brand,
+            ProductStatus status,
+            BigDecimal minPrice,
+            BigDecimal maxPrice,
+            List<com.omnia.backend.catalog.AttributeFilter> attributeFilters,
+            List<String> sizes
+    ) {
         validatePagination(page, size);
         validatePriceRange(minPrice, maxPrice);
 
@@ -243,7 +264,9 @@ public class ProductServiceImpl
                                                 minPrice,
                                                 maxPrice
                                         ).and(ProductSpecification
-                                        .hasAttributes(attributeFilters)),
+                                        .hasAttributes(attributeFilters))
+                                        .and(ProductSpecification
+                                        .hasAnySize(sizes)),
                                 pageable
                         )
                         .map(productMapper::toResponse);

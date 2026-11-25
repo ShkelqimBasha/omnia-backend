@@ -53,6 +53,29 @@ public interface ProductService {
                 organizationId, brand, status, minPrice, maxPrice);
     }
 
+    /** Same as above, plus sizes: only products with one of these sizes in stock. */
+    default PagedResponse<ProductResponse> getAllProducts(
+            int page,
+            int size,
+            String sortBy,
+            String sortDir,
+            String keyword,
+            Long categoryId,
+            Long organizationId,
+            String brand,
+            ProductStatus status,
+            BigDecimal minPrice,
+            BigDecimal maxPrice,
+            java.util.List<com.omnia.backend.catalog.AttributeFilter> attributeFilters,
+            java.util.List<String> sizes
+    ) {
+        if (sizes != null && !sizes.isEmpty()) {
+            throw new UnsupportedOperationException("Size filters are not supported");
+        }
+        return getAllProducts(page, size, sortBy, sortDir, keyword, categoryId,
+                organizationId, brand, status, minPrice, maxPrice, attributeFilters);
+    }
+
     ProductResponse updateProduct(
             Long id,
             ProductRequest request

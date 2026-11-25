@@ -38,8 +38,8 @@ class ProductCsvRulesTest {
         assertEquals(Map.of(0, "emri", 1, "cmimi", 2, "stoku"), mapping);
 
         errors.clear();
-        ProductCsvRules.mapHeader(CategoryKind.CAR, List.of("emri", "cmimi", "ngjyra"), errors);
-        assertTrue(errors.contains("Kolonë e panjohur: \"ngjyra\""), errors.toString());
+        ProductCsvRules.mapHeader(CategoryKind.CAR, List.of("emri", "cmimi", "aroma"), errors);
+        assertTrue(errors.contains("Kolonë e panjohur: \"aroma\""), errors.toString());
         assertTrue(errors.contains("Mungon kolona e detyrueshme \"year\" (Viti)"), errors.toString());
     }
 
@@ -88,7 +88,7 @@ class ProductCsvRulesTest {
     @Test
     void wrongOptionListsTheAllowedLabels() {
         assertEquals("Vlerë e pavlefshme për Karburanti (fuel): \"Avull\" (lejohen: Benzinë, Naftë, "
-                        + "Hibrid, Elektrike, Gaz, Tjetër)",
+                        + "Hibrid, Hibrid plug-in, Elektrike, Gaz, Tjetër)",
                 ProductCsvRules.albanian(CategoryKind.CAR, "Invalid option for fuel: Avull"));
         assertEquals("DIESEL", ProductCsvRules.optionCode(
                 CategoryFieldCatalog.field(CategoryKind.CAR, "fuel").orElseThrow(), "naftë"));

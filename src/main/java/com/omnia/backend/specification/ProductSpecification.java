@@ -72,6 +72,27 @@ public final class ProductSpecification {
         };
     }
 
+    /**
+     * Products that have at least one of these sizes in stock ("SIZE" variants with stock > 0).
+     * Values come from {@link com.omnia.backend.catalog.ProductSizes#parseFilter}.
+     */
+    public static Specification<Product> hasAnySize(List<String> sizes) {
+        return (root, query, cb) -> {
+            if (sizes == null || sizes.isEmpty()) {
+                return cb.conjunction();
+            }
+            jakarta.persistence.criteria.Subquery<Long> sub = query.subquery(Long.class);
+            jakarta.persistence.criteria.Root<com.omnia.backend.entity.ProductVariant> variant =
+                    sub.from(com.omnia.backend.entity.ProductVariant.class);
+            sub.select(variant.get("id")).where(
+                    cb.equal(variant.get("product"), root),
+                    cb.equal(variant.get("variantName"), com.omnia.backend.catalog.ProductSizes.VARIANT_NAME),
+                    variant.get("variantValue").in(sizes),
+                    cb.greaterThan(variant.get("stock"), 0));
+            return cb.exists(sub);
+        };
+    }
+
     private static jakarta.persistence.criteria.Expression<String> text(
             jakarta.persistence.criteria.CriteriaBuilder cb,
             jakarta.persistence.criteria.Root<Product> root,

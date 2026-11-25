@@ -236,6 +236,31 @@ class ProductSizesIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void catalogSearchFindsProductsWithTheSizeInStock() throws Exception {
+        long withM = createProduct(productJson(clothing.getId(),
+                ",\"sizes\":[{\"value\":\"M\",\"stock\":2},{\"value\":\"L\",\"stock\":0}]"));
+        long withL = createProduct(productJson(clothing.getId(),
+                ",\"sizes\":[{\"value\":\"L\",\"stock\":5}]"));
+        String category = clothing.getId().toString();
+
+        mockMvc.perform(get("/api/products").param("categoryId", category).param("sizes", "m"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].id").value(withM));
+        // L of the first shirt is sold out: only the second one has it.
+        mockMvc.perform(get("/api/products").param("categoryId", category).param("sizes", "L"))
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].id").value(withL));
+        mockMvc.perform(get("/api/products").param("categoryId", category).param("sizes", "M,L"))
+                .andExpect(jsonPath("$.content.length()").value(2));
+        mockMvc.perform(get("/api/products").param("categoryId", category).param("sizes", "XS"))
+                .andExpect(jsonPath("$.content.length()").value(0));
+        // Nothing usable in the parameter: no size filter at all.
+        mockMvc.perform(get("/api/products").param("categoryId", category).param("sizes", "abc"))
+                .andExpect(jsonPath("$.content.length()").value(2));
+    }
+
+    @Test
     void sizesAreRefusedOutsideClothingAndShoesAndValidated() throws Exception {
         json(ADMIN, post("/api/products"), productJson(general.getId(),
                 ",\"stock\":1,\"sizes\":[{\"value\":\"M\",\"stock\":1}]"))

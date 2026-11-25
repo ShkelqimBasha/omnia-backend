@@ -46,6 +46,16 @@ public class ProductServiceImpl
 
     private static final int MAX_PAGE_SIZE = 100;
 
+    /** Time zone of the dates in product_daily_stats (see ProductActivityCounter). */
+    private static final java.time.ZoneId TIRANA = java.time.ZoneId.of("Europe/Tirane");
+
+    private ProductRatings productRatings;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setProductRatings(ProductRatings productRatings) {
+        this.productRatings = productRatings;
+    }
+
     private static final List<String>
             ALLOWED_SORT_FIELDS =
             List.of(
@@ -171,9 +181,13 @@ public class ProductServiceImpl
     @Transactional(readOnly = true)
     public ProductResponse getProductById(Long id) {
 
-        return productMapper.toResponse(
+        ProductResponse response = productMapper.toResponse(
                 findProduct(id)
         );
+        if (productRatings != null) {
+            productRatings.fill(List.of(response));
+        }
+        return response;
     }
 
     @Override
@@ -232,6 +246,29 @@ public class ProductServiceImpl
             List<com.omnia.backend.catalog.AttributeFilter> attributeFilters,
             List<String> sizes
     ) {
+        return getAllProducts(page, size, sortBy, sortDir, keyword, categoryId, organizationId,
+                brand, status, minPrice, maxPrice, attributeFilters, sizes,
+                com.omnia.backend.catalog.CatalogFilters.NONE);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PagedResponse<ProductResponse> getAllProducts(
+            int page,
+            int size,
+            String sortBy,
+            String sortDir,
+            String keyword,
+            Long categoryId,
+            Long organizationId,
+            String brand,
+            ProductStatus status,
+            BigDecimal minPrice,
+            BigDecimal maxPrice,
+            List<com.omnia.backend.catalog.AttributeFilter> attributeFilters,
+            List<String> sizes,
+            com.omnia.backend.catalog.CatalogFilters catalogFilters
+    ) {
         validatePagination(page, size);
         validatePriceRange(minPrice, maxPrice);
 
@@ -242,15 +279,23 @@ public class ProductServiceImpl
             );
         }
 
-        Pageable pageable =
-                PageRequest.of(
+        Sort.Direction direction = resolveSortDirection(sortDir);
+        java.util.Optional<com.omnia.backend.catalog.CatalogSort> catalogSort =
+                com.omnia.backend.catalog.CatalogSort.fromKey(sortBy);
+
+        // Catalog sorts order by subqueries inside the specification; the Pageable stays unsorted.
+        Pageable pageable = catalogSort.isPresent()
+                ? PageRequest.of(page, size)
+                : PageRequest.of(
                         page,
                         size,
                         Sort.by(
-                                resolveSortDirection(sortDir),
+                                direction,
                                 resolveSortField(sortBy)
                         )
                 );
+
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
 
         Page<ProductResponse> productPage =
                 productRepository
@@ -267,11 +312,23 @@ public class ProductServiceImpl
                                         ).and(ProductSpecification
                                         .hasAttributes(attributeFilters))
                                         .and(ProductSpecification
-                                        .hasAnySize(sizes)),
+                                        .hasAnySize(sizes))
+                                        .and(ProductSpecification.catalogFilters(
+                                                catalogFilters,
+                                                com.omnia.backend.catalog.CatalogSettings
+                                                        .carOnline(catalogSettings),
+                                                now))
+                                        .and(ProductSpecification.sortedBy(
+                                                catalogSort.orElse(null),
+                                                keyword,
+                                                java.time.LocalDate.now(TIRANA))),
                                 pageable
                         )
                         .map(productMapper::toResponse);
 
+        if (productRatings != null) {
+            productRatings.fill(productPage.getContent());
+        }
         return PagedResponse.from(productPage);
     }
 
@@ -712,6 +769,11 @@ public class ProductServiceImpl
                                         ", ",
                                         ALLOWED_SORT_FIELDS
                                 )
+                                        + ", "
+                                        + java.util.Arrays.stream(
+                                                com.omnia.backend.catalog.CatalogSort.values())
+                                        .map(com.omnia.backend.catalog.CatalogSort::key)
+                                        .collect(java.util.stream.Collectors.joining(", "))
                         )
                 );
     }

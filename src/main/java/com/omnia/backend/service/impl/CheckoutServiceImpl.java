@@ -35,11 +35,11 @@ public class CheckoutServiceImpl
 
     private static final BigDecimal
             FREE_SHIPPING_THRESHOLD =
-            new BigDecimal("50.00");
+            DeliveryPricing.FREE_SHIPPING_THRESHOLD;
 
     private static final BigDecimal
             STANDARD_SHIPPING_FEE =
-            new BigDecimal("3.50");
+            DeliveryPricing.STANDARD_SHIPPING_FEE;
 
     @org.springframework.beans.factory.annotation.Value("${omnia.delivery.express-surcharge:5.00}")
     private BigDecimal expressSurcharge = DeliveryPricing.DEFAULT_EXPRESS_SURCHARGE;

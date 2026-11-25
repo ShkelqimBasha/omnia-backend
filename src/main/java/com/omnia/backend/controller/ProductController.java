@@ -77,7 +77,8 @@ public class ProductController {
                         minPrice,
                         maxPrice,
                         com.omnia.backend.catalog.AttributeFilter.fromQuery(allParams),
-                        com.omnia.backend.catalog.ProductSizes.parseFilter(sizes)
+                        com.omnia.backend.catalog.ProductSizes.parseFilter(sizes),
+                        com.omnia.backend.catalog.CatalogFilters.fromQuery(allParams)
                 )
         );
     }

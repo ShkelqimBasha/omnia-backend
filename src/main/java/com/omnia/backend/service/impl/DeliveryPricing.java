@@ -8,6 +8,10 @@ import java.util.List;
 /** Allocate one checkout-level surcharge without losing or duplicating cents. */
 public final class DeliveryPricing {
     public static final BigDecimal DEFAULT_EXPRESS_SURCHARGE = new BigDecimal("5.00");
+    /** Standard delivery is free when one seller's subtotal is above this amount (strictly greater). */
+    public static final BigDecimal FREE_SHIPPING_THRESHOLD = new BigDecimal("50.00");
+    /** Standard delivery fee per seller below {@link #FREE_SHIPPING_THRESHOLD}. */
+    public static final BigDecimal STANDARD_SHIPPING_FEE = new BigDecimal("3.50");
     private DeliveryPricing() {}
     public static BigDecimal validateSurcharge(BigDecimal amount) {
         if (amount == null || amount.signum() <= 0 || amount.scale() > 2

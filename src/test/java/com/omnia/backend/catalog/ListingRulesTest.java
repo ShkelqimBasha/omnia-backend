@@ -22,15 +22,57 @@ class ListingRulesTest {
     @Test
     void eachMainCategoryHasTheAgreedFields() {
         // Sizes are not listing fields: each size has its own stock (ProductSizes).
-        assertEquals(List.of("color", "brand", "condition"), keys(CategoryKind.CLOTHING));
-        assertEquals(List.of("brand", "color", "condition"), keys(CategoryKind.SHOES));
-        assertEquals(List.of("brand", "productType", "skinType", "volumeMl", "ingredients"),
+        assertEquals(List.of("gender", "color", "brand", "material", "style", "fit", "season", "condition"),
+                keys(CategoryKind.CLOTHING));
+        assertEquals(List.of("gender", "shoeType", "brand", "color", "material", "usage", "shoeHeight",
+                "season", "condition"), keys(CategoryKind.SHOES));
+        assertEquals(List.of("brand", "productType", "skinType", "skinConcern", "activeIngredient", "spf",
+                "skinArea", "texture", "volumeMl", "expiryDate", "batchNumber", "ingredients"),
                 keys(CategoryKind.SKINCARE));
+        // The first seven car fields and the first four property fields stay the only required ones.
         assertEquals(List.of("make", "model", "year", "mileageKm", "fuel", "gearbox", "location"),
-                keys(CategoryKind.CAR));
+                keys(CategoryKind.CAR).subList(0, 7));
         assertEquals(List.of("dealType", "propertyType", "location", "areaM2", "rooms"),
-                keys(CategoryKind.PROPERTY));
-        assertTrue(keys(CategoryKind.GENERAL).isEmpty());
+                keys(CategoryKind.PROPERTY).subList(0, 5));
+        assertEquals(List.of("brand", "condition", "color", "warrantyMonths"), keys(CategoryKind.GENERAL));
+    }
+
+    @Test
+    void onlyTheOriginalFieldsAreRequiredSoExistingListingsStayValid() {
+        for (CategoryKind kind : CategoryKind.values()) {
+            List<String> required = CategoryFieldCatalog.fieldsFor(kind).stream()
+                    .filter(CategoryField::required).map(CategoryField::key).toList();
+            List<String> expected = switch (kind) {
+                case CAR -> List.of("make", "model", "year", "mileageKm", "fuel", "gearbox", "location");
+                case PROPERTY -> List.of("dealType", "propertyType", "location", "areaM2");
+                default -> List.of();
+            };
+            assertEquals(expected, required, kind.name());
+        }
+    }
+
+    @Test
+    void aKeyHasTheSameTypeInEveryKind() {
+        Map<String, CategoryField.FieldType> seen = new HashMap<>();
+        for (CategoryKind kind : CategoryKind.values()) {
+            for (CategoryField field : CategoryFieldCatalog.fieldsFor(kind)) {
+                CategoryField.FieldType before = seen.putIfAbsent(field.key(), field.type());
+                assertTrue(before == null || before == field.type(), field.key() + " changes type");
+            }
+        }
+    }
+
+    @Test
+    void newOptionalFieldsAreValidated() {
+        Map<String, Object> flat = new HashMap<>(Map.of(
+                "dealType", "rent", "propertyType", "APARTMENT", "location", "Blloku", "areaM2", 80,
+                "bathrooms", 2, "floor", -1, "elevator", "yes", "furnished", "PARTIAL"));
+        ListingRules.NormalizedListing listing = ListingRules.normalize(CategoryKind.PROPERTY, flat, null);
+        assertEquals("YES", listing.attributes().get("elevator"));
+        assertEquals(-1L, listing.attributes().get("floor"));
+
+        flat.put("heating", "WOOD");
+        assertThrows(IllegalArgumentException.class, () -> ListingRules.normalize(CategoryKind.PROPERTY, flat, null));
     }
 
     @Test

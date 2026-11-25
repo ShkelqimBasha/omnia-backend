@@ -33,6 +33,39 @@ public final class CategoryFieldCatalog {
             new Option("USED", "E përdorur"),
             new Option("REFURBISHED", "E rinovuar (refurbished)"));
 
+    private static final List<Option> DEVICE_TYPES = List.of(
+            new Option("PHONE", "Telefon"),
+            new Option("LAPTOP", "Laptop"),
+            new Option("DESKTOP", "Kompjuter"),
+            new Option("TABLET", "Tablet"),
+            new Option("TV", "Televizor"),
+            new Option("MONITOR", "Monitor"),
+            new Option("CAMERA", "Kamerë"),
+            new Option("GAMING", "Gaming"),
+            new Option("AUDIO", "Audio"),
+            new Option("SMARTWATCH", "Orë inteligjente"),
+            new Option("ACCESSORY", "Aksesor"),
+            new Option("OTHER", "Tjetër"));
+
+    private static final List<Option> ELECTRONICS_CONDITION = List.of(
+            new Option("NEW", "E re"),
+            new Option("OPEN_BOX", "E hapur, e papërdorur"),
+            new Option("LIKE_NEW", "Si e re"),
+            new Option("USED", "E përdorur"),
+            new Option("REFURBISHED", "E rinovuar (refurbished)"));
+
+    private static final List<Option> OPERATING_SYSTEMS = List.of(
+            new Option("ANDROID", "Android"),
+            new Option("IOS", "iOS / iPadOS"),
+            new Option("WINDOWS", "Windows"),
+            new Option("MACOS", "macOS"),
+            new Option("LINUX", "Linux"),
+            new Option("OTHER", "Tjetër"));
+
+    private static final List<Option> PACKAGING = List.of(
+            new Option("BOX", "Me kuti"),
+            new Option("NO_BOX", "Pa kuti"));
+
     private static final List<Option> YES_NO = List.of(
             new Option("YES", "Po"),
             new Option("NO", "Jo"));
@@ -267,6 +300,24 @@ public final class CategoryFieldCatalog {
                 select("condition", "Gjendja", false, GENERAL_CONDITION),
                 text("color", "Ngjyra", false),
                 number("warrantyMonths", "Garancia", false, "muaj", "0", "120")));
+
+        // Phones, laptops, TVs…: the specs a buyer filters by; each field is optional (accessories have none).
+        FIELDS.put(CategoryKind.ELECTRONICS, List.of(
+                select("deviceType", "Lloji i pajisjes", false, DEVICE_TYPES),
+                text(CategoryField.BRAND, "Marka", false),
+                text("model", "Modeli", false),
+                select("condition", "Gjendja", false, ELECTRONICS_CONDITION),
+                number("storageGb", "Memoria", false, "GB", "1", "16384"),
+                number("ramGb", "RAM", false, "GB", "1", "512"),
+                text("processor", "Procesori", false),
+                number("screenInches", "Ekrani", false, "inç", "1", "120"),
+                select("operatingSystem", "Sistemi operativ", false, OPERATING_SYSTEMS),
+                select("network5g", "5G", false, YES_NO),
+                number("batteryHealth", "Gjendja e baterisë", false, "%", "1", "100"),
+                text("color", "Ngjyra", false),
+                number("warrantyMonths", "Garancia", false, "muaj", "0", "120"),
+                select("packaging", "Paketimi", false, PACKAGING),
+                select("accessoriesIncluded", "Me aksesorë", false, YES_NO)));
 
         // Sizes of clothing and shoes are not fields: each size has its own stock (ProductSizes).
         FIELDS.put(CategoryKind.CLOTHING, List.of(

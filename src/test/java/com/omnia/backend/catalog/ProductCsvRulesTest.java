@@ -58,6 +58,21 @@ class ProductCsvRulesTest {
     }
 
     @Test
+    void carRowListsEveryFieldProblemAtOnce() {
+        List<String> header = List.of("emri", "cmimi", "make", "model", "year", "mileageKm", "fuel", "gearbox", "location");
+        List<String> errors = new ArrayList<>();
+        Map<Integer, String> mapping = ProductCsvRules.mapHeader(CategoryKind.CAR, header, errors);
+        assertTrue(errors.isEmpty(), errors.toString());
+        ProductCsvRules.RowResult row = ProductCsvRules.validateRow(CategoryKind.CAR, 3L, 12L, 2,
+                mapping, List.of("Fiat Punto", "3500", "Fiat", "Punto", "1800", "180000", "Uji", "Manuale", ""));
+        // Before, only the first field problem (the year) was shown; now the fuel and the missing location too.
+        assertEquals(3, row.errors().size(), row.errors().toString());
+        assertTrue(row.errors().get(0).startsWith("Vlera është jashtë kufijve për Viti"), row.errors().toString());
+        assertTrue(row.errors().get(1).startsWith("Vlerë e pavlefshme për Karburanti"), row.errors().toString());
+        assertEquals("Mungon fusha e detyrueshme: Vendndodhja (location)", row.errors().get(2));
+    }
+
+    @Test
     void generalRowReportsEveryProblemInAlbanian() {
         List<String> errors = new ArrayList<>();
         Map<Integer, String> mapping = ProductCsvRules.mapHeader(CategoryKind.GENERAL,

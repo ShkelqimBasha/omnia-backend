@@ -91,7 +91,8 @@ class MainCategoriesIntegrationTest extends AbstractIntegrationTest {
         assertEquals("Zbulo veshje për përditshmërinë, punën dhe rastet e veçanta.", description(db, "Veshje"));
         assertEquals("Gjej modelin që i përshtatet stilit dhe përditshmërisë tënde.", description(db, "Atlete & Këpucë"));
         assertEquals("Zbulo produkte për pastrimin, hidratimin dhe mbrojtjen e lëkurës.", description(db, "Kujdes për Lëkurën"));
-        assertEquals("Zbulo makina të reja dhe të përdorura. Kontakto shitësin ose bli online me çmimin e plotë.", description(db, "Makina"));
+        // V50 replaces V40's car text: "Bli online" is switched off, so the description does not promise it.
+        assertEquals("Zbulo makina të reja dhe të përdorura. Kontakto shitësin për çmimin, provën dhe dokumentet.", description(db, "Makina"));
         assertEquals("Gjej pronën për banim ose biznes, për shitje apo me qira.", description(db, "Prona"));
 
         List<String> active = db.queryForList(

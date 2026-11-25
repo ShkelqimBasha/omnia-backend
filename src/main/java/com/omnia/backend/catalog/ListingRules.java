@@ -69,6 +69,40 @@ public final class ListingRules {
         return new NormalizedListing(out.isEmpty() ? null : out, brand);
     }
 
+    /**
+     * Every problem {@link #normalize} would report, not only the first one (same messages, same rules),
+     * so a CSV row can list all its mistakes at once. Empty when the listing is valid.
+     */
+    public static java.util.List<String> problems(CategoryKind kind, Map<String, Object> raw, String requestBrand) {
+        CategoryKind k = CategoryKind.fromNullable(kind);
+        Map<String, Object> input = raw == null ? Map.of() : raw;
+        java.util.List<String> problems = new java.util.ArrayList<>();
+        String brand = blankToNull(requestBrand);
+        for (String key : input.keySet()) {
+            if (CategoryField.BRAND.equals(key)) continue;
+            if (CategoryFieldCatalog.field(k, key).isEmpty()) {
+                problems.add("Unknown field for this category: " + key);
+            }
+        }
+        for (CategoryField field : CategoryFieldCatalog.fieldsFor(k)) {
+            Object value = input.get(field.key());
+            if (field.storedAsBrand()) {
+                if (brand == null && value != null) brand = blankToNull(String.valueOf(value));
+                if (brand != null && brand.length() > 100) problems.add("Brand is too long");
+                else if (field.required() && brand == null) problems.add("Required field missing: " + field.key());
+                continue;
+            }
+            try {
+                if (normalizeValue(field, value) == null && field.required()) {
+                    problems.add("Required field missing: " + field.key());
+                }
+            } catch (IllegalArgumentException e) {
+                problems.add(e.getMessage());
+            }
+        }
+        return problems;
+    }
+
     private static Object normalizeValue(CategoryField field, Object value) {
         if (value == null) return null;
         if (value instanceof Map || value instanceof Iterable) {

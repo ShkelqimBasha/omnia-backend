@@ -38,6 +38,7 @@ public class OrganizationMapper {
                                 .getId()
                 )
                 .verified(organization.isVerified())
+                .sellerType(sellerType(organization))
                 .createdAt(organization.getCreatedAt())
                 .updatedAt(organization.getUpdatedAt())
                 .build();
@@ -62,5 +63,13 @@ public class OrganizationMapper {
                         organization.getDescription()
                 )
                 .verified(organization.isVerified())
+                .sellerType(sellerType(organization))
                 .build();
-    }}
+    }
+
+    static String sellerType(Organization organization) {
+        return organization.getSellerType() == null
+                ? com.omnia.backend.enums.SellerType.BUSINESS.name()
+                : organization.getSellerType().name();
+    }
+}

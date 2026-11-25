@@ -26,6 +26,9 @@ public class OrganizationResponse {
     /** "Shitës i verifikuar" badge. */
     private boolean verified;
 
+    /** BUSINESS or PRIVATE ("Shitës privat"). */
+    private String sellerType;
+
     private Long createdByUserId;
 
     private LocalDateTime createdAt;

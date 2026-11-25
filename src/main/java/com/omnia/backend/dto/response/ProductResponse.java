@@ -44,6 +44,9 @@ public class ProductResponse {
     /** "Shitës i verifikuar" badge. */
     private boolean organizationVerified;
 
+    /** BUSINESS or PRIVATE ("Shitës privat"); null for products without a company. */
+    private String organizationSellerType;
+
     private Long createdByUserId;
 
     private String status;

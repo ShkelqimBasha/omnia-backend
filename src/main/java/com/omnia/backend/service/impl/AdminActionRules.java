@@ -64,6 +64,8 @@ public final class AdminActionRules {
             Map.entry("POST /api/admin/verifications/{id}/approve", "Miratoi verifikimin e shitësit"),
             Map.entry("POST /api/admin/verifications/{id}/reject", "Refuzoi verifikimin e shitësit"),
             Map.entry("POST /api/admin/organizations/{organizationId}/verification/revoke", "Hoqi verifikimin e shitësit"),
+            Map.entry("POST /api/admin/seller-applications/{id}/approve", "Pranoi aplikimin e shitësit"),
+            Map.entry("POST /api/admin/seller-applications/{id}/reject", "Refuzoi aplikimin e shitësit"),
             Map.entry("POST /api/admin/product-reports/{id}/hide", "Fshehu produktin e raportuar"),
             Map.entry("POST /api/admin/product-reports/{id}/dismiss", "Hodhi poshtë raportimin"),
             Map.entry("POST /api/admin/product-reports/{id}/warn", "Paralajmëroi kompaninë"),
@@ -83,6 +85,7 @@ public final class AdminActionRules {
             Map.entry("ORDER", "porosi"),
             Map.entry("PAYMENT", "pagesë"),
             Map.entry("VERIFICATION", "verifikim"),
+            Map.entry("SELLER_APPLICATION", "aplikim shitësi"),
             Map.entry("MODERATION", "moderim"),
             Map.entry("REVIEW", "vlerësim"),
             Map.entry("COUPON", "kupon"),
@@ -93,7 +96,7 @@ public final class AdminActionRules {
 
     /** The values the web filter offers, in display order. */
     public static final List<String> TARGET_TYPES = List.of(
-            "COMPANY", "VERIFICATION", "MODERATION", "PRODUCT", "CATEGORY",
+            "COMPANY", "VERIFICATION", "SELLER_APPLICATION", "MODERATION", "PRODUCT", "CATEGORY",
             "USER", "ORDER", "PAYMENT", "REVIEW", "COUPON", "ROLE", "FILE", "OTHER");
 
     private AdminActionRules() {
@@ -119,6 +122,9 @@ public final class AdminActionRules {
     public static String targetType(String route) {
         if (route == null) {
             return "OTHER";
+        }
+        if (route.startsWith("/api/admin/seller-applications")) {
+            return "SELLER_APPLICATION";
         }
         if (route.contains("/verification")) {
             return "VERIFICATION";

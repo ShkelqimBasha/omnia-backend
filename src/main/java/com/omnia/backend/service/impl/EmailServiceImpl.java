@@ -292,6 +292,30 @@ public class EmailServiceImpl implements EmailService {
         return title.length() > 150 ? title.substring(0, 149) + "…" : title;
     }
 
+    @Override
+    public void sendSellerApplicationDecisionEmail(
+            com.omnia.backend.event.SellerApplicationDecidedEvent decision
+    ) {
+        String store = decision.storeName() == null ? "" : decision.storeName().strip();
+        String name = decision.recipientName() == null || decision.recipientName().isBlank()
+                ? "" : " " + decision.recipientName().strip();
+        StringBuilder body = new StringBuilder("Përshëndetje").append(name).append(",\n\n");
+        String subject;
+        if (decision.approved()) {
+            subject = "Aplikimi u pranua — dyqani yt është gati";
+            body.append("Aplikimi yt për të shitur në Omnia u pranua. Dyqani «")
+                    .append(store)
+                    .append("» është gati: hyr në llogari dhe shto njoftimet e para te paneli i dyqanit.\n\n");
+        } else {
+            subject = "Aplikimi u refuzua";
+            body.append("Aplikimi yt për dyqanin «").append(store).append("» nuk u pranua.\n\n")
+                    .append("Arsyeja: ").append(decision.reason() == null ? "" : decision.reason().strip())
+                    .append("\n\nMund ta rregullosh dhe të aplikosh përsëri nga faqja «Bëhu shitës».\n\n");
+        }
+        body.append("Ekipi Omnia");
+        sendSimpleEmail(decision.recipientEmail(), subject, body.toString());
+    }
+
     private void sendSimpleEmail(
             String recipientEmail,
             String subject,

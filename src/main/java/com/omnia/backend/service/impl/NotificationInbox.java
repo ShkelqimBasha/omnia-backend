@@ -24,7 +24,9 @@ public class NotificationInbox {
   +" OR (n.category='BUYER' AND n.target_type='PRODUCT' AND EXISTS (SELECT 1 FROM products p WHERE p.id=n.target_id AND p.status='ACTIVE'))"
   +" OR (n.category='BUYER' AND n.target_type='SEARCH' AND EXISTS (SELECT 1 FROM saved_searches s WHERE s.id=n.target_id AND s.user_id=n.recipient_id))"
   +" OR (n.target_type='CHAT' AND EXISTS (SELECT 1 FROM chat_conversations c WHERE c.id=n.target_id AND c.organization_id=n.organization_id AND (c.buyer_id=? OR "+MANAGER+")))"
-  +" OR (n.target_type='CAMPAIGN' AND EXISTS (SELECT 1 FROM push_campaigns c WHERE c.id=n.target_id)))";
+  +" OR (n.target_type='CAMPAIGN' AND EXISTS (SELECT 1 FROM push_campaigns c WHERE c.id=n.target_id))"
+  // Seller applications: the applicant's own, or any for a recipient who is a platform admin now.
+  +" OR (n.target_type='APPLICATION' AND EXISTS (SELECT 1 FROM seller_applications sa WHERE sa.id=n.target_id AND (sa.user_id=n.recipient_id OR EXISTS (SELECT 1 FROM users ru JOIN roles rr ON rr.id=ru.role_id WHERE ru.id=n.recipient_id AND rr.name IN ('ADMIN','SUPER_ADMIN'))))))";
   /** Positional arguments for {@link #VISIBLE}, in placeholder order. */
  static List<Object> visibleArgs(long id,boolean admin){int a=admin?1:0;return new ArrayList<>(List.of(id,id,a,id,a,id,a,a,id,id));}
  public record Notice(long id,String kind,String category,String targetType,long targetId,Long organizationId,String label,String status,java.math.BigDecimal amount,java.math.BigDecimal previousAmount,Integer quantity,String createdAt,boolean read){}
@@ -57,6 +59,8 @@ public class NotificationInbox {
    case "CHAT" -> {var chat=jdbc.queryForList("SELECT c.id,c.product_id,c.product_name,g.name AS organization_name FROM chat_conversations c JOIN organizations g ON g.id=c.organization_id WHERE c.id=?",n.targetId());if(chat.isEmpty())throw new ResourceNotFoundException("Conversation unavailable");var c=chat.get(0);
     detail.put("conversationId",c.get("id"));detail.put("productId",c.get("product_id"));detail.put("name",c.get("product_name"));detail.put("organization",c.get("organization_name"));}
    case "CAMPAIGN" -> {var found=jdbc.queryForList("SELECT title,body,link_path FROM push_campaigns WHERE id=?",n.targetId());if(found.isEmpty())throw new ResourceNotFoundException("Campaign unavailable");var c=found.get(0);detail.put("name",c.get("title"));detail.put("body",c.get("body"));detail.put("link",c.get("link_path")==null?"":c.get("link_path"));}
+   case "APPLICATION" -> {var found=jdbc.queryForList("SELECT store_name,seller_type,status,reject_reason,organization_id FROM seller_applications WHERE id=?",n.targetId());if(found.isEmpty())throw new ResourceNotFoundException("Application unavailable");var a=found.get(0);
+    detail.put("name",a.get("store_name"));detail.put("sellerType",a.get("seller_type"));detail.put("status",a.get("status"));detail.put("reason",a.get("reject_reason")==null?"":a.get("reject_reason"));detail.put("organizationId",a.get("organization_id"));}
    default -> throw new ResourceNotFoundException("Unsupported target");
   }
   jdbc.update("UPDATE notification_inbox SET read_at=COALESCE(read_at,UTC_TIMESTAMP(6)) WHERE id=? AND recipient_id=?",id,current.requireCurrentUser().getId());return detail;

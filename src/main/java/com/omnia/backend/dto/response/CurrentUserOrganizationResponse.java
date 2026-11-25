@@ -17,6 +17,9 @@ public class CurrentUserOrganizationResponse {
 
     private String organizationStatus;
 
+    /** BUSINESS or PRIVATE ("Shitës privat"). */
+    private String organizationSellerType;
+
     private String membershipRole;
 
     private String membershipStatus;

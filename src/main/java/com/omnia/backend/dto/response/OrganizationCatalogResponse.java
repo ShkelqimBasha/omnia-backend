@@ -23,4 +23,7 @@ public class OrganizationCatalogResponse {
 
     /** "Shitës i verifikuar" badge. */
     private boolean verified;
+
+    /** BUSINESS or PRIVATE ("Shitës privat"). */
+    private String sellerType;
 }

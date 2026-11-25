@@ -122,6 +122,7 @@ public class ProductServiceImpl
                     organization.getId(),
                     category.getId()
             );
+            requirePrivateSellerRoom(organization);
         }
 
         com.omnia.backend.enums.CategoryKind kind =
@@ -581,6 +582,23 @@ public class ProductServiceImpl
         }
 
         return organization;
+    }
+
+    /**
+     * A PRIVATE seller ("Shitës privat") may have at most 30 ACTIVE products. Platform admins
+     * bypass it (callers only invoke this for non-admins). The company row is locked so two
+     * concurrent creates cannot both take the last place.
+     */
+    private void requirePrivateSellerRoom(Organization organization) {
+        if (organization.getSellerType() != com.omnia.backend.enums.SellerType.PRIVATE) {
+            return;
+        }
+        organizationRepository.findForEditor(organization.getId());
+        long active = productRepository.countByOrganizationIdAndStatus(
+                organization.getId(), ProductStatus.ACTIVE);
+        if (active >= SellerApplicationRules.PRIVATE_ACTIVE_PRODUCT_LIMIT) {
+            throw new IllegalArgumentException(SellerApplicationRules.PRIVATE_LIMIT_MESSAGE);
+        }
     }
 
     private boolean isPlatformAdministrator(

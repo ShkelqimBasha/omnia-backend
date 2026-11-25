@@ -146,6 +146,11 @@ public final class UserMapper {
                                 .getStatus()
                                 .name()
                 )
+                .organizationSellerType(
+                        member.getOrganization().getSellerType() == null
+                                ? "BUSINESS"
+                                : member.getOrganization().getSellerType().name()
+                )
                 .membershipRole(
                         member.getMembershipRole().name()
                 )

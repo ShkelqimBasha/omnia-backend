@@ -95,6 +95,15 @@ public class Organization {
     private java.math.BigDecimal codMinOrderAmount;
     @Column(name="cod_max_order_amount",precision=10,scale=2)
     private java.math.BigDecimal codMaxOrderAmount;
+    /** BUSINESS (company with NIPT) or PRIVATE ("Shitës privat", an individual). V51. */
+    @Enumerated(EnumType.STRING)
+    @Builder.Default
+    @Column(name="seller_type",nullable=false,length=20)
+    private com.omnia.backend.enums.SellerType sellerType=com.omnia.backend.enums.SellerType.BUSINESS;
+    @PrePersist
+    private void defaultSellerType() {
+        if(sellerType==null)sellerType=com.omnia.backend.enums.SellerType.BUSINESS;
+    }
     @Version @Builder.Default
     @Column(name="editor_revision",nullable=false)
     private Long editorRevision=0L;

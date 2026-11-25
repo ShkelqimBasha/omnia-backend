@@ -84,5 +84,17 @@ public class NotificationWriter {
  public void productWarning(ProductReport r){
   if(r==null||r.getId()==null||r.getProduct()==null)return;Long org=r.getOrganization()==null?null:r.getOrganization().getId();
   write("product-warning:"+r.getId(),"PRODUCT_WARNING","USER","PRODUCT",r.getProduct().getId(),org,r.getProduct().getName(),r.getReason().name(),null,null,null);}
+ /** A new "Bëhu shitës" application: platform admins only (target APPLICATION). */
+ public void sellerApplicationSubmitted(SellerApplication a){
+  if(a==null||a.getId()==null)return;
+  write("seller-application:"+a.getId()+":PENDING","SELLER_APPLICATION_NEW","SYSTEM","APPLICATION",a.getId(),null,a.getStoreName(),a.getSellerType().name(),null,null,null);}
+ /** The admin's decision, for the applicant only: the label is the message shown in the inbox. */
+ public void sellerApplicationDecision(SellerApplication a,String label){
+  if(a==null||a.getId()==null||a.getUser()==null)return;em.flush();
+  String status=a.getStatus().name();String key="seller-application:"+a.getId()+":"+status;long user=a.getUser().getId();
+  Long org=a.getOrganization()==null?null:a.getOrganization().getId();String text=label==null?"":label.substring(0,Math.min(200,label.length()));
+  if(jdbc.queryForObject("SELECT COUNT(*) FROM users u WHERE u.id=? AND u.deleted_at IS NULL AND u.status='ACTIVE'",Long.class,user)==0)return;
+  jdbc.update("INSERT INTO notification_inbox (recipient_id,event_key,kind,category,target_type,target_id,organization_id,label,status,created_at) VALUES (?,?,?,'USER','APPLICATION',?,?,?,?,UTC_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE id=id",user,key,"SELLER_APPLICATION_"+status,a.getId(),org,text,status);
+  jdbc.update("INSERT INTO push_outbox(notification_id,available_at) SELECT id,UTC_TIMESTAMP(6) FROM notification_inbox WHERE recipient_id=? AND event_key=? ON DUPLICATE KEY UPDATE notification_id=notification_id",user,key);}
  public void company(Organization o){write("company:"+o.getId(),"COMPANY_CREATED","SYSTEM","COMPANY",o.getId(),null,o.getName(),null,null,null,null);}
 }

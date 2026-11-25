@@ -29,4 +29,9 @@ public interface EmailService {
             String recipientEmail,
             com.omnia.backend.event.InquiryCreatedEvent inquiry
     );
+
+    /** "Aplikimi u pranua" / "Aplikimi u refuzua", to the seller applicant. */
+    void sendSellerApplicationDecisionEmail(
+            com.omnia.backend.event.SellerApplicationDecidedEvent decision
+    );
 }

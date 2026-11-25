@@ -79,6 +79,8 @@ public class ProductMapper {
                                 : organization.getName()
                 )
                 .organizationVerified(organization != null && organization.isVerified())
+                .organizationSellerType(organization == null ? null
+                        : organization.getSellerType() == null ? "BUSINESS" : organization.getSellerType().name())
                 .createdByUserId(
                         createdBy == null
                                 ? null

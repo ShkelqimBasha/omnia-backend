@@ -32,9 +32,19 @@ public class GoogleAuthService34 {
     public AuthResponse authenticate(String idToken, boolean privacyAccepted) {
         GoogleIdentity34 identity = verifier.verify(idToken);
         User user = users.findByGoogleUid34(identity.uid()).orElse(null);
+        if (user == null && users.existsByEmail(identity.email())) {
+            // Google has verified this address (verifier requires email_verified). Join the Google identity to the
+            // existing Omnia account only when Omnia verified the same address too, the account is active, has no
+            // other Google identity, and is not a platform admin (admins keep signing in with their password).
+            User existing = users.findByEmail(identity.email()).orElse(null);
+            if (existing == null || !linkable(existing))
+                throw new ResourceAlreadyExistsException(existing != null && isPlatformAdmin(existing)
+                        ? "Llogarite e administratoreve hyjne vetem me email dhe fjalekalim."
+                        : "Ky email ka nje llogari Omnia. Hyr me fjalekalimin ekzistues; lidhja me Google kerkon verifikim te vecante.");
+            existing.setGoogleUid34(identity.uid());
+            user = users.saveAndFlush(existing);
+        }
         if (user == null) {
-            if (users.existsByEmail(identity.email()))
-                throw new ResourceAlreadyExistsException("Ky email ka nje llogari Omnia. Hyr me fjalekalimin ekzistues; lidhja me Google kerkon verifikim te vecante.");
             if (!privacyAccepted)
                 throw new ResourceAlreadyExistsException("Per llogari te re, hap Regjistrohu dhe prano politiken e privatesise.");
             String name = identity.name() == null || identity.name().isBlank() ? "Google" : identity.name().trim();
@@ -54,5 +64,19 @@ public class GoogleAuthService34 {
             throw new InvalidCredentialsException("Llogaria nuk mund te perdoret per hyrje me Google.");
         return AuthResponse.builder().accessToken(jwt.generateToken(user.getEmail()))
                 .refreshToken(refresh.createRefreshToken(user)).message("Login successful").build();
+    }
+
+    /** Existing password account that may be joined to the verified Google identity of the same address. */
+    static boolean linkable(User user) {
+        return user.getStatus() == UserStatus.ACTIVE
+                && Boolean.TRUE.equals(user.getEmailVerified())
+                && user.getDeletedAt() == null
+                && (user.getGoogleUid34() == null || user.getGoogleUid34().isBlank())
+                && !isPlatformAdmin(user);
+    }
+
+    static boolean isPlatformAdmin(User user) {
+        String role = user.getRole() == null ? null : user.getRole().getName();
+        return "ADMIN".equals(role) || "SUPER_ADMIN".equals(role);
     }
 }

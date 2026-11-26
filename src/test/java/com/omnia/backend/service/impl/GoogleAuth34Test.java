@@ -39,11 +39,38 @@ class GoogleAuth34Test {
         assertThrows(InvalidCredentialsException.class,()->service.authenticate("bad",true));
         verifyNoInteractions(users,jwt,refresh);
     }
-    @Test void existingEmailIsNeverAutomaticallyLinkedOrModified() {
+    private User passwordAccount(String role, UserStatus status, boolean verified, String googleUid) {
+        Role r=mock(Role.class); when(r.getName()).thenReturn(role);
+        User user=User.builder().email("buyer@example.com").role(r).status(status).emailVerified(verified).googleUid34(googleUid).build();
         when(users.existsByEmail("buyer@example.com")).thenReturn(true);
+        when(users.findByEmail("buyer@example.com")).thenReturn(Optional.of(user));
+        return user;
+    }
+    @Test void verifiedPasswordAccountIsJoinedToTheVerifiedGoogleIdentity() {
+        User user=passwordAccount("USER",UserStatus.ACTIVE,true,null);
+        when(users.saveAndFlush(user)).thenReturn(user);
+        when(jwt.generateToken("buyer@example.com")).thenReturn("access");
+        assertEquals("access",service.authenticate("token",false).getAccessToken());
+        assertEquals("uid",user.getGoogleUid34());
+        verify(users).saveAndFlush(user); verifyNoInteractions(passwords);
+    }
+    @Test void unverifiedInactiveOrAlreadyLinkedAccountsAreNeverJoined() {
+        passwordAccount("USER",UserStatus.ACTIVE,false,null);
         assertThrows(ResourceAlreadyExistsException.class,()->service.authenticate("token",true));
-        verify(users,never()).saveAndFlush(any());
-        verifyNoInteractions(jwt,refresh,passwords);
+        passwordAccount("USER",UserStatus.INACTIVE,true,null);
+        assertThrows(ResourceAlreadyExistsException.class,()->service.authenticate("token",true));
+        passwordAccount("USER",UserStatus.ACTIVE,true,"other-google-uid");
+        assertThrows(ResourceAlreadyExistsException.class,()->service.authenticate("token",true));
+        verify(users,never()).saveAndFlush(any()); verifyNoInteractions(jwt,refresh,passwords);
+    }
+    @Test void platformAdminsKeepPasswordSignIn() {
+        for (String role : new String[]{"ADMIN","SUPER_ADMIN"}) {
+            User user=passwordAccount(role,UserStatus.ACTIVE,true,null);
+            var e=assertThrows(ResourceAlreadyExistsException.class,()->service.authenticate("token",true));
+            assertTrue(e.getMessage().contains("administratoreve"));
+            assertNull(user.getGoogleUid34());
+        }
+        verify(users,never()).saveAndFlush(any()); verifyNoInteractions(jwt,refresh);
     }
     @Test void newAccountNeedsExplicitPrivacyConsent() {
         assertThrows(ResourceAlreadyExistsException.class,()->service.authenticate("token",false));

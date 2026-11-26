@@ -67,11 +67,36 @@ public class NotificationWriter {
  public void chat(long conversationId,long messageId,long organizationId,String productName,boolean fromBuyer,long buyerId,long senderId){
   em.flush();
   List<Long> users=fromBuyer
-   ?jdbc.queryForList("SELECT u.id FROM users u JOIN organization_members m ON m.user_id=u.id JOIN organizations g ON g.id=m.organization_id WHERE m.organization_id=? AND m.status='ACTIVE' AND m.membership_role IN ('OWNER','ADMIN') AND g.status='ACTIVE' AND u.deleted_at IS NULL AND u.status='ACTIVE' AND u.id<>?",Long.class,organizationId,senderId)
-   :jdbc.queryForList("SELECT u.id FROM users u WHERE u.id=? AND u.id<>? AND u.deleted_at IS NULL AND u.status='ACTIVE'",Long.class,buyerId,senderId);
-  String label=productName==null?"":productName.substring(0,Math.min(200,productName.length()));String key="chat:"+messageId;
+   ?jdbc.queryForList(CHAT_MANAGERS,Long.class,organizationId,senderId)
+   :jdbc.queryForList(CHAT_BUYER,Long.class,buyerId,senderId);
+  chatNotices(users,conversationId,messageId,organizationId,productName,fromBuyer?"BUYER":"SELLER");
+ }
+ private static final String CHAT_MANAGERS="SELECT u.id FROM users u JOIN organization_members m ON m.user_id=u.id JOIN organizations g ON g.id=m.organization_id WHERE m.organization_id=? AND m.status='ACTIVE' AND m.membership_role IN ('OWNER','ADMIN') AND g.status='ACTIVE' AND u.deleted_at IS NULL AND u.status='ACTIVE' AND u.id<>?";
+ private static final String CHAT_BUYER="SELECT u.id FROM users u WHERE u.id=? AND u.id<>? AND u.deleted_at IS NULL AND u.status='ACTIVE'";
+ /**
+  * Omnia (a platform admin) wrote in a chat: the buyer and, in a product chat ({@code organizationId} set), the
+  * company's active owners/admins. In a SUPPORT chat only the user. Status ADMIN; same one-unread-notice rule.
+  */
+ public void chatFromOmnia(long conversationId,long messageId,Long organizationId,String label,long buyerId,long senderId){
+  em.flush();
+  List<Long> users=new ArrayList<>(jdbc.queryForList(CHAT_BUYER,Long.class,buyerId,senderId));
+  if(organizationId!=null)users.addAll(jdbc.queryForList(CHAT_MANAGERS,Long.class,organizationId,senderId));
+  chatNotices(users,conversationId,messageId,organizationId,label,"ADMIN");
+ }
+ /** A user wrote to Omnia in their SUPPORT chat: every active platform admin, never the sender. Label "Omnia". */
+ public void chatToOmnia(long conversationId,long messageId,long senderId){
+  em.flush();
+  chatNotices(jdbc.queryForList("SELECT u.id FROM users u WHERE "+ADMIN+" AND u.id<>? AND u.deleted_at IS NULL AND u.status='ACTIVE'",Long.class,senderId),
+   conversationId,messageId,null,"Omnia","BUYER");
+ }
+ /**
+  * A new chat message: one notice per recipient, never the sender. While a recipient still has an unread notice
+  * for this chat, no new notice or push is added.
+  */
+ private void chatNotices(List<Long> users,long conversationId,long messageId,Long organizationId,String label,String status){
+  String text=label==null?"":label.substring(0,Math.min(200,label.length()));String key="chat:"+messageId;
   for(long user:new TreeSet<>(users)){
-   int added=jdbc.update("INSERT INTO notification_inbox (recipient_id,event_key,kind,category,target_type,target_id,organization_id,label,status,created_at) SELECT ?,?,'CHAT_MESSAGE','USER','CHAT',?,?,?,?,UTC_TIMESTAMP(6) FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM notification_inbox x WHERE x.recipient_id=? AND x.target_type='CHAT' AND x.target_id=? AND x.read_at IS NULL)",user,key,conversationId,organizationId,label,fromBuyer?"BUYER":"SELLER",user,conversationId);
+   int added=jdbc.update("INSERT INTO notification_inbox (recipient_id,event_key,kind,category,target_type,target_id,organization_id,label,status,created_at) SELECT ?,?,'CHAT_MESSAGE','USER','CHAT',?,?,?,?,UTC_TIMESTAMP(6) FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM notification_inbox x WHERE x.recipient_id=? AND x.target_type='CHAT' AND x.target_id=? AND x.read_at IS NULL)",user,key,conversationId,organizationId,text,status,user,conversationId);
    if(added>0)jdbc.update("INSERT INTO push_outbox(notification_id,available_at) SELECT id,UTC_TIMESTAMP(6) FROM notification_inbox WHERE recipient_id=? AND event_key=? ON DUPLICATE KEY UPDATE notification_id=notification_id",user,key);
   }
  }

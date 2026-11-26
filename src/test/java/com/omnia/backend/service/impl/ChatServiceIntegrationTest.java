@@ -128,7 +128,7 @@ class ChatServiceIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void onlyParticipantsAndPlatformAdminsCanReadAndAdminsCannotWrite() {
+    void onlyParticipantsAndPlatformAdminsCanRead() {
         as(buyer);
         long id = chat.start(product.getId(), "Pyetje").id();
 
@@ -143,9 +143,8 @@ class ChatServiceIntegrationTest extends AbstractIntegrationTest {
 
         as(admin);
         assertEquals("ADMIN", chat.get(id).mySide());
-        assertFalse(chat.get(id).canSend());
+        assertTrue(chat.get(id).canSend(), "Omnia can write in any conversation");
         assertEquals(1, chat.messages(id, null, null).items().size());
-        assertThrows(AccessDeniedException.class, () -> chat.send(id, "hi"));
         assertEquals("ADMIN", chat.forOrganization(org.getId(), 0, 20).content().get(0).mySide());
 
         jdbc.update("UPDATE organization_members SET status='INACTIVE' WHERE user_id=?", owner.getId());
@@ -185,6 +184,122 @@ class ChatServiceIntegrationTest extends AbstractIntegrationTest {
         chat.read(id, reply.id());
         chat.send(id, "Faleminderit");
         assertEquals(2, notices(owner), "after reading, the next message notifies again");
+    }
+
+    /* ------------------------------------------------------------ Omnia (admin) chat */
+
+    @Test
+    void adminListsEveryConversationAndOthersGet403() {
+        as(buyer);
+        long id = chat.start(product.getId(), "Pyetje").id();
+
+        as(admin);
+        var all = chat.adminList(0, 20, "ALL", null);
+        var seen = all.content().stream().filter(v -> v.id() == id).findFirst().orElseThrow();
+        assertEquals("ADMIN", seen.mySide());
+        assertTrue(seen.canSend());
+        assertEquals("PRODUCT", seen.kind());
+        assertEquals(buyer.getId(), seen.buyerId());
+        assertEquals("Ana kola", seen.buyerName(), "admins see the full name");
+        assertTrue(chat.adminList(0, 20, "product", "GOLF").content().stream().anyMatch(v -> v.id() == id));
+        assertTrue(chat.adminList(0, 20, "ALL", "ana KOLA").content().stream().anyMatch(v -> v.id() == id));
+        assertTrue(chat.adminList(0, 20, "ALL", org.getName().toUpperCase()).content().stream().anyMatch(v -> v.id() == id));
+        assertFalse(chat.adminList(0, 20, "SUPPORT", null).content().stream().anyMatch(v -> v.id() == id));
+        assertFalse(chat.adminList(0, 20, "ALL", "nuk-ekziston-%").content().stream().anyMatch(v -> v.id() == id));
+        assertThrows(IllegalArgumentException.class, () -> chat.adminList(0, 20, "OTHER", null));
+
+        as(owner);
+        assertThrows(AccessDeniedException.class, () -> chat.adminList(0, 20, "ALL", null));
+        assertThrows(AccessDeniedException.class, () -> chat.adminStart(buyer.getId(), "Tung"));
+        as(buyer);
+        assertThrows(AccessDeniedException.class, () -> chat.adminList(0, 20, "ALL", null));
+    }
+
+    @Test
+    void adminWritesInAProductConversationAsOmnia() {
+        as(buyer);
+        long id = chat.start(product.getId(), "Pyetje").id();
+        as(owner);
+        var answer = chat.send(id, "Përgjigje");
+        as(buyer);
+        chat.read(id, answer.id());
+        assertEquals(0, chat.unread().buyer());
+        as(owner);
+        chat.read(id, answer.id());
+        assertEquals(0, chat.get(id).unread());
+        long ownerNotices = notices(owner);
+        long buyerNotices = notices(buyer);
+
+        as(admin);
+        var msg = chat.send(id, "Përshëndetje nga Omnia");
+        assertEquals("ADMIN", msg.side());
+        assertEquals(0, chat.get(id).unread(), "admins have no unread count in product chats");
+        assertEquals(0L, chat.read(id, msg.id()).get("unread"));
+
+        as(buyer);
+        var mine = chat.get(id);
+        assertEquals(1, mine.unread());
+        assertEquals("ADMIN", mine.lastSenderSide());
+        assertEquals(1, chat.unread().buyer());
+        as(owner);
+        assertEquals(1, chat.get(id).unread());
+        assertEquals(1, chat.unread().seller());
+        assertEquals(ownerNotices + 1, notices(owner), "the company is notified");
+        assertEquals(buyerNotices + 1, notices(buyer), "the buyer is notified");
+        assertEquals(0, notices(admin), "the sender is never notified");
+        assertEquals("ADMIN", jdbc.queryForObject("SELECT status FROM notification_inbox WHERE recipient_id=? "
+                + "AND target_type='CHAT' ORDER BY id DESC LIMIT 1", String.class, buyer.getId()));
+    }
+
+    @Test
+    void adminStartsSupportChatAndTheUserReplies() {
+        User otherAdmin = user("ADMIN", "Admin", "Dy");
+        as(admin);
+        var started = chat.adminStart(buyer.getId(), "Tung nga Omnia");
+        assertEquals("SUPPORT", started.kind());
+        assertEquals(0, started.productId());
+        assertEquals(0, started.organizationId());
+        assertEquals("Omnia", started.productName());
+        assertEquals("Omnia", started.organizationName());
+        assertNull(started.productImage());
+        assertEquals("ADMIN", started.mySide());
+        assertEquals(buyer.getId(), started.buyerId());
+        assertEquals(started.id(), chat.adminStart(buyer.getId(), "Edhe një").id(), "one SUPPORT chat per user");
+        assertThrows(ResourceNotFoundException.class, () -> chat.adminStart(999_999_999L, "Hi"));
+        stranger.setStatus(UserStatus.BANNED);
+        em.flush();
+        assertThrows(ResourceNotFoundException.class, () -> chat.adminStart(stranger.getId(), "Hi"));
+        assertEquals(1, notices(buyer), "one unread notice per chat");
+
+        as(buyer);
+        var mine = chat.mine(0, 20).content();
+        assertEquals(1, mine.size());
+        var support = mine.get(0);
+        assertEquals(started.id(), support.id());
+        assertEquals("SUPPORT", support.kind());
+        assertEquals("BUYER", support.mySide());
+        assertEquals(2, support.unread());
+        assertEquals(1, chat.unread().buyer());
+        var page = chat.messages(started.id(), null, null);
+        assertEquals(List.of("ADMIN", "ADMIN"), page.items().stream().map(ChatService.Message::side).toList());
+        assertEquals(0L, chat.read(started.id(), page.items().get(1).id()).get("unread"));
+        var reply = chat.send(started.id(), "Faleminderit");
+        assertEquals("BUYER", reply.side());
+        assertEquals(1, notices(admin));
+        assertEquals(1, notices(otherAdmin), "every platform admin is notified");
+
+        as(admin);
+        var row = chat.adminList(0, 20, "SUPPORT", null).content().stream().filter(v -> v.id() == started.id()).findFirst().orElseThrow();
+        assertEquals(1, row.unread(), "the user's reply is unread for Omnia");
+        assertEquals(reply.id(), row.otherLastReadId(), "Omnia sees how far the user has read");
+        assertEquals(0L, chat.read(started.id(), reply.id()).get("unread"));
+        assertEquals(0, chat.get(started.id()).unread());
+        var notice = inbox.list("all", 0).items().get(0);
+        assertEquals("Omnia", notice.label());
+        assertEquals(started.id(), ((Number) inbox.open(notice.id()).get("conversationId")).longValue());
+
+        as(owner);
+        assertThrows(ResourceNotFoundException.class, () -> chat.get(started.id()));
     }
 
     @Test

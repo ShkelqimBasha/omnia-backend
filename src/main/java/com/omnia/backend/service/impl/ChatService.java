@@ -27,14 +27,18 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
- * Chat between a buyer and the company selling a product.
+ * Chat between a buyer and the company selling a product, and between Omnia and one user.
  *
- * <p>One conversation per (buyer, company, product). Only the buyer, the company's
- * active owners/admins (the same people who manage its orders) and platform admins
- * can read it; platform admins read without writing or moving read markers.
+ * <p>PRODUCT: one conversation per (buyer, company, product). Only the buyer, the company's
+ * active owners/admins (the same people who manage its orders) and platform admins can read it.
+ * Platform admins also write in it as "Omnia" (side ADMIN) but never move its read markers.
+ *
+ * <p>SUPPORT: one conversation per user with Omnia, opened by a platform admin. No company or product;
+ * the user is the BUYER side and the admins share the seller read marker.
  */
 @Service
 public class ChatService {
@@ -46,6 +50,10 @@ public class ChatService {
     static final int MAX_NEW = 100;
 
     public enum Side { BUYER, SELLER, ADMIN }
+
+    static final String PRODUCT = "PRODUCT";
+    static final String SUPPORT = "SUPPORT";
+    static final String OMNIA = "Omnia";
 
     public record ConversationView(
             long id,
@@ -63,7 +71,9 @@ public class ChatService {
             String mySide,
             boolean canSend,
             long otherLastReadId,
-            String createdAt) {
+            String createdAt,
+            String kind,
+            long buyerId) {
     }
 
     public record Message(long id, String side, String body, String createdAt) {
@@ -164,17 +174,77 @@ public class ChatService {
         return list("c.organization_id = ?", List.of(organizationId), side, page, size);
     }
 
+    /**
+     * Omnia's inbox: every conversation with messages, newest activity first. {@code kind} is ALL, PRODUCT or SUPPORT;
+     * {@code q} matches the product, the company, or the user's name or e-mail (case-insensitive).
+     */
+    @Transactional(readOnly = true)
+    public PagedResponse<ConversationView> adminList(int page, int size, String kind, String q) {
+        requireAdmin();
+        String k = kind == null || kind.isBlank() ? "ALL" : kind.strip().toUpperCase(Locale.ROOT);
+        StringBuilder where = new StringBuilder("1 = 1");
+        List<Object> args = new ArrayList<>();
+        switch (k) {
+            case "ALL" -> { }
+            case PRODUCT, SUPPORT -> {
+                where.append(" AND c.kind = ?");
+                args.add(k);
+            }
+            default -> throw new IllegalArgumentException("Invalid conversation kind");
+        }
+        if (q != null && !q.isBlank()) {
+            String term = "%" + likeEscape(q.strip().toLowerCase(Locale.ROOT)) + "%";
+            where.append(" AND (LOWER(c.product_name) LIKE ?"
+                    + " OR EXISTS (SELECT 1 FROM organizations g WHERE g.id = c.organization_id AND LOWER(g.name) LIKE ?)"
+                    + " OR EXISTS (SELECT 1 FROM users u WHERE u.id = c.buyer_id AND (LOWER(u.first_name) LIKE ?"
+                    + " OR LOWER(u.last_name) LIKE ? OR LOWER(u.email) LIKE ?"
+                    + " OR LOWER(CONCAT_WS(' ', u.first_name, u.last_name)) LIKE ?)))");
+            for (int i = 0; i < 6; i++) args.add(term);
+        }
+        return list(where.toString(), args, Side.ADMIN, page, size);
+    }
+
+    /**
+     * Omnia writes to a user: finds or opens that user's single SUPPORT conversation and appends the message as ADMIN.
+     * Not limited by the "new conversations per day" rule; the per-sender message limits still apply.
+     */
+    @Transactional
+    public ConversationView adminStart(Long userId, String body) {
+        User admin = requireAdmin();
+        if (userId == null) {
+            throw new IllegalArgumentException("userId is required");
+        }
+        String text = ChatText.clean(body);
+        // Locking the user row serializes find-or-create, so each user has one SUPPORT conversation.
+        List<String> status = jdbc.queryForList(
+                "SELECT status FROM users WHERE id = ? AND deleted_at IS NULL FOR UPDATE", String.class, userId);
+        if (status.isEmpty() || !UserStatus.ACTIVE.name().equals(status.get(0))) {
+            throw new ResourceNotFoundException("User not found");
+        }
+        if (userId.longValue() == admin.getId()) {
+            throw new IllegalArgumentException("Nuk mund t'i shkruani vetes.");
+        }
+        Long id = supportId(userId);
+        if (id == null) {
+            jdbc.update("INSERT INTO chat_conversations (kind, buyer_id, organization_id, product_id, product_name, created_at) "
+                    + "VALUES ('SUPPORT', ?, NULL, NULL, ?, UTC_TIMESTAMP(6))", userId, OMNIA);
+            id = supportId(userId);
+        }
+        append(new Access(load(id), Side.ADMIN, admin), text);
+        return view(id, Side.ADMIN);
+    }
+
     /** Conversations with unread messages, for the badges in the header and the company panel. */
     @Transactional(readOnly = true)
     public Unread unread() {
         User user = actor();
         Long buyer = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM chat_conversations c WHERE c.buyer_id = ? "
-                        + "AND c.last_sender_side = 'SELLER' AND c.last_message_id > c.buyer_last_read_id",
+                        + "AND c.last_sender_side <> 'BUYER' AND c.last_message_id > c.buyer_last_read_id",
                 Long.class, user.getId());
         Long seller = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM chat_conversations c WHERE " + managerOf("c.organization_id")
-                        + " AND c.last_sender_side = 'BUYER' AND c.last_message_id > c.seller_last_read_id",
+                        + " AND c.last_sender_side <> 'SELLER' AND c.last_message_id > c.seller_last_read_id",
                 Long.class, user.getId());
         long b = buyer == null ? 0 : buyer;
         long s = seller == null ? 0 : seller;
@@ -220,12 +290,10 @@ public class ChatService {
         return new Messages(List.copyOf(items), more, otherLastRead(c, access.side()), unreadFor(c, access.side()));
     }
 
+    /** A new message from the buyer, the company, or Omnia (a platform admin who is neither: side ADMIN). */
     @Transactional
     public Message send(long conversationId, String body) {
         Access access = access(conversationId);
-        if (access.side() == Side.ADMIN) {
-            throw new AccessDeniedException("Administratori i platformës mund vetëm të lexojë bisedën.");
-        }
         return append(access, ChatText.clean(body));
     }
 
@@ -236,15 +304,15 @@ public class ChatService {
             throw new IllegalArgumentException("Invalid read marker");
         }
         Access access = access(conversationId);
-        if (access.side() != Side.ADMIN) {
-            String column = access.side() == Side.BUYER ? "buyer_last_read_id" : "seller_last_read_id";
+        String column = readColumn(access.row(), access.side());
+        if (column != null) {
             jdbc.update("UPDATE chat_conversations SET " + column + " = GREATEST(" + column
                             + ", LEAST(?, COALESCE(last_message_id, 0))) WHERE id = ?",
                     throughId, conversationId);
-            jdbc.update("UPDATE notification_inbox SET read_at = COALESCE(read_at, UTC_TIMESTAMP(6)) "
-                            + "WHERE recipient_id = ? AND target_type = 'CHAT' AND target_id = ?",
-                    access.user().getId(), conversationId);
         }
+        jdbc.update("UPDATE notification_inbox SET read_at = COALESCE(read_at, UTC_TIMESTAMP(6)) "
+                        + "WHERE recipient_id = ? AND target_type = 'CHAT' AND target_id = ?",
+                access.user().getId(), conversationId);
         Row c = load(conversationId);
         return Map.of("unread", unreadFor(c, access.side()));
     }
@@ -274,13 +342,30 @@ public class ChatService {
             return ps;
         }, keys);
         long messageId = keys.getKey().longValue();
-        String ownRead = access.side() == Side.BUYER ? "buyer_last_read_id" : "seller_last_read_id";
+        String ownRead = readColumn(c, access.side());
+        List<Object> args = new ArrayList<>(List.of(messageId, ChatText.preview(text), side));
+        String marker = "";
+        if (ownRead != null) {
+            marker = ", " + ownRead + " = GREATEST(" + ownRead + ", ?)";
+            args.add(messageId);
+        }
+        args.add(c.id());
+        args.add(messageId);
         jdbc.update("UPDATE chat_conversations SET last_message_id = ?, last_message_at = UTC_TIMESTAMP(6), "
-                        + "last_message_preview = ?, last_sender_side = ?, " + ownRead + " = GREATEST(" + ownRead + ", ?) "
-                        + "WHERE id = ? AND (last_message_id IS NULL OR last_message_id < ?)",
-                messageId, ChatText.preview(text), side, messageId, c.id(), messageId);
-        notifications.chat(c.id(), messageId, c.organizationId(), c.productName(),
-                access.side() == Side.BUYER, c.buyerId(), userId);
+                        + "last_message_preview = ?, last_sender_side = ?" + marker
+                        + " WHERE id = ? AND (last_message_id IS NULL OR last_message_id < ?)", args.toArray());
+        if (c.support()) {
+            if (access.side() == Side.ADMIN) {
+                notifications.chatFromOmnia(c.id(), messageId, null, OMNIA, c.buyerId(), userId);
+            } else {
+                notifications.chatToOmnia(c.id(), messageId, userId);
+            }
+        } else if (access.side() == Side.ADMIN) {
+            notifications.chatFromOmnia(c.id(), messageId, c.organizationId(), c.productName(), c.buyerId(), userId);
+        } else {
+            notifications.chat(c.id(), messageId, c.organizationId(), c.productName(),
+                    access.side() == Side.BUYER, c.buyerId(), userId);
+        }
         return jdbc.queryForObject("SELECT * FROM chat_messages WHERE id = ?", MESSAGE, messageId);
     }
 
@@ -290,7 +375,7 @@ public class ChatService {
         if (c.buyerId() == user.getId()) {
             return new Access(c, Side.BUYER, user);
         }
-        if (isManager(user.getId(), c.organizationId())) {
+        if (!c.support() && isManager(user.getId(), c.organizationId())) {
             return new Access(c, Side.SELLER, user);
         }
         if (current.hasPlatformAdminAccess(user)) {
@@ -298,6 +383,36 @@ public class ChatService {
         }
         // Same answer as a missing conversation: never reveal that it exists.
         throw new ResourceNotFoundException("Conversation not found");
+    }
+
+    private User requireAdmin() {
+        User user = actor();
+        if (!current.hasPlatformAdminAccess(user)) {
+            throw new AccessDeniedException("Platform administrator access is required");
+        }
+        return user;
+    }
+
+    private Long supportId(long userId) {
+        List<Long> ids = jdbc.queryForList("SELECT id FROM chat_conversations WHERE buyer_id = ? AND kind = 'SUPPORT' "
+                + "ORDER BY id LIMIT 1", Long.class, userId);
+        return ids.isEmpty() ? null : ids.get(0);
+    }
+
+    /**
+     * The read marker a side moves: the buyer's, or the seller's (shared by the company's managers, and by
+     * the admins in a SUPPORT chat). Admins never move the markers of a PRODUCT chat.
+     */
+    private static String readColumn(Row c, Side side) {
+        return switch (side) {
+            case BUYER -> "buyer_last_read_id";
+            case SELLER -> "seller_last_read_id";
+            case ADMIN -> c.support() ? "seller_last_read_id" : null;
+        };
+    }
+
+    private static String likeEscape(String value) {
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 
     private User actor() {
@@ -363,16 +478,31 @@ public class ChatService {
     }
 
     private ConversationView view(Row c, Side side, Map<Long, String> images) {
-        String organizationName = jdbc.queryForObject("SELECT name FROM organizations WHERE id = ?", String.class, c.organizationId());
-        Map<String, Object> buyer = jdbc.queryForMap("SELECT first_name, last_name FROM users WHERE id = ?", c.buyerId());
-        String image = images.computeIfAbsent(c.productId(), id -> {
-            Product product = em.find(Product.class, id);
-            return product == null ? null : ProductMapper.primaryImageUrl(product);
-        });
-        return new ConversationView(c.id(), c.productId(), c.productName(), image, c.organizationId(), organizationName,
-                buyerName((String) buyer.get("first_name"), (String) buyer.get("last_name")),
-                c.preview(), c.lastMessageAt(), c.lastSenderSide(), c.lastMessageId(),
-                unreadFor(c, side), side.name(), side != Side.ADMIN, otherLastRead(c, side), c.createdAt());
+        Map<String, Object> buyer = jdbc.queryForMap("SELECT first_name, last_name, email FROM users WHERE id = ?", c.buyerId());
+        String first = (String) buyer.get("first_name");
+        String last = (String) buyer.get("last_name");
+        String name = side == Side.ADMIN ? fullName(first, last, (String) buyer.get("email")) : buyerName(first, last);
+        String productName = OMNIA;
+        String organizationName = OMNIA;
+        String image = null;
+        if (!c.support()) {
+            productName = c.productName();
+            organizationName = jdbc.queryForObject("SELECT name FROM organizations WHERE id = ?", String.class, c.organizationId());
+            image = images.computeIfAbsent(c.productId(), id -> {
+                Product product = em.find(Product.class, id);
+                return product == null ? null : ProductMapper.primaryImageUrl(product);
+            });
+        }
+        return new ConversationView(c.id(), c.productId(), productName, image, c.organizationId(), organizationName,
+                name, c.preview(), c.lastMessageAt(), c.lastSenderSide(), c.lastMessageId(),
+                unreadFor(c, side), side.name(), true, otherLastRead(c, side), c.createdAt(), c.kind(), c.buyerId());
+    }
+
+    /** Omnia's admins see the user's full name (or e-mail when the account has no name). */
+    static String fullName(String first, String last, String email) {
+        String name = ((first == null ? "" : first.strip()) + " " + (last == null ? "" : last.strip())).strip();
+        if (!name.isEmpty()) return name;
+        return email == null || email.isBlank() ? "Blerës" : email.strip();
     }
 
     /** Sellers see the buyer's first name and last initial, never their contact details. */
@@ -383,12 +513,13 @@ public class ChatService {
         return name.isEmpty() ? "Blerës" : name;
     }
 
+    /** Messages from any other side after the caller's read marker (an ADMIN message is unread for buyer and seller). */
     private long unreadFor(Row c, Side side) {
-        if (side == Side.ADMIN) return 0;
+        String column = readColumn(c, side);
+        if (column == null) return 0;
         long lastRead = side == Side.BUYER ? c.buyerLastReadId() : c.sellerLastReadId();
-        String other = side == Side.BUYER ? "SELLER" : "BUYER";
         Long count = jdbc.queryForObject("SELECT COUNT(*) FROM chat_messages WHERE conversation_id = ? "
-                + "AND sender_side = ? AND id > ?", Long.class, c.id(), other, lastRead);
+                + "AND sender_side <> ? AND id > ?", Long.class, c.id(), side.name(), lastRead);
         return count == null ? 0 : count;
     }
 
@@ -396,7 +527,7 @@ public class ChatService {
         return switch (side) {
             case BUYER -> c.sellerLastReadId();
             case SELLER -> c.buyerLastReadId();
-            case ADMIN -> 0;
+            case ADMIN -> c.support() ? c.buyerLastReadId() : 0;
         };
     }
 
@@ -409,9 +540,13 @@ public class ChatService {
         return ts == null ? null : ts.toLocalDateTime().toInstant(ZoneOffset.UTC).toString();
     }
 
+    /** organizationId and productId are 0 in a SUPPORT conversation (NULL in the table). */
     private record Row(long id, long buyerId, long organizationId, long productId, String productName,
                        Long lastMessageId, String lastMessageAt, String preview, String lastSenderSide,
-                       long buyerLastReadId, long sellerLastReadId, String createdAt) {
+                       long buyerLastReadId, long sellerLastReadId, String createdAt, String kind) {
+        boolean support() {
+            return SUPPORT.equals(kind);
+        }
     }
 
     private record Access(Row row, Side side, User user) {
@@ -422,7 +557,7 @@ public class ChatService {
             r.getString("product_name"), r.getObject("last_message_id", Long.class),
             instant(r.getTimestamp("last_message_at")), r.getString("last_message_preview"),
             r.getString("last_sender_side"), r.getLong("buyer_last_read_id"), r.getLong("seller_last_read_id"),
-            instant(r.getTimestamp("created_at")));
+            instant(r.getTimestamp("created_at")), r.getString("kind"));
 
     private static final RowMapper<Message> MESSAGE = (ResultSet r, int i) -> message(r);
 

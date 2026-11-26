@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
 
-/** Buyer ↔ company chat about a product. Clients poll; there are no websockets. */
+/** Buyer ↔ company chat about a product, and Omnia ↔ user support chat. Clients poll; there are no websockets. */
 @RestController
 @PreAuthorize("isAuthenticated()")
 public class ChatController {
@@ -76,6 +76,28 @@ public class ChatController {
     @PostMapping("/api/conversations/{id}/messages")
     public ResponseEntity<ChatService.Message> send(@PathVariable long id, @RequestBody MessageRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(chat.send(id, request == null ? null : request.body()));
+    }
+
+    /** Request body for Omnia's first message to a user. */
+    public record AdminStartRequest(Long userId, String body) {
+    }
+
+    /** Omnia's inbox: every conversation with messages (platform admins only). */
+    @GetMapping("/api/admin/conversations")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPER_ADMIN')")
+    public PagedResponse<ChatService.ConversationView> adminList(@RequestParam(defaultValue = "0") int page,
+                                                                 @RequestParam(defaultValue = "20") int size,
+                                                                 @RequestParam(defaultValue = "ALL") String kind,
+                                                                 @RequestParam(required = false) String q) {
+        return chat.adminList(page, size, kind, q);
+    }
+
+    /** Omnia writes to a user: opens (or reuses) the user's SUPPORT conversation and sends the message. */
+    @PostMapping("/api/admin/conversations")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPER_ADMIN')")
+    public ResponseEntity<ChatService.ConversationView> adminStart(@RequestBody AdminStartRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(chat.adminStart(
+                request == null ? null : request.userId(), request == null ? null : request.body()));
     }
 
     @PutMapping("/api/conversations/{id}/read")

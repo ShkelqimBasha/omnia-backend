@@ -14,6 +14,9 @@ public final class AdminActionRules {
 
     static final int MAX_DETAIL = 500;
 
+    /** Route of the log row written when a PayPal refund creates a seller payout adjustment (no admin request). */
+    public static final String SYSTEM_PAYOUT_ADJUSTMENT_ROUTE = "/system/payout-adjustments";
+
     /** Only these areas are platform administration; personal actions (cart, profile, login…) are not logged. */
     private static final List<String> AUDITED_PREFIXES = List.of(
             "/api/admin/",
@@ -62,6 +65,8 @@ public final class AdminActionRules {
             Map.entry("POST /api/admin/paypal/recovery/checkouts/{id}/resolve", "Zgjidhi pagesën PayPal"),
             Map.entry("POST /api/admin/paypal/recovery/cases/{caseId}/close", "Mbylli rastin PayPal"),
             Map.entry("POST /api/admin/payouts", "Regjistroi pagesën për shitësin"),
+            Map.entry("POST /api/admin/payouts/adjustments/{adjustmentId}/settle", "Mbylli rregullimin e shitësit"),
+            Map.entry("SYSTEM " + SYSTEM_PAYOUT_ADJUSTMENT_ROUTE, "Rregullim pas rimbursimit (shitësi i detyrohet Omnia-s)"),
             Map.entry("POST /api/admin/verifications/{id}/approve", "Miratoi verifikimin e shitësit"),
             Map.entry("POST /api/admin/verifications/{id}/reject", "Refuzoi verifikimin e shitësit"),
             Map.entry("POST /api/admin/organizations/{organizationId}/verification/revoke", "Hoqi verifikimin e shitësit"),

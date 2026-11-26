@@ -30,7 +30,7 @@ import static org.mockito.Mockito.*;
 @Transactional
 class PayPalCheckoutIntegrationTest extends AbstractIntegrationTest {
     @Autowired JdbcTemplate jdbc;@Autowired EntityManager em;@Autowired PlatformTransactionManager manager;
-    @Autowired PayPalOrderGuard guard;@Autowired PayPalRecoveryLedger ledger;@Autowired PayPalRecoveryTransitions transitions;
+    @Autowired PayPalOrderGuard guard;@Autowired PayPalRecoveryLedger ledger;@Autowired PayPalRecoveryTransitions transitions;@Autowired SellerPayoutAdjustments adjustments;
     private PayPalCheckoutService service;private PayPalGateway gateway;private CurrentUserService current;
     private OrderService orderService;private CheckoutService checkout;private User user;private CheckoutGroup group;private Order order;private String key;
     private final ObjectMapper json=new ObjectMapper();private String attempt;
@@ -47,7 +47,7 @@ class PayPalCheckoutIntegrationTest extends AbstractIntegrationTest {
         em.persist(Payment.builder().order(order).method(PaymentMethod.CASH_ON_DELIVERY).status(PaymentStatus.PENDING).build());em.flush();
         when(current.requireCurrentUser()).thenReturn(user);
         when(checkout.checkout(any(),any())).thenReturn(CheckoutResponse.builder().checkoutReference(group.getCheckoutReference()).totalAmount(new BigDecimal("12.30")).build());
-        orderService=mock(OrderService.class);service=new PayPalCheckoutService(jdbc,current,checkout,transitions,gateway,json,em,manager,ledger);key=UUID.randomUUID().toString();
+        orderService=mock(OrderService.class);service=new PayPalCheckoutService(jdbc,current,checkout,transitions,gateway,json,em,manager,ledger,adjustments);key=UUID.randomUUID().toString();
         when(gateway.create(anyString(),any(),anyBoolean())).thenAnswer(inv->{attempt=inv.getArgument(0);return json.readTree("{\"id\":\"PROVIDER123\",\"links\":[{\"rel\":\"approve\",\"href\":\"https://www.sandbox.paypal.com/checkoutnow?token=PROVIDER123\"}]}");});
         when(gateway.get("PROVIDER123")).thenAnswer(inv->evidence("CREATED",null));
     }
@@ -284,5 +284,96 @@ class PayPalCheckoutIntegrationTest extends AbstractIntegrationTest {
         when(gateway.environment()).thenReturn(null);
         assertThrows(IllegalStateException.class,()->service.create(key,request()));
         verify(checkout,never()).checkout(any());verify(gateway,never()).create(anyString(),any(),anyBoolean());
+    }
+
+    // ------------------------------------------------------------ refunds after a seller payout (V54)
+
+    /** Pays the checkout, then delivers its order and records it in a payout to a new seller. */
+    private long paidOutToSeller()throws Exception{
+        var first=service.create(key,request());
+        when(gateway.get("PROVIDER123")).thenReturn(evidence("APPROVED",null),evidence("COMPLETED","COMPLETED"));
+        assertEquals("PAID",service.sync(first.id(),true).state());
+        String slug="pp-adj-"+UUID.randomUUID().toString().substring(0,8);
+        jdbc.update("INSERT INTO organizations(name,slug,status) VALUES('Dyqani Rimbursim',?,'ACTIVE')",slug);
+        long org=jdbc.queryForObject("SELECT id FROM organizations WHERE slug=?",Long.class,slug);
+        jdbc.update("INSERT INTO seller_payouts(organization_id,gross_amount,commission_percent,commission_amount,net_amount,deduction_amount,transfer_amount,order_count,paid_at,created_at) VALUES(?,12.30,0,0,12.30,0,12.30,1,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))",org);
+        long payout=jdbc.queryForObject("SELECT LAST_INSERT_ID()",Long.class);
+        jdbc.update("UPDATE orders SET organization_id=?,status='DELIVERED',payout_id=? WHERE id=?",org,payout,order.getId());
+        when(gateway.verifyWebhook(anyMap(),any())).thenReturn(true);
+        return payout;
+    }
+    private JsonNode refundEvent(String id,String type){
+        var event=json.createObjectNode().put("id",id).put("event_type",type);
+        var resource=event.putObject("resource").put("id","CAPTURE123");
+        resource.putObject("supplementary_data").putObject("related_ids").put("order_id","PROVIDER123");
+        resource.putObject("amount").put("currency_code","EUR").put("value","12.30");
+        return event;
+    }
+    private JsonNode partiallyRefunded(String... values)throws Exception{
+        JsonNode n=evidence("COMPLETED","PARTIALLY_REFUNDED");
+        var refunds=((com.fasterxml.jackson.databind.node.ObjectNode)n.path("purchase_units").get(0).path("payments")).putArray("refunds");
+        for(String v:values){var r=refunds.addObject().put("status","COMPLETED");r.putObject("amount").put("currency_code","EUR").put("value",v);}
+        return n;
+    }
+    private List<Map<String,Object>> adjustmentsOf(long orderId){
+        return jdbc.queryForList("SELECT * FROM seller_payout_adjustments WHERE order_id=? ORDER BY id",orderId);
+    }
+
+    @Test void fullRefundAfterPayoutCreatesOneAdjustmentEvenWhenPayPalRepeatsIt()throws Exception{
+        long payout=paidOutToSeller();
+        when(gateway.get("PROVIDER123")).thenAnswer(inv->evidence("COMPLETED","REFUNDED"));
+        service.webhook(Map.of(),refundEvent("WH-REFUND-1","PAYMENT.CAPTURE.REFUNDED"));
+        service.webhook(Map.of(),refundEvent("WH-REFUND-1","PAYMENT.CAPTURE.REFUNDED"));   // same delivery again
+        service.webhook(Map.of(),refundEvent("WH-REFUND-2","PAYMENT.CAPTURE.REFUNDED"));   // same refund, new delivery
+        service.webhook(Map.of(),refundEvent("WH-REVERSE-1","PAYMENT.CAPTURE.REVERSED"));  // closed checkout: no money twice
+        var rows=adjustmentsOf(order.getId());
+        assertEquals(1,rows.size());
+        assertEquals(0,new BigDecimal("12.30").compareTo((BigDecimal)rows.get(0).get("amount")));
+        assertEquals(0,new BigDecimal("12.30").compareTo((BigDecimal)rows.get(0).get("refunded_amount")));
+        assertEquals("REFUND",rows.get(0).get("source"));
+        assertEquals(payout,((Number)rows.get(0).get("payout_id")).longValue());
+        assertNull(rows.get(0).get("settled_at"));
+        assertEquals("REFUNDED",jdbc.queryForObject("SELECT status FROM payments WHERE order_id=?",String.class,order.getId()));
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM admin_action_log WHERE http_method='SYSTEM' AND target_id=?",Integer.class,String.valueOf(rows.get(0).get("id"))));
+    }
+
+    @Test void partialRefundThenTheRestAddsOnlyTheDifference()throws Exception{
+        paidOutToSeller();
+        when(gateway.get("PROVIDER123")).thenAnswer(inv->partiallyRefunded("5.00"));
+        service.webhook(Map.of(),refundEvent("WH-PART-1","PAYMENT.CAPTURE.REFUNDED"));
+        assertEquals("REVIEW",jdbc.queryForObject("SELECT state FROM paypal_checkouts WHERE checkout_group_id=?",String.class,group.getId()));
+        service.webhook(Map.of(),refundEvent("WH-PART-2","PAYMENT.CAPTURE.REFUNDED"));     // nothing new at PayPal
+        assertEquals(1,adjustmentsOf(order.getId()).size());
+        assertEquals("PARTIAL_REFUND",adjustmentsOf(order.getId()).get(0).get("source"));
+        assertEquals(0,new BigDecimal("5.00").compareTo((BigDecimal)adjustmentsOf(order.getId()).get(0).get("amount")));
+
+        // The rest is refunded later: the checkout stays under review, the seller owes the other 7.30.
+        when(gateway.get("PROVIDER123")).thenAnswer(inv->evidence("COMPLETED","REFUNDED"));
+        service.webhook(Map.of(),refundEvent("WH-PART-3","PAYMENT.CAPTURE.REFUNDED"));
+        service.webhook(Map.of(),refundEvent("WH-PART-4","PAYMENT.CAPTURE.REFUNDED"));
+        var rows=adjustmentsOf(order.getId());
+        assertEquals(2,rows.size());
+        assertEquals(0,new BigDecimal("7.30").compareTo((BigDecimal)rows.get(1).get("amount")));
+        assertEquals("REVIEW",jdbc.queryForObject("SELECT state FROM paypal_checkouts WHERE checkout_group_id=?",String.class,group.getId()));
+    }
+
+    @Test void reversalAfterPayoutCreatesOneAdjustment()throws Exception{
+        paidOutToSeller();
+        service.webhook(Map.of(),refundEvent("WH-REV-1","PAYMENT.CAPTURE.REVERSED"));
+        service.webhook(Map.of(),refundEvent("WH-REV-2","PAYMENT.CAPTURE.REVERSED"));
+        var rows=adjustmentsOf(order.getId());
+        assertEquals(1,rows.size());
+        assertEquals("REVERSAL",rows.get(0).get("source"));
+        assertEquals(0,new BigDecimal("12.30").compareTo((BigDecimal)rows.get(0).get("amount")));
+    }
+
+    @Test void refundOfAnOrderNotYetPaidOutCreatesNoAdjustment()throws Exception{
+        var first=service.create(key,request());
+        when(gateway.get("PROVIDER123")).thenReturn(evidence("APPROVED",null),evidence("COMPLETED","COMPLETED"),evidence("COMPLETED","REFUNDED"));
+        assertEquals("PAID",service.sync(first.id(),true).state());
+        when(gateway.verifyWebhook(anyMap(),any())).thenReturn(true);
+        service.webhook(Map.of(),refundEvent("WH-UNPAID-1","PAYMENT.CAPTURE.REFUNDED"));
+        assertEquals("REFUNDED",jdbc.queryForObject("SELECT status FROM payments WHERE order_id=?",String.class,order.getId()));
+        assertEquals(0,adjustmentsOf(order.getId()).size());
     }
 }

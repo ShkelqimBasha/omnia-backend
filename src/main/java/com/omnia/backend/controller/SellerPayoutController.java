@@ -2,10 +2,13 @@ package com.omnia.backend.controller;
 
 import com.omnia.backend.common.response.PagedResponse;
 import com.omnia.backend.dto.request.CreatePayoutRequest;
+import com.omnia.backend.dto.request.SettleAdjustmentRequest;
+import com.omnia.backend.dto.response.PayoutAdjustmentResponse;
 import com.omnia.backend.dto.response.PayoutBalanceResponse;
 import com.omnia.backend.dto.response.PayoutEligibleOrderResponse;
 import com.omnia.backend.dto.response.SellerPayoutResponse;
 import com.omnia.backend.dto.response.SellerPayoutSummaryResponse;
+import com.omnia.backend.service.impl.SellerPayoutAdjustments;
 import com.omnia.backend.service.impl.SellerPayoutService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -25,9 +28,11 @@ import java.util.List;
 public class SellerPayoutController {
 
     private final SellerPayoutService service;
+    private final SellerPayoutAdjustments adjustments;
 
-    public SellerPayoutController(SellerPayoutService service) {
+    public SellerPayoutController(SellerPayoutService service, SellerPayoutAdjustments adjustments) {
         this.service = service;
+        this.adjustments = adjustments;
     }
 
     @GetMapping("/api/admin/payouts/balances")
@@ -56,6 +61,26 @@ public class SellerPayoutController {
             @RequestParam(defaultValue = "20") int size
     ) {
         return service.history(organizationId, page, size);
+    }
+
+    /** Adjustments for refunds after a payout, newest first; status OPEN or SETTLED (optional). */
+    @GetMapping("/api/admin/payouts/adjustments")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public PagedResponse<PayoutAdjustmentResponse> adjustments(
+            @RequestParam(required = false) Long organizationId,
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        return adjustments.history(organizationId, status, page, size);
+    }
+
+    /** Closes an open adjustment outside a payout: recovered from the seller or waived, with a note. */
+    @PostMapping(value = "/api/admin/payouts/adjustments/{adjustmentId}/settle", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public PayoutAdjustmentResponse settle(@PathVariable Long adjustmentId,
+                                           @RequestBody SettleAdjustmentRequest request) {
+        return adjustments.settle(adjustmentId, request);
     }
 
     /** The store's own view; access is checked in the service (order managers of the store, or admins). */

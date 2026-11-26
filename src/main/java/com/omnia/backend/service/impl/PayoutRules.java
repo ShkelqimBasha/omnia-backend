@@ -6,6 +6,8 @@ import com.omnia.backend.enums.PaymentStatus;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -68,5 +70,63 @@ public final class PayoutRules {
         BigDecimal commission = g.multiply(percent)
                 .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
         return new Amounts(g, commission, g.subtract(commission));
+    }
+
+    /**
+     * What the seller owes back for {@code refunded} of an order that was paid out with
+     * {@code commissionPercent}: the refunded part minus the commission Omnia kept on it.
+     */
+    public static BigDecimal adjustmentAmount(BigDecimal refunded, BigDecimal commissionPercent) {
+        return amounts(refunded, commissionPercent).net();
+    }
+
+    /**
+     * Splits the refunded total of a PayPal checkout over its orders, in proportion to each order's total
+     * (HALF_UP to cents; the last order takes the rounding rest). A full refund gives every order its own
+     * total. Each share is capped at the order's total. {@code orderTotals} in order id order.
+     */
+    public static List<BigDecimal> refundShares(BigDecimal refundedTotal, List<BigDecimal> orderTotals) {
+        List<BigDecimal> shares = new ArrayList<>();
+        BigDecimal sum = orderTotals.stream().map(t -> t.setScale(2, RoundingMode.HALF_UP))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (refundedTotal == null || refundedTotal.signum() <= 0 || sum.signum() <= 0) {
+            orderTotals.forEach(t -> shares.add(BigDecimal.ZERO.setScale(2)));
+            return shares;
+        }
+        BigDecimal refunded = refundedTotal.min(sum).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal given = BigDecimal.ZERO;
+        for (int i = 0; i < orderTotals.size(); i++) {
+            BigDecimal total = orderTotals.get(i).setScale(2, RoundingMode.HALF_UP);
+            BigDecimal share = i == orderTotals.size() - 1
+                    ? refunded.subtract(given)
+                    : refunded.multiply(total).divide(sum, 2, RoundingMode.HALF_UP);
+            share = share.max(BigDecimal.ZERO).min(total);
+            given = given.add(share);
+            shares.add(share);
+        }
+        return shares;
+    }
+
+    /**
+     * How much of each open adjustment (remaining amounts, oldest first) a payout with {@code available}
+     * net settles: oldest first, the last one possibly in part. Never more than {@code available}.
+     */
+    public static List<BigDecimal> deductions(List<BigDecimal> remaining, BigDecimal available) {
+        List<BigDecimal> taken = new ArrayList<>();
+        BigDecimal left = available == null ? BigDecimal.ZERO : available.max(BigDecimal.ZERO);
+        for (BigDecimal open : remaining) {
+            BigDecimal take = open.max(BigDecimal.ZERO).min(left).setScale(2, RoundingMode.HALF_UP);
+            taken.add(take);
+            left = left.subtract(take);
+        }
+        return taken;
+    }
+
+    /** Normalised transfer reference for the duplicate check: trimmed, inner spaces collapsed, lower case. */
+    public static String referenceKey(String reference) {
+        if (reference == null || reference.isBlank()) {
+            return null;
+        }
+        return reference.trim().replaceAll("\\s+", " ").toLowerCase(java.util.Locale.ROOT);
     }
 }

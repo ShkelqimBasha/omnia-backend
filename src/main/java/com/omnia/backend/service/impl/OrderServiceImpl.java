@@ -224,11 +224,11 @@ public class OrderServiceImpl implements OrderService {
         BigDecimal shippingFee =
                 subtotalAmount.signum() == 0
                         || subtotalAmount.compareTo(
-                        new BigDecimal("50.00")
+                        DeliveryPricing.FREE_SHIPPING_THRESHOLD
                 ) > 0
                         || freeShippingCoupon
                         ? BigDecimal.ZERO
-                        : new BigDecimal("3.50");
+                        : DeliveryPricing.STANDARD_SHIPPING_FEE;
 
         BigDecimal finalTotal = subtotalAmount
                 .add(shippingFee)

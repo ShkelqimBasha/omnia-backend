@@ -1161,7 +1161,8 @@ class ProductControllerIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.message").value(
                         "Unsupported sort field. Allowed values: "
                                 + "id, name, brand, price, discountPrice, "
-                                + "stock, status, createdAt, updatedAt"
+                                + "stock, status, createdAt, updatedAt, "
+                                + "rating, popular, bestselling, relevance"
                 ))
                 .andExpect(jsonPath("$.path").value(
                         "/api/products"

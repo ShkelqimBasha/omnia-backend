@@ -10,11 +10,13 @@ public enum CategoryKind {
     SHOES,
     SKINCARE,
     CAR,
-    PROPERTY;
+    PROPERTY,
+    /** Phones, laptops, TVs…: like GENERAL (cart) but with device fields. */
+    ELECTRONICS;
 
     /** Cart and online payment, as today. */
     public boolean usesCart() {
-        return this == GENERAL || this == CLOTHING || this == SHOES || this == SKINCARE;
+        return this == GENERAL || this == CLOTHING || this == SHOES || this == SKINCARE || this == ELECTRONICS;
     }
 
     /** "Kontakto shitësin" / "Kontakto". */

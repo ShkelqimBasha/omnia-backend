@@ -35,6 +35,10 @@ class ListingRulesTest {
         assertEquals(List.of("dealType", "propertyType", "location", "areaM2", "rooms"),
                 keys(CategoryKind.PROPERTY).subList(0, 5));
         assertEquals(List.of("brand", "condition", "color", "warrantyMonths"), keys(CategoryKind.GENERAL));
+        assertEquals(List.of("deviceType", "brand", "model", "condition", "storageGb", "ramGb", "processor",
+                "screenInches", "operatingSystem", "network5g", "batteryHealth", "color", "warrantyMonths",
+                "packaging", "accessoriesIncluded"), keys(CategoryKind.ELECTRONICS));
+        assertTrue(CategoryKind.ELECTRONICS.usesCart());
     }
 
     @Test

@@ -76,6 +76,30 @@ public interface ProductService {
                 organizationId, brand, status, minPrice, maxPrice, attributeFilters);
     }
 
+    /** Same as above, plus the general catalog filters (in stock, on sale, seller, rating …). */
+    default PagedResponse<ProductResponse> getAllProducts(
+            int page,
+            int size,
+            String sortBy,
+            String sortDir,
+            String keyword,
+            Long categoryId,
+            Long organizationId,
+            String brand,
+            ProductStatus status,
+            BigDecimal minPrice,
+            BigDecimal maxPrice,
+            java.util.List<com.omnia.backend.catalog.AttributeFilter> attributeFilters,
+            java.util.List<String> sizes,
+            com.omnia.backend.catalog.CatalogFilters catalogFilters
+    ) {
+        if (catalogFilters != null && !catalogFilters.isEmpty()) {
+            throw new UnsupportedOperationException("Catalog filters are not supported");
+        }
+        return getAllProducts(page, size, sortBy, sortDir, keyword, categoryId,
+                organizationId, brand, status, minPrice, maxPrice, attributeFilters, sizes);
+    }
+
     ProductResponse updateProduct(
             Long id,
             ProductRequest request

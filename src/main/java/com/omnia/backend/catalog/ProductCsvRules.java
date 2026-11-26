@@ -101,6 +101,7 @@ public final class ProductCsvRules {
                 case SHOES -> "Atlete vrapimi";
                 case CLOTHING -> "Bluzë pambuku";
                 case SKINCARE -> "Krem hidratues 50 ml";
+                case ELECTRONICS -> "Telefon 128 GB";
                 default -> "Produkti im";
             };
             case DESCRIPTION -> "Përshkrim i shkurtër";

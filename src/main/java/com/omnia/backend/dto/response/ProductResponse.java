@@ -82,6 +82,12 @@ public class ProductResponse {
     /** True when the buyer must choose one of {@link #sizes} before adding to the cart. */
     private boolean sizeRequired;
 
+    /** Average of the visible reviews (1–5, two decimals); null when there are none. */
+    private BigDecimal averageRating;
+
+    /** Number of visible reviews. */
+    private long reviewCount;
+
     @Getter
     @Setter
     @NoArgsConstructor

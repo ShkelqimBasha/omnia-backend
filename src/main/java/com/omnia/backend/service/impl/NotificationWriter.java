@@ -104,5 +104,13 @@ public class NotificationWriter {
    jdbc.update("INSERT INTO push_outbox(notification_id,available_at) SELECT id,UTC_TIMESTAMP(6) FROM notification_inbox WHERE recipient_id=? AND event_key=? ON DUPLICATE KEY UPDATE notification_id=notification_id",user,key);
   }
  }
+ /** A paid-out order was refunded: the store owes Omnia this amount back (target COMPANY, amount = adjustment). */
+ public void payoutAdjustment(long adjustmentId,long organizationId,String organizationName,java.math.BigDecimal amount){
+  em.flush();String key="payout-adjustment:"+adjustmentId;String label=organizationName==null?"":organizationName.substring(0,Math.min(200,organizationName.length()));
+  for(long user:new TreeSet<>(jdbc.queryForList("SELECT u.id FROM users u JOIN organization_members m ON m.user_id=u.id WHERE m.organization_id=? AND m.status='ACTIVE' AND m.membership_role IN ('OWNER','ADMIN') AND u.deleted_at IS NULL AND u.status='ACTIVE'",Long.class,organizationId))){
+   jdbc.update("INSERT INTO notification_inbox (recipient_id,event_key,kind,category,target_type,target_id,organization_id,label,status,amount,created_at) VALUES (?,?,'PAYOUT_ADJUSTMENT','USER','COMPANY',?,?,?,NULL,?,UTC_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE id=id",user,key,organizationId,organizationId,label,amount);
+   jdbc.update("INSERT INTO push_outbox(notification_id,available_at) SELECT id,UTC_TIMESTAMP(6) FROM notification_inbox WHERE recipient_id=? AND event_key=? ON DUPLICATE KEY UPDATE notification_id=notification_id",user,key);
+  }
+ }
  public void company(Organization o){write("company:"+o.getId(),"COMPANY_CREATED","SYSTEM","COMPANY",o.getId(),null,o.getName(),null,null,null,null);}
 }

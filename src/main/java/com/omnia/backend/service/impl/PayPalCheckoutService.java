@@ -31,6 +31,7 @@ public class PayPalCheckoutService {
     private final EntityManager em;
     private final TransactionTemplate tx;
     private final PayPalRecoveryLedger ledger;
+    private final SellerPayoutAdjustments adjustments;
     /** The only local states from which our backend may ask PayPal to capture. */
     static final Set<String> CAPTURABLE=Set.of("CREATING","APPROVAL","APPROVED","PENDING","FAILED");
     /** {@code sandbox} and {@code environment} describe the checkout's own environment (app contract). */
@@ -44,9 +45,10 @@ public class PayPalCheckoutService {
                        String approval,String state,Instant created,Instant attempted,String environment) {}
     public PayPalCheckoutService(JdbcTemplate jdbc,CurrentUserService current,CheckoutService checkout,
                                  PayPalRecoveryTransitions transitions,PayPalGateway gateway,ObjectMapper json,EntityManager em,
-                                 PlatformTransactionManager manager,PayPalRecoveryLedger ledger) {
+                                 PlatformTransactionManager manager,PayPalRecoveryLedger ledger,
+                                 SellerPayoutAdjustments adjustments) {
         this.jdbc=jdbc;this.current=current;this.checkout=checkout;this.transitions=transitions;
-        this.gateway=gateway;this.json=json;this.em=em;this.tx=new TransactionTemplate(manager);this.ledger=ledger;
+        this.gateway=gateway;this.json=json;this.em=em;this.tx=new TransactionTemplate(manager);this.ledger=ledger;this.adjustments=adjustments;
     }
     private long owner() {
         var user=current.requireCurrentUser();
@@ -168,6 +170,7 @@ public class PayPalCheckoutService {
         // Closed checkouts never capture again; verified money after closing opens a review case.
         if(Set.of("ABANDONED","REFUNDED").contains(r.state)) return closedCheckoutEvidence(r);
         if("PAYMENT.CAPTURE.REVERSED".equals(type)) return reversal(r,event);
+        if("REVIEW".equals(r.state)) return refundUnderReview(r);
         reconcile(r,true,false);
         return "RECONCILED";
     }
@@ -205,6 +208,32 @@ public class PayPalCheckoutService {
         String kind="ABANDONED".equals(r.state)?"LATE_CAPTURE":"CAPTURE_CONFLICT";
         return reviewCase(r,kind,evidence.captureId(),evidence,"Verified capture "+evidence.captureStatus()+" for a "+r.state+" checkout");
     }
+    /**
+     * A partly refunded (REVIEW) checkout is never reconciled again, but a further refund of orders already
+     * paid out to their sellers must still reach the payout adjustments. Nothing else changes here.
+     */
+    private String refundUnderReview(Row r) {
+        Integer paidOut=jdbc.queryForObject("SELECT COUNT(*) FROM orders WHERE checkout_group_id=? AND payout_id IS NOT NULL",Integer.class,r.group);
+        if(paidOut==null || paidOut==0 || r.provider==null) return "RECONCILED";
+        gateway.requireReady();
+        requireServed(r);
+        JsonNode details=gateway.get(r.provider);
+        var proof=PayPalEvidence.verify(details,r.provider,r.id,gateway.merchant(),r.amount);
+        if(!Set.of("REFUNDED","REVIEW").contains(proof.state())) return "RECONCILED";
+        try { transitions.lockGroup(r.id,r.group); }
+        catch(com.omnia.backend.common.exception.ConflictException changed) { return "RECONCILED"; }
+        return recordRefund(r,proof.state(),details)>0?"PAYOUT_ADJUSTED":"RECONCILED";
+    }
+    /** Seller payout adjustments for a verified (partial) refund; 0 when the refunded amount is unknown. */
+    private int recordRefund(Row r,String state,JsonNode details) {
+        boolean full="REFUNDED".equals(state);
+        BigDecimal refunded=full?r.amount:PayPalEvidence.refundedTotal(details,r.amount);
+        if(refunded==null) {
+            log.warn("PayPal partial refund amount unreadable checkout={}; payout adjustments need manual review",r.id);
+            return 0;
+        }
+        return adjustments.recordRefund(r.group,refunded,full?SellerPayoutAdjustments.SOURCE_REFUND:SellerPayoutAdjustments.SOURCE_PARTIAL_REFUND);
+    }
     private String reversal(Row r,JsonNode event) {
         JsonNode resource=event.path("resource");
         String capture=resource.path("id").asText("");
@@ -221,6 +250,8 @@ public class PayPalCheckoutService {
         List<Long> locked=lockOrders(r);
         jdbc.update("UPDATE payments SET status='FAILED' WHERE order_id IN ("+marks(locked)+") AND method='PAYPAL'",locked.toArray());
         jdbc.update("UPDATE paypal_checkouts SET state='REVIEW' WHERE id=?",r.id);
+        // PayPal took the whole payment back: sellers already paid out for these orders owe it to Omnia.
+        adjustments.recordRefund(r.group,r.amount,SellerPayoutAdjustments.SOURCE_REVERSAL);
         if(ledger.openCase(r.id,"REVERSAL",captureKey,null,"Capture reversed after settlement")) {
             ledger.event(r.id,"REVERSAL",null,r.state,"REVIEW","Recorded from a verified PayPal webhook",null,"capture="+captureKey);
             ledger.alertSuperAdmins(r.id,"REVERSAL",captureKey,r.amount);
@@ -266,7 +297,8 @@ public class PayPalCheckoutService {
                 // Includes timeout / ORDER_ALREADY_CAPTURED. Read provider truth before deciding anything.
             }
             try {
-                proof=PayPalEvidence.verify(gateway.get(r.provider),r.provider,r.id,gateway.merchant(),r.amount);
+                details=gateway.get(r.provider);
+                proof=PayPalEvidence.verify(details,r.provider,r.id,gateway.merchant(),r.amount);
             } catch(RuntimeException unavailable) {
                 if(refusalState!=null)return view(locked(r.id));
                 throw unavailable;
@@ -282,6 +314,8 @@ public class PayPalCheckoutService {
             // Partial refunds require review and are excluded from paid reports until reconciled manually.
             List<Object> args=new ArrayList<>(List.of("REFUNDED".equals(proof.state())?"REFUNDED":"PENDING"));args.addAll(locked);
             jdbc.update("UPDATE payments SET status=? WHERE order_id IN ("+marks(locked)+") AND method='PAYPAL'",args.toArray());
+            // Orders already paid out to their sellers: record what each seller owes back.
+            recordRefund(r,proof.state(),details);
         } else if("PAID".equals(r.state)) {
             // Never downgrade settled money because of a delayed event or an inconsistent response.
             return view(r);

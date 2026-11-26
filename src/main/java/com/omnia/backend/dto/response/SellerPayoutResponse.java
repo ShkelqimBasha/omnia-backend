@@ -4,7 +4,11 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
-/** A recorded transfer to a seller. */
+/**
+ * A recorded transfer to a seller. netAmount = gross − commission of its orders; deductionAmount = open
+ * adjustments (refunds after earlier payouts) settled by it; transferAmount = netAmount − deductionAmount,
+ * what was actually sent.
+ */
 public record SellerPayoutResponse(
         Long id,
         Long organizationId,
@@ -13,6 +17,8 @@ public record SellerPayoutResponse(
         BigDecimal commissionPercent,
         BigDecimal commissionAmount,
         BigDecimal netAmount,
+        BigDecimal deductionAmount,
+        BigDecimal transferAmount,
         int orderCount,
         List<Long> orderIds,
         String reference,

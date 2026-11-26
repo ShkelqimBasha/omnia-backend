@@ -48,6 +48,29 @@ public final class PayPalEvidence {
             default -> "PENDING";
         }, null);
     }
+    /**
+     * How much of the (already verified) capture was given back: the whole amount when the capture is
+     * REFUNDED, the sum of the COMPLETED EUR refunds PayPal lists when it is PARTIALLY_REFUNDED (capped at
+     * the amount), null when that cannot be read. Used only for seller payout adjustments.
+     */
+    public static BigDecimal refundedTotal(JsonNode order, BigDecimal amount) {
+        JsonNode payments = order.path("purchase_units").path(0).path("payments");
+        JsonNode capture = payments.path("captures").path(0);
+        String status = capture.path("status").asText();
+        if ("REFUNDED".equals(status)) return amount;
+        if (!"PARTIALLY_REFUNDED".equals(status)) return null;
+        JsonNode refunds = payments.path("refunds");
+        if (!refunds.isArray() || refunds.isEmpty()) return null;
+        BigDecimal sum = BigDecimal.ZERO;
+        for (JsonNode refund : refunds) {
+            if (!"COMPLETED".equals(refund.path("status").asText())) continue;
+            if (!"EUR".equals(refund.path("amount").path("currency_code").asText())) return null;
+            try { sum = sum.add(new BigDecimal(refund.path("amount").path("value").asText())); }
+            catch (NumberFormatException invalid) { return null; }
+        }
+        if (sum.signum() <= 0) return null;
+        return sum.min(amount);
+    }
     private static void money(JsonNode node, BigDecimal expected) {
         require("EUR".equals(node.path("currency_code").asText()), "PayPal currency mismatch");
         try { require(new BigDecimal(node.path("value").asText()).compareTo(expected) == 0, "PayPal amount mismatch"); }

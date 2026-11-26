@@ -14,6 +14,7 @@ import com.omnia.backend.enums.SellerType;
 import com.omnia.backend.security.service.CurrentUserService;
 import com.omnia.backend.security.service.OrganizationAccessService;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.stereotype.Service;
@@ -31,6 +32,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -48,6 +50,7 @@ public class SellerPayoutService {
 
     static final int MAX_ORDERS_PER_PAYOUT = 1000;
     static final int SELLER_HISTORY_LIMIT = 50;
+    private static final BigDecimal ZERO = BigDecimal.ZERO.setScale(2);
 
     /** Eligible, not yet paid out orders. Mirrors PayoutRules.eligible. */
     static final String ELIGIBLE = " FROM orders o JOIN payments p ON p.order_id = o.id"
@@ -60,6 +63,7 @@ public class SellerPayoutService {
     private final CurrentUserService currentUserService;
     private final OrganizationAccessService organizationAccessService;
     private final NotificationWriter notificationWriter;
+    private final SellerPayoutAdjustments adjustments;
     private final BigDecimal commissionPercent;
     private final Clock clock;
 
@@ -67,11 +71,13 @@ public class SellerPayoutService {
                                CurrentUserService currentUserService,
                                OrganizationAccessService organizationAccessService,
                                NotificationWriter notificationWriter,
+                               SellerPayoutAdjustments adjustments,
                                @Value("${app.payouts.commission-percent:0}") BigDecimal commissionPercent) {
         this.jdbc = jdbc;
         this.currentUserService = currentUserService;
         this.organizationAccessService = organizationAccessService;
         this.notificationWriter = notificationWriter;
+        this.adjustments = adjustments;
         this.commissionPercent = PayoutRules.commissionPercent(commissionPercent);
         this.clock = Clock.systemUTC();
     }
@@ -82,21 +88,51 @@ public class SellerPayoutService {
 
     // ---------------------------------------------------------------- admin
 
+    /**
+     * One row per seller with unpaid eligible orders or open adjustments. payableAmount = net − open
+     * adjustments; negative when the seller owes Omnia. Highest payable first.
+     */
     @Transactional(readOnly = true)
     public List<PayoutBalanceResponse> balances() {
-        List<PayoutBalanceResponse> rows = jdbc.query(
+        Map<Long, PayoutBalanceResponse> byOrganization = new LinkedHashMap<>();
+        jdbc.query(
                 "SELECT o.organization_id, g.name, g.seller_type, COUNT(*) AS order_count,"
                         + " SUM(o.total_amount) AS gross, MIN(o.created_at) AS oldest"
                         + ELIGIBLE.replace(" FROM orders o", " FROM orders o JOIN organizations g ON g.id = o.organization_id")
                         + " GROUP BY o.organization_id, g.name, g.seller_type",
-                (r, i) -> {
+                (ResultSet r) -> {
                     PayoutRules.Amounts a = PayoutRules.amounts(r.getBigDecimal("gross"), commissionPercent);
-                    return new PayoutBalanceResponse(r.getLong("organization_id"), r.getString("name"),
-                            sellerType(r.getString("seller_type")), r.getInt("order_count"),
-                            a.gross(), a.commission(), a.net(), time(r, "oldest"));
+                    byOrganization.put(r.getLong("organization_id"), new PayoutBalanceResponse(
+                            r.getLong("organization_id"), r.getString("name"), sellerType(r.getString("seller_type")),
+                            r.getInt("order_count"), a.gross(), a.commission(), a.net(), time(r, "oldest"),
+                            0, ZERO, a.net()));
                 });
-        List<PayoutBalanceResponse> sorted = new ArrayList<>(rows);
-        sorted.sort(Comparator.comparing(PayoutBalanceResponse::netAmount).reversed()
+        Map<Long, Object[]> open = adjustments.openTotals();
+        Map<Long, String[]> names = new HashMap<>();
+        List<Long> missing = open.keySet().stream().filter(id -> !byOrganization.containsKey(id)).toList();
+        if (!missing.isEmpty()) {
+            jdbc.query("SELECT id, name, seller_type FROM organizations WHERE id IN (" + marks(missing.size()) + ")",
+                    (ResultSet r) -> {
+                        names.put(r.getLong("id"), new String[]{r.getString("name"), r.getString("seller_type")});
+                    }, missing.toArray());
+        }
+        for (Map.Entry<Long, Object[]> entry : open.entrySet()) {
+            long id = entry.getKey();
+            int count = (Integer) entry.getValue()[0];
+            BigDecimal owed = ((BigDecimal) entry.getValue()[1]).setScale(2);
+            PayoutBalanceResponse row = byOrganization.get(id);
+            if (row == null) {
+                String[] name = names.getOrDefault(id, new String[]{null, null});
+                byOrganization.put(id, new PayoutBalanceResponse(id, name[0], sellerType(name[1]), 0, ZERO, ZERO, ZERO,
+                        null, count, owed, ZERO.subtract(owed)));
+            } else {
+                byOrganization.put(id, new PayoutBalanceResponse(id, row.organizationName(), row.sellerType(),
+                        row.orderCount(), row.grossAmount(), row.commissionAmount(), row.netAmount(),
+                        row.oldestOrderAt(), count, owed, row.netAmount().subtract(owed)));
+            }
+        }
+        List<PayoutBalanceResponse> sorted = new ArrayList<>(byOrganization.values());
+        sorted.sort(Comparator.comparing(PayoutBalanceResponse::payableAmount).reversed()
                 .thenComparing(PayoutBalanceResponse::organizationId));
         return sorted;
     }
@@ -117,6 +153,10 @@ public class SellerPayoutService {
         String note = trimmed(request.note(), 500, "Shënimi mund të ketë deri në 500 karaktere.");
         String organizationName = requireOrganization(organizationId);
         User admin = currentUserService.requireCurrentUser();
+        String referenceKey = PayoutRules.referenceKey(reference);
+        if (referenceKey != null) {
+            requireNewReference(organizationId, referenceKey);
+        }
 
         List<PayoutEligibleOrderResponse> orders;
         if (request.orderIds() == null || request.orderIds().isEmpty()) {
@@ -134,28 +174,43 @@ public class SellerPayoutService {
         BigDecimal gross = orders.stream().map(PayoutEligibleOrderResponse::totalAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         PayoutRules.Amounts amounts = PayoutRules.amounts(gross, commissionPercent);
+        // After the order rows (same order as the refund paths): open adjustments, oldest first.
+        List<SellerPayoutAdjustments.Open> open = adjustments.lockOpen(organizationId);
+        List<BigDecimal> taken = PayoutRules.deductions(
+                open.stream().map(SellerPayoutAdjustments.Open::remaining).toList(), amounts.net());
+        BigDecimal deduction = taken.stream().reduce(ZERO, BigDecimal::add);
+        BigDecimal transfer = amounts.net().subtract(deduction);
         LocalDateTime now = LocalDateTime.now(clock.withZone(ZoneOffset.UTC));
         int count = orders.size();
 
         GeneratedKeyHolder keys = new GeneratedKeyHolder();
-        jdbc.update(connection -> {
-            PreparedStatement ps = connection.prepareStatement(
-                    "INSERT INTO seller_payouts (organization_id, gross_amount, commission_percent, commission_amount,"
-                            + " net_amount, order_count, reference, note, paid_at, created_by, created_at)"
-                            + " VALUES (?,?,?,?,?,?,?,?,?,?,?)", Statement.RETURN_GENERATED_KEYS);
-            ps.setLong(1, organizationId);
-            ps.setBigDecimal(2, amounts.gross());
-            ps.setBigDecimal(3, commissionPercent);
-            ps.setBigDecimal(4, amounts.commission());
-            ps.setBigDecimal(5, amounts.net());
-            ps.setInt(6, count);
-            ps.setString(7, reference);
-            ps.setString(8, note);
-            ps.setTimestamp(9, Timestamp.valueOf(now));
-            ps.setLong(10, admin.getId());
-            ps.setTimestamp(11, Timestamp.valueOf(now));
-            return ps;
-        }, keys);
+        try {
+            jdbc.update(connection -> {
+                PreparedStatement ps = connection.prepareStatement(
+                        "INSERT INTO seller_payouts (organization_id, gross_amount, commission_percent, commission_amount,"
+                                + " net_amount, deduction_amount, transfer_amount, order_count, reference, reference_key,"
+                                + " note, paid_at, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        Statement.RETURN_GENERATED_KEYS);
+                ps.setLong(1, organizationId);
+                ps.setBigDecimal(2, amounts.gross());
+                ps.setBigDecimal(3, commissionPercent);
+                ps.setBigDecimal(4, amounts.commission());
+                ps.setBigDecimal(5, amounts.net());
+                ps.setBigDecimal(6, deduction);
+                ps.setBigDecimal(7, transfer);
+                ps.setInt(8, count);
+                ps.setString(9, reference);
+                ps.setString(10, referenceKey);
+                ps.setString(11, note);
+                ps.setTimestamp(12, Timestamp.valueOf(now));
+                ps.setLong(13, admin.getId());
+                ps.setTimestamp(14, Timestamp.valueOf(now));
+                return ps;
+            }, keys);
+        } catch (DuplicateKeyException sameReference) {
+            // A concurrent request with the same reference committed first (uk_seller_payout_reference).
+            throw new ConflictException(DUPLICATE_REFERENCE);
+        }
         long payoutId = keys.getKey().longValue();
 
         List<Long> ids = orders.stream().map(PayoutEligibleOrderResponse::orderId).toList();
@@ -169,9 +224,14 @@ public class SellerPayoutService {
             throw new ConflictException("Disa porosi u paguan njëkohësisht. Rifreskoni dhe provoni përsëri.");
         }
 
+        adjustments.settleInPayout(payoutId, open, taken, admin.getId());
+
         AdminAudit.note("Shitësi: " + organizationName + " · Porosi: " + count
-                + " · Neto: " + amounts.net().toPlainString());
-        notificationWriter.payout(payoutId, organizationId, organizationName, amounts.net());
+                + " · Neto: " + amounts.net().toPlainString()
+                + (deduction.signum() > 0 ? " · Zbritje rimbursimesh: " + deduction.toPlainString()
+                + " · Transferuar: " + transfer.toPlainString() : "")
+                + (reference == null ? "" : " · Referenca: " + reference));
+        notificationWriter.payout(payoutId, organizationId, organizationName, transfer);
         return payouts("WHERE sp.id = ?", List.of(payoutId), 1, 0).get(0);
     }
 
@@ -202,13 +262,31 @@ public class SellerPayoutService {
                 "SELECT COUNT(*) AS order_count, COALESCE(SUM(o.total_amount), 0) AS gross"
                         + ELIGIBLE + " AND o.organization_id = ?", organizationId);
         PayoutRules.Amounts a = PayoutRules.amounts((BigDecimal) row.get("gross"), commissionPercent);
+        Object[] open = adjustments.openTotals().get(organizationId);
+        int openCount = open == null ? 0 : (Integer) open[0];
+        BigDecimal owed = open == null ? ZERO : ((BigDecimal) open[1]).setScale(2);
         var balance = new SellerPayoutSummaryResponse.Balance(((Number) row.get("order_count")).intValue(),
-                a.gross(), a.commission(), a.net());
+                a.gross(), a.commission(), a.net(), openCount, owed, a.net().subtract(owed));
         return new SellerPayoutSummaryResponse(balance, commissionPercent,
-                payouts("WHERE sp.organization_id = ?", List.of(organizationId), SELLER_HISTORY_LIMIT, 0));
+                payouts("WHERE sp.organization_id = ?", List.of(organizationId), SELLER_HISTORY_LIMIT, 0),
+                adjustments.forSeller(organizationId));
     }
 
     // ---------------------------------------------------------------- helpers
+
+    static final String DUPLICATE_REFERENCE =
+            "Ky transfer është regjistruar tashmë: ky shitës ka një pagesë me të njëjtën referencë.";
+
+    /** One payout per transfer reference and seller (case and spaces ignored), also for payouts before V54. */
+    private void requireNewReference(long organizationId, String referenceKey) {
+        List<Long> existing = jdbc.queryForList("SELECT id FROM seller_payouts WHERE organization_id = ?"
+                        + " AND (reference_key = ? OR (reference_key IS NULL AND reference IS NOT NULL"
+                        + " AND LOWER(TRIM(reference)) = ?)) LIMIT 1",
+                Long.class, organizationId, referenceKey, referenceKey);
+        if (!existing.isEmpty()) {
+            throw new ConflictException(DUPLICATE_REFERENCE + " (pagesa #" + existing.get(0) + ")");
+        }
+    }
 
     private String requireOrganization(Long organizationId) {
         if (organizationId == null || organizationId <= 0) {
@@ -303,7 +381,8 @@ public class SellerPayoutService {
                 (r, i) -> new SellerPayoutResponse(r.getLong("id"), r.getLong("organization_id"),
                         r.getString("organization_name"), r.getBigDecimal("gross_amount"),
                         r.getBigDecimal("commission_percent"), r.getBigDecimal("commission_amount"),
-                        r.getBigDecimal("net_amount"), r.getInt("order_count"), List.of(),
+                        r.getBigDecimal("net_amount"), r.getBigDecimal("deduction_amount"),
+                        r.getBigDecimal("transfer_amount"), r.getInt("order_count"), List.of(),
                         r.getString("reference"), r.getString("note"), time(r, "paid_at"),
                         r.getObject("created_by", Long.class), name(r), time(r, "created_at")),
                 all.toArray());
@@ -317,7 +396,8 @@ public class SellerPayoutService {
                     orderIds.computeIfAbsent(r.getLong("payout_id"), k -> new ArrayList<>()).add(r.getLong("id"));
                 }, payoutIds.toArray());
         return rows.stream().map(p -> new SellerPayoutResponse(p.id(), p.organizationId(), p.organizationName(),
-                p.grossAmount(), p.commissionPercent(), p.commissionAmount(), p.netAmount(), p.orderCount(),
+                p.grossAmount(), p.commissionPercent(), p.commissionAmount(), p.netAmount(), p.deductionAmount(),
+                p.transferAmount(), p.orderCount(),
                 List.copyOf(orderIds.getOrDefault(p.id(), List.of())), p.reference(), p.note(), p.paidAt(),
                 p.createdById(), p.createdByName(), p.createdAt())).toList();
     }

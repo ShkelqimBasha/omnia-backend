@@ -20,13 +20,16 @@ public class OrderController {
         this.orderService = orderService;
     }
 
+    /**
+     * Retired: the old one-step order skipped the checkout rules (seller, listing type,
+     * stock holds). Apps and the website use POST /api/orders/checkout.
+     */
     @PostMapping
     public ResponseEntity<OrderResponse> createOrder(
             @Valid @RequestBody CreateOrderRequest request
     ) {
-        return ResponseEntity
-                .status(HttpStatus.CREATED)
-                .body(orderService.createOrder(request));
+        throw new org.springframework.web.server.ResponseStatusException(
+                HttpStatus.GONE, "This endpoint was retired. Please update the app.");
     }
 
     @GetMapping("/my")

@@ -399,6 +399,19 @@ public class GlobalExceptionHandler {
         );
     }
 
+    @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
+    public ResponseEntity<ErrorResponse> handleResponseStatus(
+            org.springframework.web.server.ResponseStatusException ex,
+            HttpServletRequest request
+    ) {
+        HttpStatus status = HttpStatus.resolve(ex.getStatusCode().value());
+        return buildErrorResponse(
+                status == null ? HttpStatus.INTERNAL_SERVER_ERROR : status,
+                ex.getReason(),
+                request
+        );
+    }
+
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<ErrorResponse>
     handleRuntimeException(

@@ -38,7 +38,7 @@ class ReviewModerationTest {
     @AfterEach void cleanup(){SecurityContextHolder.clearContext();}
     @Test void hidingPreservesTextRatingAndReply(){found();review.setAdminReply("Existing reply");var result=service.setReviewVisibility(3L,true);assertTrue(result.isHidden());assertEquals("Original",result.getComment());assertEquals(5,result.getRating());assertEquals("Existing reply",result.getAdminReply());verify(reviews,never()).delete(any());}
     @Test void publishingRestoresVisibility(){found();review.setHidden(true);assertFalse(service.setReviewVisibility(3L,false).isHidden());}
-    @Test void replyIsTrimmedAndAttributedToAuthenticatedAdmin(){found();var result=service.replyToReview(3L,"  Thank you  ");assertEquals("Thank you",result.getAdminReply());assertEquals("admin",result.getRepliedBy());assertNotNull(result.getRepliedAt());assertEquals("Original",result.getComment());}
+    @Test void replyIsTrimmedAndAttributedToAuthenticatedAdmin(){found();var result=service.replyToReview(3L,"  Thank you  ");assertEquals("Thank you",result.getAdminReply());assertEquals("admin",review.getRepliedBy());assertEquals("Omnia",result.getRepliedBy());assertNotNull(result.getRepliedAt());assertEquals("Original",result.getComment());}
     @Test void blankReplyIsRejected(){adminExists();assertThrows(IllegalArgumentException.class,()->service.replyToReview(3L,"   "));verifyNoInteractions(reviews);}
     @Test void nullReplyIsRejected(){adminExists();assertThrows(IllegalArgumentException.class,()->service.replyToReview(3L,null));verifyNoInteractions(reviews);}
     @Test void replyAboveLimitIsRejected(){adminExists();assertThrows(IllegalArgumentException.class,()->service.replyToReview(3L,"x".repeat(2001)));verifyNoInteractions(reviews);}

@@ -37,6 +37,12 @@ public class AuthServiceImpl implements AuthService {
     private final JwtService jwtService;
     private final RefreshTokenService refreshTokenService;
     private final EmailVerificationService emailVerificationService;
+    private com.omnia.backend.security.throttle.LoginAttempts loginAttempts;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setLoginAttempts(com.omnia.backend.security.throttle.LoginAttempts loginAttempts) {
+        this.loginAttempts = loginAttempts;
+    }
 
     public AuthServiceImpl(
             UserRepository userRepository,
@@ -130,24 +136,32 @@ public class AuthServiceImpl implements AuthService {
         String usernameOrEmail =
                 request.getUsernameOrEmail().trim();
 
+        // Five wrong passwords in 15 minutes lock this username/e-mail for a while.
+        if (loginAttempts != null) {
+            loginAttempts.requireNotLocked(usernameOrEmail);
+        }
+
         User user = userRepository
                 .findByEmail(usernameOrEmail.toLowerCase())
                 .or(() ->
                         userRepository.findByUsername(usernameOrEmail)
                 )
-                .orElseThrow(() ->
-                        new InvalidCredentialsException(
-                                "Invalid credentials"
-                        )
-                );
+                .orElse(null);
 
-        if (!passwordEncoder.matches(
+        if (user == null || !passwordEncoder.matches(
                 request.getPassword(),
                 user.getPasswordHash()
         )) {
+            if (loginAttempts != null) {
+                loginAttempts.recordFailure(usernameOrEmail);
+            }
             throw new InvalidCredentialsException(
                     "Invalid credentials"
             );
+        }
+
+        if (loginAttempts != null) {
+            loginAttempts.recordSuccess(usernameOrEmail);
         }
 
         if (!Boolean.TRUE.equals(user.getEmailVerified())) {

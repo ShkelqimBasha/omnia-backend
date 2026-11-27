@@ -161,6 +161,7 @@ public class OrderServiceImpl implements OrderService {
                                     "Product not found"
                             )
                     );
+            com.omnia.backend.catalog.PurchaseGuard.requireListed(product);
 
             int requestedQuantity = itemRequest.getQuantity();
             // Checks and takes stock per size, or on the product when it has no sizes.
@@ -171,9 +172,7 @@ public class OrderServiceImpl implements OrderService {
                             requestedQuantity
                     );
 
-            BigDecimal unitPrice = product.getDiscountPrice() != null
-                    ? product.getDiscountPrice()
-                    : product.getPrice();
+            BigDecimal unitPrice = com.omnia.backend.catalog.Pricing.buyerPrice(product);
 
             BigDecimal subtotal = unitPrice.multiply(
                     BigDecimal.valueOf(itemRequest.getQuantity())

@@ -158,7 +158,8 @@ public class ProductServiceImpl
                                 kind, request.getSaleMode(), carOnline()))
                         .price(request.getPrice())
                         .discountPrice(
-                                request.getDiscountPrice()
+                                com.omnia.backend.catalog.Pricing.normalizeDiscount(
+                                        request.getPrice(), request.getDiscountPrice())
                         )
                         .stock(sizes.isEmpty() ? request.getStock() : 0)
                         .category(category)
@@ -182,7 +183,7 @@ public class ProductServiceImpl
     public ProductResponse getProductById(Long id) {
 
         ProductResponse response = productMapper.toResponse(
-                findProduct(id)
+                findVisibleProduct(id)
         );
         if (productRatings != null) {
             productRatings.fill(List.of(response));
@@ -297,6 +298,9 @@ public class ProductServiceImpl
 
         java.time.LocalDateTime now = java.time.LocalDateTime.now();
 
+        // Hidden products are listed only for their own company's members and platform admins.
+        boolean seesHidden = accessService.canSeeHiddenProducts(organizationId);
+
         Page<ProductResponse> productPage =
                 productRepository
                         .findAll(
@@ -313,6 +317,7 @@ public class ProductServiceImpl
                                         .hasAttributes(attributeFilters))
                                         .and(ProductSpecification
                                         .hasAnySize(sizes))
+                                        .and(seesHidden ? null : ProductSpecification.notHidden())
                                         .and(ProductSpecification.catalogFilters(
                                                 catalogFilters,
                                                 com.omnia.backend.catalog.CatalogSettings
@@ -436,7 +441,8 @@ public class ProductServiceImpl
         BigDecimal previousBuyerPrice = buyerPrice(product);
         product.setPrice(request.getPrice());
         product.setDiscountPrice(
-                request.getDiscountPrice()
+                com.omnia.backend.catalog.Pricing.normalizeDiscount(
+                        request.getPrice(), request.getDiscountPrice())
         );
         Integer notificationPreviousStock = product.getStock();
         com.omnia.backend.enums.CategoryKind previousKind =
@@ -479,12 +485,7 @@ public class ProductServiceImpl
 
     /** The price a buyer pays: the discount price when it is set and lower than the price. */
     static BigDecimal buyerPrice(Product product) {
-        BigDecimal price = product.getPrice();
-        BigDecimal discount = product.getDiscountPrice();
-        if (discount != null && discount.signum() > 0 && (price == null || discount.compareTo(price) < 0)) {
-            return discount;
-        }
-        return price;
+        return com.omnia.backend.catalog.Pricing.buyerPrice(product);
     }
 
     private static List<com.omnia.backend.catalog.ProductSizes.SizeInput> sizeInputs(
@@ -562,6 +563,19 @@ public class ProductServiceImpl
         product.setStatus(ProductStatus.INACTIVE);
 
         productRepository.save(product);
+    }
+
+    /** A product the caller may see: hidden ones only for their company and platform admins. */
+    private Product findVisibleProduct(Long productId) {
+        Product product = findProduct(productId);
+        if (product.getStatus() == ProductStatus.INACTIVE) {
+            Long organizationId = product.getOrganization() == null
+                    ? null : product.getOrganization().getId();
+            if (!accessService.canSeeHiddenProducts(organizationId)) {
+                throw new ResourceNotFoundException("Product not found");
+            }
+        }
+        return product;
     }
 
     private Product findProduct(Long productId) {

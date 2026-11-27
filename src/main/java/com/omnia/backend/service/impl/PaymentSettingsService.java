@@ -70,7 +70,7 @@ public class PaymentSettingsService {
         for (Product product : products.findAllById(quantities.keySet())) {
             Organization organization = product.getOrganization();
             if (organization == null) continue;
-            BigDecimal price = product.getDiscountPrice() != null ? product.getDiscountPrice() : product.getPrice();
+            BigDecimal price = com.omnia.backend.catalog.Pricing.buyerPrice(product);
             if (price == null) continue;
             companies.putIfAbsent(organization.getId(), organization);
             subtotals.merge(organization.getId(),

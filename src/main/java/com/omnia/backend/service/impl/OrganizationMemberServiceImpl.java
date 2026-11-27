@@ -217,7 +217,29 @@ public class OrganizationMemberServiceImpl
                 )
                 .stream()
                 .map(memberMapper::toCandidateResponse)
+                .map(candidate -> hideUnaskedEmail(candidate, normalizedQuery))
                 .toList();
+    }
+
+    /*
+     * Only exact username or e-mail matches are returned, so a company cannot
+     * browse the user list. Someone found by username keeps their e-mail private.
+     */
+    static OrganizationMemberCandidateResponse hideUnaskedEmail(
+            OrganizationMemberCandidateResponse candidate,
+            String query
+    ) {
+        String email = candidate.getEmail();
+        if (email != null && !email.equalsIgnoreCase(query)) {
+            candidate.setEmail(maskEmail(email));
+        }
+        return candidate;
+    }
+
+    static String maskEmail(String email) {
+        int at = email.indexOf('@');
+        if (at <= 0) return "***";
+        return email.charAt(0) + "***" + email.substring(at);
     }
 
     @Override

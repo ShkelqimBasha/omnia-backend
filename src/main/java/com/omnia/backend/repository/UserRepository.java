@@ -43,12 +43,8 @@ public interface UserRepository
         where user.status = :status
           and user.emailVerified = true
           and (
-                lower(user.username) like lower(
-                    concat('%', :query, '%')
-                )
-                or lower(user.email) like lower(
-                    concat('%', :query, '%')
-                )
+                lower(user.username) = lower(:query)
+                or lower(user.email) = lower(:query)
               )
           and not exists (
                 select member.id

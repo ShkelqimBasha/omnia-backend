@@ -10,11 +10,19 @@ public final class PurchaseGuard {
     }
 
     public static void requirePurchasable(Product product, boolean carOnlinePurchaseEnabled) {
+        requireListed(product);
         CategoryKind kind = ListingRules.kindOf(product);
         if (!ListingRules.isPurchasable(kind, product.getSaleMode(), carOnlinePurchaseEnabled)) {
             throw new IllegalArgumentException(kind == CategoryKind.PROPERTY
                     ? "Properties cannot be bought online. Contact the seller or request a visit."
                     : "This listing cannot be bought online. Contact the seller.");
+        }
+    }
+
+    /** Hidden (INACTIVE) products cannot go in a cart or an order. */
+    public static void requireListed(Product product) {
+        if (product.getStatus() == com.omnia.backend.enums.ProductStatus.INACTIVE) {
+            throw new IllegalArgumentException("This product is no longer available: " + product.getName());
         }
     }
 }

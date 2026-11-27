@@ -220,9 +220,7 @@ public class CheckoutServiceImpl
             }
 
             BigDecimal unitPrice =
-                    product.getDiscountPrice() != null
-                            ? product.getDiscountPrice()
-                            : product.getPrice();
+                    com.omnia.backend.catalog.Pricing.buyerPrice(product);
 
             VendorOrderDraft draft =
                     drafts.computeIfAbsent(

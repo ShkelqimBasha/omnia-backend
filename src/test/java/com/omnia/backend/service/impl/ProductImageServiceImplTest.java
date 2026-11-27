@@ -458,8 +458,8 @@ class ProductImageServiceImplTest {
                         .createdAt(LocalDateTime.now())
                         .build();
 
-        when(productRepository.existsById(1L))
-                .thenReturn(true);
+        when(productRepository.findById(1L))
+                .thenReturn(Optional.of(product));
 
         when(imageRepository
                 .findByProductIdOrderByIsPrimaryDescSortOrderAscIdAsc(
@@ -494,10 +494,19 @@ class ProductImageServiceImplTest {
     }
 
     @Test
+    void getProductImages_WhenProductIsHidden_ShouldLookMissingToOutsiders() {
+        product.setStatus(com.omnia.backend.enums.ProductStatus.INACTIVE);
+        when(productRepository.findById(1L)).thenReturn(Optional.of(product));
+
+        assertThrows(ResourceNotFoundException.class, () -> productImageService.getProductImages(1L));
+        verify(imageRepository, never()).findByProductIdOrderByIsPrimaryDescSortOrderAscIdAsc(anyLong());
+    }
+
+    @Test
     void getProductImages_WhenProductDoesNotExist_ShouldThrowException() {
 
-        when(productRepository.existsById(999L))
-                .thenReturn(false);
+        when(productRepository.findById(999L))
+                .thenReturn(Optional.empty());
 
         assertThrows(
                 ResourceNotFoundException.class,

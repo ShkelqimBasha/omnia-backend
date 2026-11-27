@@ -13,7 +13,8 @@ public class FavoriteMapper {
                 .productName(favorite.getProduct().getName())
                 .brand(favorite.getProduct().getBrand())
                 .price(favorite.getProduct().getPrice())
-                .discountPrice(favorite.getProduct().getDiscountPrice())
+                .discountPrice(com.omnia.backend.catalog.Pricing.validDiscount(
+                        favorite.getProduct().getPrice(), favorite.getProduct().getDiscountPrice()))
                 .category(favorite.getProduct().getCategory().getName())
                 .status(favorite.getProduct().getStatus().name())
                 .imageUrl(ProductMapper.primaryImageUrl(favorite.getProduct()))

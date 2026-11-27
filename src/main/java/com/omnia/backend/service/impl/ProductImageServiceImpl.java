@@ -149,10 +149,12 @@ public class ProductImageServiceImpl
                 "Product id"
         );
 
-        if (!productRepository.existsById(productId)) {
-            throw new ResourceNotFoundException(
-                    "Product not found"
-            );
+        Product product = productRepository.findById(productId)
+                .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
+        if (product.getStatus() == com.omnia.backend.enums.ProductStatus.INACTIVE
+                && !accessService.canSeeHiddenProducts(product.getOrganization() == null
+                        ? null : product.getOrganization().getId())) {
+            throw new ResourceNotFoundException("Product not found");
         }
 
         return imageRepository

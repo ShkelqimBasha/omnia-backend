@@ -242,6 +242,34 @@ public class OrganizationAccessService {
         );
     }
 
+    /**
+     * Whether the caller may see hidden (INACTIVE) products of this organization:
+     * a platform admin, or an active member of the organization. Never throws;
+     * anonymous callers and other users get false.
+     */
+    @Transactional(readOnly = true)
+    public boolean canSeeHiddenProducts(
+            Long organizationId
+    ) {
+        User currentUser = currentUserService.findCurrentUser().orElse(null);
+        if (currentUser == null || currentUser.getId() == null) {
+            return false;
+        }
+        if (currentUserService.hasPlatformAdminAccess(currentUser)) {
+            return true;
+        }
+        if (organizationId == null || organizationId <= 0) {
+            return false;
+        }
+        return memberRepository
+                .findByOrganizationIdAndUserIdAndStatus(
+                        organizationId,
+                        currentUser.getId(),
+                        OrganizationMemberStatus.ACTIVE
+                )
+                .isPresent();
+    }
+
     @Transactional(readOnly = true)
     public boolean hasOrganizationAdminAccess(
             User user

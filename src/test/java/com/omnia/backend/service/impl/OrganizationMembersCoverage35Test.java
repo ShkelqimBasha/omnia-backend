@@ -83,7 +83,7 @@ class OrganizationMembersCoverage35Test {
     }
     @Test void candidateSearchTrimsQueryAndLimitsResults() {
         when(users.searchOrganizationMemberCandidates(eq(10L),eq(UserStatus.ACTIVE),eq("buyer"),any(Pageable.class))).thenReturn(List.of(user));
-        var r=service.searchMemberCandidates(10L," buyer ");assertEquals("buyer2@example.com",r.getFirst().getEmail());
+        var r=service.searchMemberCandidates(10L," buyer ");assertEquals("b***@example.com",r.getFirst().getEmail()); // found by username: e-mail stays private
         verify(users).searchOrganizationMemberCandidates(eq(10L),eq(UserStatus.ACTIVE),eq("buyer"),argThat(p->p.getPageNumber()==0&&p.getPageSize()==20));
     }
     @Test void membersCannotBeUpdatedThroughAnotherCompany() {

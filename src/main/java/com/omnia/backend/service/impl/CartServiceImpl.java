@@ -75,9 +75,7 @@ public class CartServiceImpl implements CartService {
         // Sized products (clothing, shoes): one size per line, at most that size's stock.
         ProductVariant size = SizeStock.chosenSize(product, request.getVariantId());
 
-        BigDecimal price = product.getDiscountPrice() != null
-                ? product.getDiscountPrice()
-                : product.getPrice();
+        BigDecimal price = com.omnia.backend.catalog.Pricing.buyerPrice(product);
 
         CartItem cartItem = cartItemRepository
                 .findByCartIdAndProductIdAndVariantId(

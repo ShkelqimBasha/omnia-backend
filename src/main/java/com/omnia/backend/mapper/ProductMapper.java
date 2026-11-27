@@ -58,7 +58,8 @@ public class ProductMapper {
                 .description(product.getDescription())
                 .price(product.getPrice())
                 .discountPrice(
-                        product.getDiscountPrice()
+                        com.omnia.backend.catalog.Pricing.validDiscount(
+                                product.getPrice(), product.getDiscountPrice())
                 )
                 .stock(product.getStock())
                 .brand(product.getBrand())

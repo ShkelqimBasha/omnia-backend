@@ -151,6 +151,7 @@ public final class ProductSpecification {
             if (filters.onSale()) {
                 predicates.add(cb.and(
                         cb.isNotNull(root.get("discountPrice")),
+                        cb.greaterThan(root.<BigDecimal>get("discountPrice"), BigDecimal.ZERO),
                         cb.lessThan(root.get("discountPrice"), root.<BigDecimal>get("price"))));
             }
             if (filters.verifiedSeller()) {
@@ -422,6 +423,11 @@ public final class ProductSpecification {
                     normalizedBrand
             );
         };
+    }
+
+    /** Leaves out hidden (INACTIVE) products. */
+    public static Specification<Product> notHidden() {
+        return (root, query, cb) -> cb.notEqual(root.get("status"), ProductStatus.INACTIVE);
     }
 
     private static Specification<Product> hasStatus(

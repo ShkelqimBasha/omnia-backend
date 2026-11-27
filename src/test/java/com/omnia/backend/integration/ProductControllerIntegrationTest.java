@@ -747,7 +747,7 @@ class ProductControllerIntegrationTest extends AbstractIntegrationTest {
                 ));
     }
     @Test
-    void getAllProducts_WithStatus_ShouldReturnOnlyProductsWithRequestedStatus()
+    void getAllProducts_HiddenProductsAreNotPublic()
             throws Exception {
 
         createProduct(
@@ -780,14 +780,26 @@ class ProductControllerIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(content().contentTypeCompatibleWith(
                         MediaType.APPLICATION_JSON
                 ))
+                // Hidden products are not public: an anonymous caller gets none.
+                .andExpect(jsonPath("$.content.length()").value(0))
+                .andExpect(jsonPath("$.totalElements").value(0));
+
+        mockMvc.perform(
+                        get("/api/products")
+                                .param("status", "ACTIVE")
+                                .accept(MediaType.APPLICATION_JSON)
+                )
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(1))
-                .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.content[0].name").value(
-                        "Inactive Product"
-                ))
-                .andExpect(jsonPath("$.content[0].status").value(
-                        "INACTIVE"
+                        "Active Product"
                 ));
+
+        mockMvc.perform(
+                        get("/api/products/" + inactiveProduct.getId())
+                                .accept(MediaType.APPLICATION_JSON)
+                )
+                .andExpect(status().isNotFound());
     }
     @Test
     void getAllProducts_WithPriceRange_ShouldReturnProductsWithinInclusiveRange()

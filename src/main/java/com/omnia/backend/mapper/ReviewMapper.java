@@ -18,7 +18,8 @@ public class ReviewMapper {
                 .createdAt(review.getCreatedAt())
                 .hidden(review.isHidden())
                 .adminReply(review.getAdminReply())
-                .repliedBy(review.getRepliedBy())
+                // The admin who replied stays in the database; buyers only see "Omnia".
+                .repliedBy(review.getRepliedBy() == null ? null : "Omnia")
                 .repliedAt(review.getRepliedAt())
                 .productImageUrl(ProductMapper.primaryImageUrl(review.getProduct()))
                 .verifiedPurchase(review.isVerifiedPurchase())

@@ -30,6 +30,17 @@ public class AuthController {
     private final PasswordResetService passwordResetService;
     private final String webResetPasswordUrl;
     private final String webLoginUrl;
+    private com.omnia.backend.security.throttle.MailCooldown mailCooldown;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setMailCooldown(com.omnia.backend.security.throttle.MailCooldown mailCooldown) {
+        this.mailCooldown = mailCooldown;
+    }
+
+    /** False once this address had 3 such e-mails in 30 minutes; the reply stays the same. */
+    private boolean mayEmail(String kind, String email) {
+        return mailCooldown == null || mailCooldown.allow(kind, email);
+    }
 
     public AuthController(
             AuthService authService,
@@ -137,9 +148,11 @@ public class AuthController {
     public ResponseEntity<Void> resendVerification(
             @Valid @RequestBody ResendVerificationRequest request
     ) {
-        emailVerificationService.resendVerificationEmail(
-                request.getEmail()
-        );
+        if (mayEmail("verify", request.getEmail())) {
+            emailVerificationService.resendVerificationEmail(
+                    request.getEmail()
+            );
+        }
 
         return ResponseEntity.noContent().build();
     }
@@ -148,7 +161,9 @@ public class AuthController {
     public ResponseEntity<Void> forgotPassword(
             @Valid @RequestBody ForgotPasswordRequest request
     ) {
-        passwordResetService.requestPasswordReset(request);
+        if (mayEmail("reset", request.getEmail())) {
+            passwordResetService.requestPasswordReset(request);
+        }
         return ResponseEntity.noContent().build();
     }
 

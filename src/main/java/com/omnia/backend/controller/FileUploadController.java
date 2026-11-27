@@ -39,6 +39,20 @@ public class FileUploadController {
 
     private final PublicCatalogMediaService publicCatalogMediaService;
 
+    private com.omnia.backend.security.service.FileReadAccess fileReadAccess;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setFileReadAccess(com.omnia.backend.security.service.FileReadAccess fileReadAccess) {
+        this.fileReadAccess = fileReadAccess;
+    }
+
+    /** Signed-in callers: see {@link com.omnia.backend.security.service.FileReadAccess}. */
+    private boolean hiddenFromSignedInUser(Long fileId) {
+        return fileReadAccess != null
+                && !publicCatalogMediaService.isPublicCatalogFile(fileId)
+                && !fileReadAccess.canRead(fileId);
+    }
+
     public FileUploadController(
             FileStorageService fileStorageService,
             PublicCatalogMediaService publicCatalogMediaService
@@ -95,7 +109,8 @@ public class FileUploadController {
         }
 
         // Seller verification documents: platform admins only, everyone else sees nothing.
-        if (isHiddenPrivateDocument(fileId)) {
+        if (isHiddenPrivateDocument(fileId)
+                || (!isGuest() && hiddenFromSignedInUser(fileId))) {
             return ResponseEntity.notFound().build();
         }
 
@@ -150,7 +165,7 @@ public class FileUploadController {
             )
             Long fileId
     ) {
-        if (isHiddenPrivateDocument(fileId)) {
+        if (isHiddenPrivateDocument(fileId) || hiddenFromSignedInUser(fileId)) {
             return ResponseEntity.notFound().build();
         }
 

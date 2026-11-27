@@ -20,6 +20,8 @@ public class RegisterRequest {
     private String email;
 
     @NotBlank
+    @jakarta.validation.constraints.Size(min = 8, max = 72,
+            message = "Password must contain between 8 and 72 characters")
     private String password;
 
     private String phone;

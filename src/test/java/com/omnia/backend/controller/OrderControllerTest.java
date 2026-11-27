@@ -66,152 +66,17 @@ class OrderControllerTest {
     }
 
     @Test
-    void createOrder_WithValidRequest_ShouldReturnCreated()
+    void createOrder_IsGoneInFavourOfCheckout()
             throws Exception {
-
-        CreateOrderRequest request =
-                createRequest(2);
-
-        OrderResponse response =
-                createResponse(
-                        ORDER_ID,
-                        OrderStatus.PENDING,
-                        2
-                );
-
-        when(
-                orderService.createOrder(
-                        any(CreateOrderRequest.class)
-                )
-        ).thenReturn(response);
 
         mockMvc.perform(
                         post("/api/orders")
-                                .contentType(
-                                        MediaType.APPLICATION_JSON
-                                )
-                                .content(
-                                        objectMapper.writeValueAsString(
-                                                request
-                                        )
-                                )
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(createRequest(2)))
                 )
-                .andExpect(status().isCreated())
-                .andExpect(
-                        content().contentTypeCompatibleWith(
-                                MediaType.APPLICATION_JSON
-                        )
-                )
-                .andExpect(
-                        jsonPath("$.id")
-                                .value(ORDER_ID)
-                )
-                .andExpect(
-                        jsonPath("$.userId")
-                                .value(USER_ID)
-                )
-                .andExpect(
-                        jsonPath("$.addressId")
-                                .value(ADDRESS_ID)
-                )
-                .andExpect(
-                        jsonPath("$.totalAmount")
-                                .value(49.98)
-                )
-                .andExpect(
-                        jsonPath("$.status")
-                                .value("PENDING")
-                )
-                .andExpect(
-                        jsonPath("$.paymentMethod")
-                                .value("CASH_ON_DELIVERY")
-                )
-                .andExpect(
-                        jsonPath("$.paymentStatus")
-                                .value("PENDING")
-                )
-                .andExpect(
-                        jsonPath("$.paidAt")
-                                .value(nullValue())
-                )
-                .andExpect(
-                        jsonPath("$.transactionId")
-                                .value(nullValue())
-                )
-                .andExpect(
-                        jsonPath("$.createdAt")
-                                .isNotEmpty()
-                )
-                .andExpect(
-                        jsonPath("$.items")
-                                .isArray()
-                )
-                .andExpect(
-                        jsonPath("$.items.length()")
-                                .value(1)
-                )
-                .andExpect(
-                        jsonPath("$.items[0].productId")
-                                .value(PRODUCT_ID)
-                )
-                .andExpect(
-                        jsonPath("$.items[0].productName")
-                                .value("Test Product")
-                )
-                .andExpect(
-                        jsonPath("$.items[0].productImage")
-                                .value("/api/files/50")
-                )
-                .andExpect(
-                        jsonPath("$.items[0].variantInfo")
-                                .value("Color: Black")
-                )
-                .andExpect(
-                        jsonPath("$.items[0].unitPrice")
-                                .value(24.99)
-                )
-                .andExpect(
-                        jsonPath("$.items[0].quantity")
-                                .value(2)
-                )
-                .andExpect(
-                        jsonPath("$.items[0].subtotal")
-                                .value(49.98)
-                );
+                .andExpect(status().isGone());
 
-        ArgumentCaptor<CreateOrderRequest> requestCaptor =
-                ArgumentCaptor.forClass(
-                        CreateOrderRequest.class
-                );
-
-        verify(orderService).createOrder(
-                requestCaptor.capture()
-        );
-
-        CreateOrderRequest capturedRequest =
-                requestCaptor.getValue();
-
-        assertThat(capturedRequest.getAddressId())
-                .isEqualTo(ADDRESS_ID);
-
-        assertThat(capturedRequest.getItems())
-                .hasSize(1);
-
-        assertThat(
-                capturedRequest
-                        .getItems()
-                        .getFirst()
-                        .getProductId()
-        ).isEqualTo(PRODUCT_ID);
-
-        assertThat(
-                capturedRequest
-                        .getItems()
-                        .getFirst()
-                        .getQuantity()
-        ).isEqualTo(2);
-
-        verifyNoMoreInteractions(orderService);
+        verify(orderService, never()).createOrder(any(CreateOrderRequest.class));
     }
 
     @Test

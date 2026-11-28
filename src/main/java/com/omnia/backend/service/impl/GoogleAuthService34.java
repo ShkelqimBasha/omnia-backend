@@ -22,6 +22,12 @@ public class GoogleAuthService34 {
     private final PasswordEncoder passwords;
     private final JwtService jwt;
     private final RefreshTokenService refresh;
+    private com.omnia.backend.security.twofactor.TwoFactorService twoFactor;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setTwoFactor(com.omnia.backend.security.twofactor.TwoFactorService twoFactor) {
+        this.twoFactor = twoFactor;
+    }
     public GoogleAuthService34(GoogleTokenVerifier34 verifier, UserRepository users,
             RoleRepository roles, PasswordEncoder passwords, JwtService jwt,
             RefreshTokenService refresh) {
@@ -62,6 +68,8 @@ public class GoogleAuthService34 {
         if (user.getStatus() != UserStatus.ACTIVE || !Boolean.TRUE.equals(user.getEmailVerified())
                 || !user.getEmail().equalsIgnoreCase(identity.email()))
             throw new InvalidCredentialsException("Llogaria nuk mund te perdoret per hyrje me Google.");
+        AuthResponse challenge = twoFactor == null ? null : twoFactor.challengeIfEnabled(user);
+        if (challenge != null) return challenge;
         return AuthResponse.builder().accessToken(jwt.generateToken(user.getEmail()))
                 .refreshToken(refresh.createRefreshToken(user)).message("Login successful").build();
     }

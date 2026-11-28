@@ -46,7 +46,7 @@ public class AuthThrottleFilter extends OncePerRequestFilter {
         if (path == null) return null;
         if ("POST".equals(method)) {
             return switch (path) {
-                case "/api/auth/login", "/api/auth/google" -> LOGIN;
+                case "/api/auth/login", "/api/auth/google", "/api/auth/2fa/verify" -> LOGIN;
                 case "/api/auth/register" -> REGISTER;
                 case "/api/auth/forgot-password", "/api/auth/resend-verification",
                      "/api/auth/reset-password" -> PASSWORD;

@@ -67,6 +67,7 @@ public class TwoFactorService {
         this.limiter = limiter;
     }
 
+    @org.springframework.beans.factory.annotation.Autowired
     public TwoFactorService(JdbcTemplate jdbc, UserRepository users, JwtService jwt,
                             RefreshTokenService refresh, CurrentUserService currentUser) {
         this(jdbc, users, jwt, refresh, currentUser, Clock.systemUTC());

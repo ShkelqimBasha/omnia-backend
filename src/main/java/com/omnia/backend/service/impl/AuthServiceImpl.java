@@ -38,6 +38,12 @@ public class AuthServiceImpl implements AuthService {
     private final RefreshTokenService refreshTokenService;
     private final EmailVerificationService emailVerificationService;
     private com.omnia.backend.security.throttle.LoginAttempts loginAttempts;
+    private com.omnia.backend.security.twofactor.TwoFactorService twoFactor;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setTwoFactor(com.omnia.backend.security.twofactor.TwoFactorService twoFactor) {
+        this.twoFactor = twoFactor;
+    }
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setLoginAttempts(com.omnia.backend.security.throttle.LoginAttempts loginAttempts) {
@@ -168,6 +174,12 @@ public class AuthServiceImpl implements AuthService {
             throw new EmailNotVerifiedException(
                     "Please verify your email before logging in"
             );
+        }
+
+        // Two-step verification: no tokens yet, only a challenge for /api/auth/2fa/verify.
+        AuthResponse challenge = twoFactor == null ? null : twoFactor.challengeIfEnabled(user);
+        if (challenge != null) {
+            return challenge;
         }
 
         String accessToken =
